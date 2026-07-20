@@ -1,6 +1,8 @@
+import { resolve } from 'node:path'
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import cookie from '@fastify/cookie'
 import rateLimit from '@fastify/rate-limit'
+import fastifyStatic from '@fastify/static'
 import { ZodError } from 'zod'
 import type { AppConfig } from './config.js'
 import { authRoutes } from './auth/routes.js'
@@ -67,6 +69,15 @@ export async function buildServer(
   await app.register(profileRoutes)
   await app.register(panelRoutes)
   await app.register(backupRoutes)
+
+  await app.register(fastifyStatic, { root: resolve(config.staticDir) })
+
+  app.setNotFoundHandler((req, reply) => {
+    if ((req.raw.url ?? '').startsWith('/api/')) {
+      return reply.status(404).send({ message: 'Не найдено' })
+    }
+    return reply.sendFile('index.html')
+  })
 
   return app
 }
