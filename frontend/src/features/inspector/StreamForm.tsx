@@ -133,11 +133,13 @@ export function StreamForm({ value, onChange }: Props) {
           <div className="row">
             <Button
               disabled={keypair.isPending}
-              onClick={() =>
+              onClick={() => {
+                // Сбрасываем прежний derive — иначе его устаревший pbk перекрыл бы ключ новой пары
+                derive.reset()
                 keypair.mutate(undefined, {
                   onSuccess: (keys) => patchReality((r) => { r.privateKey = keys.privateKey }),
                 })
-              }
+              }}
             >
               Сгенерировать ключи
             </Button>
