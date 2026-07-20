@@ -15,5 +15,6 @@ RUN npm ci --workspace backend --omit=dev
 COPY --from=build /app/backend/dist backend/dist
 COPY backend/public backend/public
 WORKDIR /app/backend
+USER node
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
