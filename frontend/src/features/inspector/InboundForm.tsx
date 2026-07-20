@@ -1,6 +1,5 @@
 import { Button, Checkbox } from '../../shared/ui'
 import { ssPassword } from '../../entities/xray/generate'
-import { ClientsEditor } from './ClientsEditor'
 import { StreamForm } from './StreamForm'
 import { PortField, SelectField, TextField, type Option } from './fields'
 
@@ -88,16 +87,9 @@ export function InboundForm({ value, onChange }: Props) {
       )}
 
       {protocol === 'trojan' && (
-        <>
-          <ClientsEditor
-            protocol={protocol}
-            clients={(settings.clients as Obj[]) ?? []}
-            onChange={(clients) => patchSettings((s) => { s.clients = clients })}
-          />
-          <p className="muted" style={{ margin: 0 }}>
-            Пользователи панели Remnawave добавляются в inbound автоматически — здесь только статические клиенты.
-          </p>
-        </>
+        <p className="muted" style={{ margin: 0 }}>
+          Пользователи добавляются панелью Remnawave автоматически — клиентов настраивать не нужно.
+        </p>
       )}
 
       {protocol === 'shadowsocks' && (

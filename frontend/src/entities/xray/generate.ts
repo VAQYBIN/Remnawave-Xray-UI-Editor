@@ -19,7 +19,3 @@ export function ssPassword(method: string): string {
   if (method === '2022-blake3-aes-256-gcm') return randomBase64(32)
   return randomBase64(16)
 }
-
-export function trojanPassword(): string {
-  return randomBase64(16)
-}

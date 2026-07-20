@@ -75,9 +75,10 @@ describe('InboundForm', () => {
     expect(screen.getByText(/flow применяется ко всем пользователям/)).toBeInTheDocument()
   })
 
-  it('trojan: редактор клиентов остаётся', () => {
+  it('trojan: редактор клиентов не показывается — пользователей добавляет панель', () => {
     wrap(<InboundForm value={{ tag: 't', protocol: 'trojan', settings: { clients: [] } }} onChange={vi.fn()} />)
-    expect(screen.getByText('+ Клиент')).toBeInTheDocument()
+    expect(screen.queryByText('+ Клиент')).not.toBeInTheDocument()
+    expect(screen.getByText(/клиентов настраивать не нужно/)).toBeInTheDocument()
   })
 
   it('sniffing переключается чекбоксом', async () => {
