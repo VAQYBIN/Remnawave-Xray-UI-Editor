@@ -1,10 +1,11 @@
 {
   "name": "xray-ui-editor",
   "private": true,
-  "workspaces": ["backend"],
+  "workspaces": ["backend", "frontend"],
   "scripts": {
-    "test": "npm test --workspace backend",
+    "test": "npm test --workspace backend && npm test --workspace frontend",
     "dev": "npm run dev --workspace backend",
-    "build": "npm run build --workspace backend"
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace backend && npm run build --workspace frontend"
   }
 }
