@@ -19,6 +19,20 @@ describe('apiFetch', () => {
     expect(fn.mock.calls[0]![1]).toMatchObject({ credentials: 'include' })
   })
 
+  it('не шлёт content-type без тела — fastify отвергает пустой JSON (logout)', async () => {
+    const fn = mockFetch(200, { ok: true })
+    await apiFetch('/api/auth/logout', { method: 'POST' })
+    const headers = (fn.mock.calls[0]![1]!.headers ?? {}) as Record<string, string>
+    expect('content-type' in headers).toBe(false)
+  })
+
+  it('шлёт content-type при наличии тела', async () => {
+    const fn = mockFetch(200, { ok: true })
+    await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ password: 'x' }) })
+    const headers = (fn.mock.calls[0]![1]!.headers ?? {}) as Record<string, string>
+    expect(headers['content-type']).toBe('application/json')
+  })
+
   it('401 → AuthError с сообщением сервера', async () => {
     mockFetch(401, { message: 'Требуется вход' })
     const err = (await apiFetch('/api/profiles').catch((e) => e)) as AuthError
