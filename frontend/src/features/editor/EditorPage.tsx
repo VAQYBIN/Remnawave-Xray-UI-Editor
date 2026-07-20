@@ -1,15 +1,26 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import CodeMirror, { EditorView } from '@uiw/react-codemirror'
-import { json } from '@codemirror/lang-json'
-import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
 import { useQueryClient } from '@tanstack/react-query'
-import { ConflictError, useProfile, useSaveProfile, type Profile } from '../../shared/api'
-import { validateXrayConfig } from '../../entities/xray'
+import {
+  ConflictError,
+  useProfile,
+  useProfileInbounds,
+  useSaveProfile,
+  useSquads,
+  type Profile,
+  type ProfileInboundDetail,
+  type SquadInfo,
+} from '../../shared/api'
+import { validateXrayConfig, type XrayConfig } from '../../entities/xray'
+import type { GraphContext } from '../../entities/graph/types'
+import { applyNodeJson, removeNode } from '../../entities/graph/mutations'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Chip, Dialog } from '../../shared/ui'
+import { TopologyView } from '../topology/TopologyView'
+import { NodeInspector } from '../topology/NodeInspector'
 import { useDraftStore, type Draft } from './draftStore'
 import { IssueList } from './IssueList'
+import { JsonView } from './JsonView'
 import { SaveDialog } from './SaveDialog'
 
 export function formatConfig(config: unknown): string {
@@ -20,24 +31,13 @@ export function resolveEditorText(draft: Draft | undefined, panelConfig: unknown
   return draft ? draft.text : formatConfig(panelConfig)
 }
 
-const editorTheme = EditorView.theme({
-  '&': { backgroundColor: 'var(--surface)', fontSize: '13px' },
-  '.cm-content': { fontFamily: 'var(--font-mono)' },
-  '.cm-gutters': { backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)' },
-})
-
-function xrayLinter() {
-  return linter((view) => {
-    const res = validateXrayConfig(view.state.doc.toString())
-    return res.issues.map(
-      (issue): Diagnostic => ({
-        from: 0,
-        to: 0,
-        severity: issue.level === 'error' ? 'error' : 'warning',
-        message: issue.path ? `${issue.path}: ${issue.message}` : issue.message,
-      }),
-    )
-  })
+export function toGraphContext(
+  squads: SquadInfo[] | undefined,
+  inbounds: ProfileInboundDetail[] | undefined,
+): GraphContext {
+  const inboundSquads: Record<string, string[]> = {}
+  for (const inb of inbounds ?? []) inboundSquads[inb.tag] = inb.activeSquads
+  return { squads: squads ?? [], inboundSquads }
 }
 
 function EditorInner({ profile }: { profile: Profile }) {
@@ -52,7 +52,20 @@ function EditorInner({ profile }: { profile: Profile }) {
   const validation = useMemo(() => validateXrayConfig(text), [text])
   const hasErrors = validation.issues.some((i) => i.level === 'error')
 
-  const extensions = useMemo(() => [json(), lintGutter(), xrayLinter(), editorTheme], [])
+  const [tab, setTab] = useState<'topology' | 'json'>('topology')
+  const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const squads = useSquads()
+  const panelInbounds = useProfileInbounds(profile.uuid)
+  const ctx = useMemo(
+    () => toGraphContext(squads.data, panelInbounds.data),
+    [squads.data, panelInbounds.data],
+  )
+  // топология строится только по валидному (по схеме) документу
+  const parsedConfig = validation.ok ? (validation.config as XrayConfig) : undefined
+
+  function changeConfig(next: XrayConfig) {
+    setDraft(profile.uuid, formatConfig(next), draft?.baseUpdatedAt ?? profile.updatedAt)
+  }
 
   const save = useSaveProfile(profile.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
@@ -97,13 +110,46 @@ function EditorInner({ profile }: { profile: Profile }) {
         <span className="muted">обновлён {relativeTime(profile.updatedAt)}</span>
       </div>
 
-      <CodeMirror
-        value={text}
-        height="calc(100vh - 240px)"
-        theme="dark"
-        extensions={extensions}
-        onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)}
-      />
+      <div className="row" style={{ gap: 4, marginBottom: 12 }}>
+        <Button variant={tab === 'topology' ? 'primary' : 'ghost'} onClick={() => setTab('topology')}>Топология</Button>
+        <Button variant={tab === 'json' ? 'primary' : 'ghost'} onClick={() => setTab('json')}>JSON</Button>
+      </div>
+
+      {tab === 'json' && (
+        <JsonView text={text} onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)} />
+      )}
+      {tab === 'topology' && parsedConfig === undefined && (
+        <div className="empty">
+          <h2>Конфиг не проходит валидацию</h2>
+          <p>Исправьте ошибки на вкладке JSON — топология строится по валидному документу.</p>
+        </div>
+      )}
+      {tab === 'topology' && parsedConfig !== undefined && (
+        <div className="row" style={{ alignItems: 'stretch', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <TopologyView
+              profileUuid={profile.uuid}
+              config={parsedConfig}
+              ctx={ctx}
+              selectedId={selectedNode}
+              onSelect={setSelectedNode}
+              onChangeConfig={changeConfig}
+            />
+          </div>
+          {selectedNode && (
+            <NodeInspector
+              config={parsedConfig}
+              nodeId={selectedNode}
+              onApply={(value) => changeConfig(applyNodeJson(parsedConfig, selectedNode, value))}
+              onRemove={() => {
+                changeConfig(removeNode(parsedConfig, selectedNode))
+                setSelectedNode(null)
+              }}
+              onClose={() => setSelectedNode(null)}
+            />
+          )}
+        </div>
+      )}
 
       <IssueList issues={validation.issues} />
 
