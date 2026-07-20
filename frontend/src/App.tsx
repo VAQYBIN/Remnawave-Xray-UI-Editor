@@ -2,14 +2,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { LoginPage } from './features/auth/LoginPage'
 import { RequireAuth } from './features/auth/RequireAuth'
+import { ProfilesPage } from './features/profiles/ProfilesPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 })
-
-function ProfilesPagePlaceholder() {
-  return <main style={{ padding: 24 }}>Профили</main>
-}
 
 function EditorPagePlaceholder() {
   return <main style={{ padding: 24 }}>Редактор</main>
@@ -25,7 +22,7 @@ export function App() {
             path="/"
             element={
               <RequireAuth>
-                <ProfilesPagePlaceholder />
+                <ProfilesPage />
               </RequireAuth>
             }
           />
