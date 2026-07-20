@@ -191,6 +191,7 @@ function EditorInner({ profile }: { profile: Profile }) {
               key={selectedNode}
               config={parsedConfig}
               nodeId={selectedNode}
+              inboundSquads={ctx.inboundSquads}
               onApply={(value) => changeConfig(applyNodeJson(parsedConfig, selectedNode, value))}
               onRemove={() => {
                 changeConfig(removeNode(parsedConfig, selectedNode))
