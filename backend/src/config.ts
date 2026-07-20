@@ -31,6 +31,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Некорректная конфигурация окружения: ${issues}`)
   }
   const e = parsed.data
+  // bcrypt-хэш всегда ровно 60 символов; docker compose интерполирует `$слово`
+  // в .env и молча вырезает куски хэша — ловим это на старте с понятной подсказкой.
+  if (e.APP_PASSWORD.startsWith('$2') && e.APP_PASSWORD.length !== 60) {
+    throw new Error(
+      `Некорректная конфигурация окружения: APP_PASSWORD похож на повреждённый bcrypt-хэш ` +
+        `(${e.APP_PASSWORD.length} символов вместо 60). Docker Compose интерполирует "$" в .env — ` +
+        `возьмите хэш в одинарные кавычки либо замените каждый "$" на "$$".`,
+    )
+  }
   return {
     port: e.PORT,
     remnawaveUrl: e.REMNAWAVE_URL.replace(/\/+$/, ''),

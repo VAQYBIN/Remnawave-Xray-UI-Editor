@@ -4,9 +4,20 @@ import { useCreateProfile } from '../../shared/api'
 import { Button, Dialog, TextInput } from '../../shared/ui'
 
 const NAME_RE = /^[A-Za-z0-9_\s-]{2,30}$/
-const TEMPLATE = {
+// Панель Remnawave отклоняет конфиг без единого inbound (500, errorCode A112),
+// поэтому шаблон нового профиля содержит минимальный VLESS-inbound.
+export const TEMPLATE = {
   log: { loglevel: 'warning' },
-  inbounds: [],
+  inbounds: [
+    {
+      tag: 'vless-in',
+      port: 443,
+      protocol: 'vless',
+      settings: { clients: [], decryption: 'none' },
+      streamSettings: { network: 'tcp', security: 'none' },
+      sniffing: { enabled: true, destOverride: ['http', 'tls', 'quic'] },
+    },
+  ],
   outbounds: [{ tag: 'direct', protocol: 'freedom', settings: {} }],
   routing: { rules: [] },
 }

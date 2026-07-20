@@ -30,6 +30,17 @@ describe('loadConfig', () => {
     expect(() => loadConfig(rest)).toThrow(/Некорректная конфигурация окружения/)
   })
 
+  it('падает с подсказкой при повреждённом bcrypt-хэше (интерполяция $ в docker compose)', () => {
+    // хэш $2b$12$C6UzMDM... после интерполяции compose теряет "$C6UzMDM" -> 52 символа
+    const mangled = '$2b$12.H6dfI/f/IKcEeO7ZBpDvhpVghUlmxvIgGmXcSl7dcqrqq'
+    expect(() => loadConfig({ ...validEnv, APP_PASSWORD: mangled })).toThrow(/одинарные кавычки|\$\$/)
+  })
+
+  it('принимает целый bcrypt-хэш длиной 60', () => {
+    const intact = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO7ZBpDvhpVghUlmxvIgGmXcSl7dcqrqq'
+    expect(loadConfig({ ...validEnv, APP_PASSWORD: intact }).appPassword).toBe(intact)
+  })
+
   it('падает при коротком SESSION_SECRET', () => {
     expect(() => loadConfig({ ...validEnv, SESSION_SECRET: 'short' })).toThrow(
       /Некорректная конфигурация окружения/,

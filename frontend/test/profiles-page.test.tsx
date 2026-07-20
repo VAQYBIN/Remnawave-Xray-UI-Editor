@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProfilesPage } from '../src/features/profiles/ProfilesPage'
+import { TEMPLATE } from '../src/features/profiles/CreateProfileDialog'
 
 const profile = {
   uuid: 'u1',
@@ -45,5 +46,12 @@ describe('ProfilesPage', () => {
   it('пустой список — empty state с призывом создать', async () => {
     renderPage([])
     expect(await screen.findByText('Профилей пока нет')).toBeInTheDocument()
+  })
+})
+
+describe('TEMPLATE нового профиля', () => {
+  it('содержит хотя бы один inbound — панель отклоняет пустой inbounds (A112)', () => {
+    expect(TEMPLATE.inbounds.length).toBeGreaterThan(0)
+    expect(TEMPLATE.inbounds[0]!.protocol).toBe('vless')
   })
 })
