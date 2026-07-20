@@ -46,7 +46,7 @@ export function NodeInspector({ config, nodeId, onApply, onRemove, onClose }: Pr
         <span className="spacer" />
         <Button variant="ghost" onClick={onClose} aria-label="Закрыть">✕</Button>
       </div>
-      <CodeMirror key={`${nodeId}:${original}`} value={text} height="50vh" theme="dark" extensions={extensions} onChange={setText} />
+      <CodeMirror key={`${nodeId}:${original}`} value={text} height="calc(100vh - 340px)" theme="dark" extensions={extensions} onChange={setText} />
       {parseError && <span className="field-error">{parseError}</span>}
       <div className="row">
         <Button variant="danger" onClick={() => setConfirmOpen(true)}>Удалить узел</Button>

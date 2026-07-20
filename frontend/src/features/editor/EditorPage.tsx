@@ -109,8 +109,11 @@ function EditorInner({ profile }: { profile: Profile }) {
     )
   }
 
+  const errorCount = validation.issues.filter((i) => i.level === 'error').length
+  const warningCount = validation.issues.length - errorCount
+
   return (
-    <main style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
+    <main style={{ padding: '16px 24px' }}>
       <div className="row" style={{ marginBottom: 12 }}>
         <Button variant="ghost" onClick={() => navigate('/')}>
           ← Профили
@@ -139,7 +142,28 @@ function EditorInner({ profile }: { profile: Profile }) {
         >
           JSON
         </Button>
+        <span className="spacer" />
+        {validation.issues.length === 0 ? (
+          <span style={{ color: 'var(--ok)' }}>Конфиг валиден</span>
+        ) : (
+          <span className="muted">
+            {errorCount > 0 && <span className="field-error">ошибок: {errorCount}</span>}
+            {errorCount > 0 && warningCount > 0 && ' · '}
+            {warningCount > 0 && <span style={{ color: 'var(--out)' }}>предупреждений: {warningCount}</span>}
+          </span>
+        )}
+        {save.isError && !(save.error instanceof ConflictError) && (
+          <span className="field-error">{(save.error as Error).message}</span>
+        )}
+        <Button variant="ghost" disabled={!dirty} onClick={() => setResetOpen(true)}>
+          Сбросить к версии панели
+        </Button>
+        <Button variant="primary" disabled={hasErrors || !dirty || save.isPending} onClick={() => setSaveOpen(true)}>
+          Сохранить в панель
+        </Button>
       </div>
+
+      {validation.issues.length > 0 && <IssueList issues={validation.issues} />}
 
       {tab === 'json' && (
         <JsonView text={text} onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)} />
@@ -177,20 +201,6 @@ function EditorInner({ profile }: { profile: Profile }) {
           )}
         </div>
       )}
-
-      <IssueList issues={validation.issues} />
-
-      <div className="row">
-        <Button variant="primary" disabled={hasErrors || !dirty || save.isPending} onClick={() => setSaveOpen(true)}>
-          Сохранить в панель
-        </Button>
-        <Button variant="ghost" disabled={!dirty} onClick={() => setResetOpen(true)}>
-          Сбросить к версии панели
-        </Button>
-        {save.isError && !(save.error instanceof ConflictError) && (
-          <span className="field-error">{(save.error as Error).message}</span>
-        )}
-      </div>
 
       <SaveDialog
         open={saveOpen}

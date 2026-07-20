@@ -27,6 +27,6 @@ function xrayLinter() {
 export function JsonView({ text, onChange }: { text: string; onChange: (v: string) => void }) {
   const extensions = useMemo(() => [json(), lintGutter(), xrayLinter(), editorTheme], [])
   return (
-    <CodeMirror value={text} height="calc(100vh - 280px)" theme="dark" extensions={extensions} onChange={onChange} />
+    <CodeMirror value={text} height="calc(100vh - 200px)" theme="dark" extensions={extensions} onChange={onChange} />
   )
 }

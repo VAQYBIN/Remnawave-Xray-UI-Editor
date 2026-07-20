@@ -102,7 +102,7 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
   )
 
   return (
-    <div style={{ height: 'calc(100vh - 240px)', border: '1px solid var(--border)', borderRadius: 8 }}>
+    <div style={{ height: 'calc(100vh - 190px)', border: '1px solid var(--border)', borderRadius: 8 }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
