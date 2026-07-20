@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, ApiError, AuthError, ConflictError } from '../src/shared/api'
+import { apiFetch, ApiError, AuthError, ConflictError, useProfileInbounds, useSquads } from '../src/shared/api'
 
 function mockFetch(status: number, body: unknown) {
   const fn = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
@@ -59,5 +59,12 @@ describe('apiFetch', () => {
     expect(err2).toBeInstanceOf(ApiError)
     expect(err2.status).toBe(0)
     expect(err2.message).toBe('Сервер недоступен')
+  })
+})
+
+describe('api hooks', () => {
+  it('экспортирует хуки контекста панели', () => {
+    expect(typeof useSquads).toBe('function')
+    expect(typeof useProfileInbounds).toBe('function')
   })
 })

@@ -9,6 +9,10 @@ export interface PanelInbound {
   rawInbound: unknown
 }
 
+export interface PanelInboundDetail extends PanelInbound {
+  activeSquads: string[]
+}
+
 export interface PanelNodeRef {
   uuid: string
   name: string
@@ -34,4 +38,5 @@ export interface RemnawavePort {
   deleteProfile(uuid: string): Promise<void>
   getNodes(): Promise<unknown[]>
   getSquads(): Promise<unknown[]>
+  getProfileInbounds(uuid: string): Promise<PanelInboundDetail[]>
 }

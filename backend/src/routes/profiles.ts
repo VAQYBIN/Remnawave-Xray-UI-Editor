@@ -31,6 +31,11 @@ export const profileRoutes: FastifyPluginAsync = async (app) => {
     return { profile: await app.remnawave.getProfile(uuid) }
   })
 
+  app.get('/api/profiles/:uuid/inbounds', async (req) => {
+    const { uuid } = paramsSchema.parse(req.params)
+    return { inbounds: await app.remnawave.getProfileInbounds(uuid) }
+  })
+
   app.post('/api/profiles', async (req, reply) => {
     const body = createSchema.parse(req.body)
     const profile = await app.remnawave.createProfile(body.name, body.config)
