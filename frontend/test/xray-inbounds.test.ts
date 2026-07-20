@@ -57,4 +57,30 @@ describe('InboundSchema', () => {
     const dokodemo = { tag: 'dok-in', port: 1234, protocol: 'dokodemo-door', settings: { address: '1.1.1.1' } }
     expect(InboundSchema.parse(dokodemo)).toEqual(dokodemo)
   })
+
+  it('отклоняет некорректные settings для известных протоколов (superRefine)', () => {
+    const badVless = InboundSchema.safeParse({
+      tag: 'v-in', port: 1, protocol: 'vless',
+      settings: { decryption: 123 },
+    })
+    expect(badVless.success).toBe(false)
+    if (!badVless.success) {
+      expect(badVless.error.issues.some((i) => i.path.join('.') === 'settings.decryption')).toBe(true)
+    }
+
+    const badTrojan = InboundSchema.safeParse({
+      tag: 't-in', port: 2, protocol: 'trojan',
+      settings: { clients: 'nope' },
+    })
+    expect(badTrojan.success).toBe(false)
+    if (!badTrojan.success) {
+      expect(badTrojan.error.issues.some((i) => i.path[0] === 'settings' && i.path[1] === 'clients')).toBe(true)
+    }
+
+    const badSs = InboundSchema.safeParse({
+      tag: 's-in', port: 3, protocol: 'shadowsocks',
+      settings: { method: 123 },
+    })
+    expect(badSs.success).toBe(false)
+  })
 })
