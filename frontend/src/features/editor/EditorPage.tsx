@@ -13,7 +13,7 @@ import {
 } from '../../shared/api'
 import { validateXrayConfig, type XrayConfig } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
-import { applyNodeJson, removeNode } from '../../entities/graph/mutations'
+import { applyNodeJson, getNodeJson, removeNode } from '../../entities/graph/mutations'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Chip, Dialog } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
@@ -38,6 +38,23 @@ export function toGraphContext(
   const inboundSquads: Record<string, string[]> = {}
   for (const inb of inbounds ?? []) inboundSquads[inb.tag] = inb.activeSquads
   return { squads: squads ?? [], inboundSquads }
+}
+
+export function nextSelection(
+  selected: string | null,
+  prev: XrayConfig,
+  next: XrayConfig,
+): string | null {
+  if (!selected) return null
+  if (getNodeJson(next, selected) === undefined) return null
+  // rule-узлы адресуются позиционно: при изменении числа правил id может
+  // указывать на другое правило — сбрасываем выбор
+  if (selected.startsWith('rule:')) {
+    const prevLen = prev.routing?.rules?.length ?? 0
+    const nextLen = next.routing?.rules?.length ?? 0
+    if (prevLen !== nextLen) return null
+  }
+  return selected
 }
 
 function EditorInner({ profile }: { profile: Profile }) {
@@ -65,6 +82,7 @@ function EditorInner({ profile }: { profile: Profile }) {
 
   function changeConfig(next: XrayConfig) {
     setDraft(profile.uuid, formatConfig(next), draft?.baseUpdatedAt ?? profile.updatedAt)
+    setSelectedNode((cur) => nextSelection(cur, parsedConfig!, next))
   }
 
   const save = useSaveProfile(profile.uuid)
