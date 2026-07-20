@@ -69,6 +69,23 @@ describe('buildGraph', () => {
     expect(inbound.data.squadsCount).toBe(1)
   })
 
+  it('uuid сквада, отсутствующий в ctx.squads, не создаёт ни узла, ни ребра', () => {
+    const { nodes, edges } = buildGraph(config, {
+      squads: [{ uuid: 's1', name: 'Default' }],
+      inboundSquads: { 'vless-in': ['s1', 'ghost'] },
+    })
+    expect(nodes.some((n) => n.id === 'squad:ghost')).toBe(false)
+    expect(edges.some((e) => e.id.includes('ghost'))).toBe(false)
+  })
+
+  it('сквад без inbound не создаёт узел', () => {
+    const { nodes } = buildGraph(config, {
+      squads: [{ uuid: 's-unused', name: 'Unused' }],
+      inboundSquads: {},
+    })
+    expect(nodes.some((n) => n.id === 'squad:s-unused')).toBe(false)
+  })
+
   it('layoutColumns раскладывает по колонкам детерминированно', () => {
     const { nodes } = buildGraph(config)
     const laid = layoutColumns(nodes)

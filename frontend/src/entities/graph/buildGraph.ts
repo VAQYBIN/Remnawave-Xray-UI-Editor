@@ -31,6 +31,7 @@ export function buildGraph(
 
   const inboundSquads = ctx.inboundSquads ?? {}
   const usedSquads = new Set(Object.values(inboundSquads).flat())
+  const knownSquads = new Set((ctx.squads ?? []).map((s) => s.uuid))
   for (const squad of ctx.squads ?? []) {
     if (!usedSquads.has(squad.uuid)) continue
     nodes.push({
@@ -59,7 +60,7 @@ export function buildGraph(
       },
     })
     for (const uuid of squadUuids) {
-      if (usedSquads.has(uuid)) {
+      if (usedSquads.has(uuid) && knownSquads.has(uuid)) {
         edges.push({
           id: `e:squad:${uuid}->in:${inb.tag}`,
           source: `squad:${uuid}`,
