@@ -3,14 +3,11 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { LoginPage } from './features/auth/LoginPage'
 import { RequireAuth } from './features/auth/RequireAuth'
 import { ProfilesPage } from './features/profiles/ProfilesPage'
+import { EditorPage } from './features/editor/EditorPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 })
-
-function EditorPagePlaceholder() {
-  return <main style={{ padding: 24 }}>Редактор</main>
-}
 
 export function App() {
   return (
@@ -30,7 +27,7 @@ export function App() {
             path="/profiles/:uuid"
             element={
               <RequireAuth>
-                <EditorPagePlaceholder />
+                <EditorPage />
               </RequireAuth>
             }
           />
