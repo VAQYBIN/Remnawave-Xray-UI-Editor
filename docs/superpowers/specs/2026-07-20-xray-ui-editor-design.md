@@ -145,6 +145,17 @@ xray-ui-editor/
 - Том `./data` — бэкапы. Healthcheck. Пример reverse-proxy (Caddy) —
   в README, вне скоупа приложения.
 
+## Источники истины по настройкам
+
+- **Документация Xray-core: https://xtls.github.io/ru/** — первичный
+  источник актуальных полей и значений конфигов (inbounds, outbounds,
+  streamSettings, Reality, routing, DNS, policy). Zod-схемы, формы и
+  русские подсказки в UI сверяются с ней, а не пишутся по памяти.
+- OpenAPI Remnawave v2.8.0 (https://cdn.remna.st/docs/openapi.json) —
+  контракт API панели (config-profiles, nodes, internal-squads).
+- При расхождениях: формат конфига — по документации Xray;
+  формат обмена/хранения — по API Remnawave.
+
 ## Вне скоупа первой версии
 
 - Управление нодами, хостами, пользователями и сквадами (остаётся в панели).
