@@ -130,3 +130,18 @@ h2 { font-size: 16px; }
 .spacer { flex: 1; }
 .mono { font-family: var(--font-mono); }
 .muted { color: var(--muted); }
+
+.fnode {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  min-width: 210px;
+  font-size: 12px;
+}
+.fnode-selected { border-color: var(--in); box-shadow: 0 0 0 1px var(--in); }
+.fnode-in { border-left: 3px solid var(--in); }
+.fnode-out { border-right: 3px solid var(--out); }
+.fnode-title { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+.fnode-sub { color: var(--muted); margin-bottom: 6px; }
+.fnode-rows { display: grid; gap: 2px; color: var(--muted); }
