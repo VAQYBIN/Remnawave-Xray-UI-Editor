@@ -1,12 +1,26 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { LoginPage } from './features/auth/LoginPage'
 import { RequireAuth } from './features/auth/RequireAuth'
 import { ProfilesPage } from './features/profiles/ProfilesPage'
 import { EditorPage } from './features/editor/EditorPage'
+import { AuthError } from './shared/api'
+
+function onAuthError(err: unknown) {
+  if (err instanceof AuthError && window.location.pathname !== '/login') {
+    window.location.assign('/login')
+  }
+}
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+  queryCache: new QueryCache({ onError: onAuthError }),
+  mutationCache: new MutationCache({ onError: onAuthError }),
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, err) => !(err instanceof AuthError) && failureCount < 1,
+      refetchOnWindowFocus: false,
+    },
+  },
 })
 
 export function App() {

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useDeleteProfile, useLogout, useProfiles, type Profile } from '../../shared/api'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
+import { useDraftStore } from '../editor/draftStore'
 import { CreateProfileDialog } from './CreateProfileDialog'
 
 const MAX_CHIPS = 4
@@ -109,7 +110,14 @@ export function ProfilesPage() {
             variant="danger"
             disabled={del.isPending}
             onClick={() => {
-              if (toDelete) del.mutate(toDelete.uuid, { onSuccess: () => setToDelete(null) })
+              if (toDelete) {
+                del.mutate(toDelete.uuid, {
+                  onSuccess: () => {
+                    useDraftStore.getState().clearDraft(toDelete.uuid)
+                    setToDelete(null)
+                  },
+                })
+              }
             }}
           >
             Удалить

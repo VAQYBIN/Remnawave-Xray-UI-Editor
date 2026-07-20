@@ -17,6 +17,7 @@ RUN npm run build --workspace frontend
 FROM node:24-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+ENV STATIC_DIR=/app/frontend/dist
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 RUN npm ci --workspace backend --omit=dev

@@ -19,12 +19,16 @@ interface Props {
   issues: ValidationIssue[]
   busy: boolean
   onConfirm: () => void
+  error?: string
 }
 
-export function SaveDialog({ open, onClose, original, modified, issues, busy, onConfirm }: Props) {
+export function SaveDialog({ open, onClose, original, modified, issues, busy, onConfirm, error }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const warnings = issues.filter((i) => i.level === 'warning')
 
+  // Пока open=true, нативный <dialog> модален и блокирует ввод в редактор,
+  // поэтому modified не может измениться при открытом диалоге — пересоздание
+  // MergeView происходит только при открытии/закрытии.
   useEffect(() => {
     if (!open || !ref.current) return
     const view = new MergeView({
@@ -47,6 +51,7 @@ export function SaveDialog({ open, onClose, original, modified, issues, busy, on
           <p className="muted">Панель — финальный арбитр: можно сохранить с предупреждениями.</p>
         </>
       )}
+      {error && <p className="field-error">{error}</p>}
       <div className="row" style={{ marginTop: 12 }}>
         <span className="spacer" />
         <Button variant="ghost" onClick={onClose}>

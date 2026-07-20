@@ -127,6 +127,7 @@ function EditorInner({ profile }: { profile: Profile }) {
         issues={validation.issues}
         busy={save.isPending}
         onConfirm={() => doSave(draft?.baseUpdatedAt ?? profile.updatedAt)}
+        error={save.isError && !(save.error instanceof ConflictError) ? (save.error as Error).message : undefined}
       />
 
       <Dialog open={resetOpen} title="Сбросить черновик" onClose={() => setResetOpen(false)}>
@@ -161,6 +162,7 @@ function EditorInner({ profile }: { profile: Profile }) {
               if (!conflict) return
               clearDraft(profile.uuid)
               qc.setQueryData(['profiles', profile.uuid], conflict)
+              qc.invalidateQueries({ queryKey: ['profiles'], exact: true })
               setConflict(null)
             }}
           >

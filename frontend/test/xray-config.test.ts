@@ -76,6 +76,21 @@ describe('validateXrayConfig', () => {
     expect(w.some((i) => i.message.includes('missing-out'))).toBe(true)
   })
 
+  it('дубликат outbound-тега и висячий inboundTag — предупреждения', () => {
+    const cfg = {
+      inbounds: [{ tag: 'a', port: 1, protocol: 'vless' }],
+      outbounds: [
+        { tag: 'direct', protocol: 'freedom' },
+        { tag: 'direct', protocol: 'blackhole' },
+      ],
+      routing: { rules: [{ type: 'field', inboundTag: ['missing-in'], outboundTag: 'direct' }] },
+    }
+    const res = validateXrayConfig(JSON.stringify(cfg))
+    const w = res.issues.filter((i) => i.level === 'warning')
+    expect(w.some((i) => i.message.includes('Дубликат тега outbound «direct»'))).toBe(true)
+    expect(w.some((i) => i.message.includes('missing-in'))).toBe(true)
+  })
+
   it('повторяющийся порт inbound — предупреждение', () => {
     const cfg = {
       inbounds: [
