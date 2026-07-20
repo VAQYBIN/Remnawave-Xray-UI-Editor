@@ -63,4 +63,23 @@ describe('graph mutations', () => {
     const afterOut = disconnectEdge(base(), 'e:rule:0->out:direct')
     expect(afterOut.routing!.rules).toHaveLength(0)
   })
+
+  it('addRule добавляет пустое правило type:field', () => {
+    const next = addRule(base())
+    const rules = next.routing!.rules!
+    expect(rules).toHaveLength(2)
+    expect(rules[1]).toEqual({ type: 'field' })
+  })
+
+  it('мутации не изменяют входной конфиг', () => {
+    const cfg = base()
+    const snapshot = structuredClone(cfg)
+    removeNode(cfg, 'in:vless-in')
+    addInbound(cfg)
+    addOutbound(cfg)
+    addRule(cfg)
+    connectRule(cfg, 'vless-in', 'direct')
+    disconnectEdge(cfg, 'e:rule:0->out:direct')
+    expect(cfg).toEqual(snapshot)
+  })
 })
