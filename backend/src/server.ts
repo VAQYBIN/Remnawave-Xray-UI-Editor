@@ -13,6 +13,7 @@ import { profileRoutes } from './routes/profiles.js'
 import { panelRoutes } from './routes/panel.js'
 import { BackupService } from './backups/service.js'
 import { backupRoutes } from './routes/backups.js'
+import { toolsRoutes } from './routes/tools.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -69,6 +70,7 @@ export async function buildServer(
   await app.register(profileRoutes)
   await app.register(panelRoutes)
   await app.register(backupRoutes)
+  await app.register(toolsRoutes)
 
   await app.register(fastifyStatic, { root: resolve(config.staticDir) })
 
