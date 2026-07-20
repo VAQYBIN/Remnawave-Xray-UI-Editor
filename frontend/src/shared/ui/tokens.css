@@ -56,7 +56,7 @@ h2 { font-size: 16px; }
 .btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); background: transparent; }
 .btn-ghost { background: transparent; }
 
-.input {
+.input, .textarea {
   font: inherit;
   width: 100%;
   border: 1px solid var(--border);
@@ -145,3 +145,72 @@ h2 { font-size: 16px; }
 .fnode-title { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
 .fnode-sub { color: var(--muted); margin-bottom: 6px; }
 .fnode-rows { display: grid; gap: 2px; color: var(--muted); }
+
+.select {
+  color-scheme: dark;
+  cursor: pointer;
+}
+.textarea {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+  min-height: 64px;
+}
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+.checkbox input {
+  accent-color: var(--in);
+}
+.field-mono input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.taglist-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.chip-x {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 11px;
+}
+.chip-x:hover {
+  color: var(--danger);
+}
+.client-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg);
+}
+.inspector-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: calc(100vh - 380px);
+  padding-right: 4px;
+}
+.backup-list {
+  max-height: 50vh;
+  overflow-y: auto;
+}
