@@ -20,6 +20,20 @@ const SS_METHODS: Option[] = [
   'chacha20-ietf-poly1305',
 ].map((v) => ({ value: v, label: v }))
 
+// Flow применяется панелью Remnawave ко всем пользователям inbound'а (settings.flow)
+const FLOWS: Option[] = [
+  { value: '', label: 'нет' },
+  { value: 'xtls-rprx-vision', label: 'xtls-rprx-vision' },
+]
+
+// settings протоколо-специфичны: при смене протокола заменяются чистым шаблоном,
+// иначе в JSON остаются висеть поля прежнего протокола (например method от Shadowsocks)
+const SETTINGS_TEMPLATES: Record<string, Obj> = {
+  vless: { clients: [], decryption: 'none' },
+  trojan: { clients: [] },
+  shadowsocks: {},
+}
+
 interface Props {
   value: Obj // inbound целиком
   onChange: (next: Obj) => void
@@ -55,19 +69,25 @@ export function InboundForm({ value, onChange }: Props) {
       <SelectField label="Протокол" value={protocol} options={PROTOCOLS}
         onChange={(v) =>
           patch((n) => {
+            if (n.protocol === v) return
             n.protocol = v
-            if (v === 'vless') {
-              // VLESS требует decryption: 'none'
-              const s = (n.settings as Obj) ?? {}
-              if (s.decryption === undefined) s.decryption = 'none'
-              if (s.clients === undefined) s.clients = []
-              n.settings = s
-            }
+            n.settings = structuredClone(SETTINGS_TEMPLATES[v] ?? {})
           })
         }
       />
 
-      {(protocol === 'vless' || protocol === 'trojan') && (
+      {protocol === 'vless' && (
+        <>
+          <SelectField label="Flow" value={(settings.flow as string) ?? ''} options={FLOWS}
+            onChange={(v) => patchSettings((s) => { if (v === '') delete s.flow; else s.flow = v })} />
+          <p className="muted" style={{ margin: 0 }}>
+            Пользователи добавляются панелью Remnawave автоматически; flow применяется ко всем пользователям
+            этого inbound'а.
+          </p>
+        </>
+      )}
+
+      {protocol === 'trojan' && (
         <>
           <ClientsEditor
             protocol={protocol}

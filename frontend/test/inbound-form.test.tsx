@@ -39,12 +39,45 @@ describe('InboundForm', () => {
     expect(typeof next.settings.password).toBe('string')
   })
 
-  it('переключение на vless дополняет settings decryption/clients', async () => {
+  it('переключение протокола заменяет settings чистым шаблоном нового протокола', async () => {
     const onChange = vi.fn()
-    wrap(<InboundForm value={{ tag: 't', protocol: 'trojan', settings: { clients: [] } }} onChange={onChange} />)
+    wrap(
+      <InboundForm
+        value={{ tag: 't', protocol: 'shadowsocks', settings: { method: 'chacha20-ietf-poly1305', password: 'p' } }}
+        onChange={onChange}
+      />,
+    )
     await userEvent.selectOptions(screen.getByLabelText('Протокол'), 'vless')
     const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
-    expect(next.settings.decryption).toBe('none')
+    // настройки Shadowsocks не должны «висеть» в JSON после смены протокола
+    expect(next.settings).toEqual({ clients: [], decryption: 'none' })
+  })
+
+  it('vless: flow выбирается на уровне settings, «нет» удаляет ключ', async () => {
+    const onChange = vi.fn()
+    const first = wrap(<InboundForm value={VLESS} onChange={onChange} />)
+    await userEvent.selectOptions(screen.getByLabelText('Flow'), 'xtls-rprx-vision')
+    let next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect(next.settings.flow).toBe('xtls-rprx-vision')
+    expect(next.settings.clients).toEqual([{ id: 'u1' }])
+    first.unmount()
+
+    onChange.mockClear()
+    wrap(<InboundForm value={{ ...VLESS, settings: { ...VLESS.settings, flow: 'xtls-rprx-vision' } }} onChange={onChange} />)
+    await userEvent.selectOptions(screen.getByLabelText('Flow'), '')
+    next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect('flow' in next.settings).toBe(false)
+  })
+
+  it('vless: редактор клиентов не показывается — пользователей добавляет панель', () => {
+    wrap(<InboundForm value={VLESS} onChange={vi.fn()} />)
+    expect(screen.queryByText('+ Клиент')).not.toBeInTheDocument()
+    expect(screen.getByText(/flow применяется ко всем пользователям/)).toBeInTheDocument()
+  })
+
+  it('trojan: редактор клиентов остаётся', () => {
+    wrap(<InboundForm value={{ tag: 't', protocol: 'trojan', settings: { clients: [] } }} onChange={vi.fn()} />)
+    expect(screen.getByText('+ Клиент')).toBeInTheDocument()
   })
 
   it('sniffing переключается чекбоксом', async () => {

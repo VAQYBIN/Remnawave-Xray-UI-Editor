@@ -60,4 +60,14 @@ describe('OutboundForm', () => {
     render(<OutboundForm value={{ tag: 's', protocol: 'socks' }} onChange={vi.fn()} />)
     expect(screen.getByText(/редактируются на вкладке JSON/)).toBeInTheDocument()
   })
+
+  it('смена протокола заменяет settings пустым объектом', async () => {
+    const onChange = vi.fn()
+    render(
+      <OutboundForm value={{ tag: 'warp', protocol: 'wireguard', settings: { secretKey: 'sk' } }} onChange={onChange} />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Протокол'), 'blackhole')
+    // настройки wireguard не должны «висеть» в JSON после смены протокола
+    expect(onChange).toHaveBeenLastCalledWith({ tag: 'warp', protocol: 'blackhole', settings: {} })
+  })
 })

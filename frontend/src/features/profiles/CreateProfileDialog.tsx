@@ -32,7 +32,8 @@ export function realityTemplate(privateKey: string, shortId: string) {
         tag: 'vless-reality',
         port: 443,
         protocol: 'vless',
-        settings: { clients: [], decryption: 'none' },
+        // flow на уровне settings — Remnawave применяет его ко всем пользователям inbound'а
+        settings: { clients: [], decryption: 'none', flow: 'xtls-rprx-vision' },
         streamSettings: {
           network: 'tcp',
           security: 'reality',

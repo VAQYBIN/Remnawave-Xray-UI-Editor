@@ -74,7 +74,15 @@ export function OutboundForm({ value, onChange }: Props) {
   return (
     <>
       <TextField label="Тег" mono value={value.tag as string | undefined} onChange={(v) => patch((n) => { if (v === undefined) delete n.tag; else n.tag = v })} />
-      <SelectField label="Протокол" value={protocol} options={PROTOCOLS} onChange={(v) => patch((n) => { n.protocol = v })} />
+      <SelectField label="Протокол" value={protocol} options={PROTOCOLS}
+        onChange={(v) =>
+          patch((n) => {
+            if (n.protocol === v) return
+            n.protocol = v
+            // settings протоколо-специфичны — при смене протокола начинаем с чистого листа
+            n.settings = {}
+          })
+        } />
 
       {protocol === 'freedom' && (
         <SelectField
