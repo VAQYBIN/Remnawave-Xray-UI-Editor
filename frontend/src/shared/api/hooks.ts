@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
-import type { Profile, ProfileInboundDetail, SquadInfo } from './types'
+import type { BackupEntry, Profile, ProfileInboundDetail, SquadInfo } from './types'
 
 export function useMe() {
   return useQuery({
@@ -96,5 +96,33 @@ export function useProfileInbounds(uuid: string) {
         (r) => r.inbounds,
       ),
     staleTime: 60_000,
+  })
+}
+
+export function useRealityKeypair() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ privateKey: string; publicKey: string }>('/api/tools/reality-keypair', {
+        method: 'POST',
+      }),
+  })
+}
+
+export function useRealityPublicKey() {
+  return useMutation({
+    mutationFn: (privateKey: string) =>
+      apiFetch<{ publicKey: string }>('/api/tools/reality-public-key', {
+        method: 'POST',
+        body: JSON.stringify({ privateKey }),
+      }),
+  })
+}
+
+export function useBackups(uuid: string, enabled = true) {
+  return useQuery({
+    queryKey: ['profiles', uuid, 'backups'],
+    queryFn: () =>
+      apiFetch<{ backups: BackupEntry[] }>(`/api/profiles/${uuid}/backups`).then((r) => r.backups),
+    enabled,
   })
 }

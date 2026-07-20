@@ -38,3 +38,14 @@ export interface ProfileInboundDetail {
   port: number | null
   activeSquads: string[]
 }
+
+export interface BackupEntry {
+  file: string
+  savedAt: string
+  profileName: string
+}
+
+export interface BackupFileData {
+  savedAt: string
+  profile: Profile
+}
