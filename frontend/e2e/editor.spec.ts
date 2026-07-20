@@ -44,3 +44,12 @@ test('форма inbound: выбор flow создаёт черновик', asyn
   // exact: true — иначе матчится и текст скрытых диалогов, упоминающих слово «черновик»
   await expect(page.getByText('черновик', { exact: true })).toBeVisible()
 })
+
+test('восстановление бэкапа закрывает инспектор', async ({ page }) => {
+  const inspector = page.locator('aside')
+  await page.locator('.react-flow__node[data-id="in:vless-in"]').click()
+  await expect(inspector.getByText('in:vless-in', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Бэкапы' }).click()
+  await page.getByRole('button', { name: 'В черновик' }).click()
+  await expect(page.locator('aside')).toHaveCount(0)
+})

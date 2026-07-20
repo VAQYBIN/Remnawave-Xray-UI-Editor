@@ -228,6 +228,7 @@ function EditorInner({ profile }: { profile: Profile }) {
             variant="danger"
             onClick={() => {
               clearDraft(profile.uuid)
+              setSelectedNode(null)
               setResetOpen(false)
             }}
           >
@@ -248,6 +249,8 @@ function EditorInner({ profile }: { profile: Profile }) {
             onClick={() => {
               if (!conflict) return
               clearDraft(profile.uuid)
+              // Конфиг подменяется целиком — сбрасываем выбор узла (позиционные rule-id дрейфуют)
+              setSelectedNode(null)
               qc.setQueryData(['profiles', profile.uuid], conflict)
               qc.invalidateQueries({ queryKey: ['profiles'], exact: true })
               setConflict(null)
@@ -270,7 +273,10 @@ function EditorInner({ profile }: { profile: Profile }) {
       <BackupsDialog
         open={backupsOpen}
         profileUuid={profile.uuid}
-        onRestore={(configText) => setDraft(profile.uuid, configText, draft?.baseUpdatedAt ?? profile.updatedAt)}
+        onRestore={(configText) => {
+          setDraft(profile.uuid, configText, draft?.baseUpdatedAt ?? profile.updatedAt)
+          setSelectedNode(null)
+        }}
         onClose={() => setBackupsOpen(false)}
       />
     </main>

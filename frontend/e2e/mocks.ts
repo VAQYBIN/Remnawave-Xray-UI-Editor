@@ -37,7 +37,14 @@ export async function mockApi(page: Page) {
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: { authenticated: true } }))
   await page.route('**/api/squads', (r) => r.fulfill({ json: { squads: [] } }))
   await page.route(`**/api/profiles/${UUID}/inbounds`, (r) => r.fulfill({ json: { inbounds: [] } }))
-  await page.route(`**/api/profiles/${UUID}/backups`, (r) => r.fulfill({ json: { backups: [] } }))
+  await page.route(`**/api/profiles/${UUID}/backups/b1.json`, (r) =>
+    r.fulfill({ json: { savedAt: '2026-07-10T10:00:00.000Z', profile: { ...PROFILE, config: CONFIG } } }),
+  )
+  await page.route(`**/api/profiles/${UUID}/backups`, (r) =>
+    r.fulfill({
+      json: { backups: [{ file: 'b1.json', savedAt: '2026-07-10T10:00:00.000Z', profileName: 'E2E Profile' }] },
+    }),
+  )
   await page.route(`**/api/profiles/${UUID}`, (r) => r.fulfill({ json: { profile: PROFILE } }))
   await page.route('**/api/profiles', (r) => r.fulfill({ json: { profiles: [PROFILE] } }))
 }
