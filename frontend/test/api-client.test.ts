@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiFetch, ApiError, AuthError, ConflictError } from '../src/shared/api'
 
 function mockFetch(status: number, body: unknown) {
-  const fn = vi.fn(async () =>
+  const fn = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }),
   )
   vi.stubGlobal('fetch', fn)
@@ -21,7 +21,7 @@ describe('apiFetch', () => {
 
   it('401 → AuthError с сообщением сервера', async () => {
     mockFetch(401, { message: 'Требуется вход' })
-    const err = await apiFetch('/api/profiles').catch((e) => e)
+    const err = (await apiFetch('/api/profiles').catch((e) => e)) as AuthError
     expect(err).toBeInstanceOf(AuthError)
     expect(err.message).toBe('Требуется вход')
   })
@@ -29,19 +29,19 @@ describe('apiFetch', () => {
   it('409 → ConflictError с current', async () => {
     const current = { uuid: 'u1', name: 'P', updatedAt: 'T' }
     mockFetch(409, { message: 'Профиль был изменён в панели после открытия', current })
-    const err = await apiFetch('/api/profiles/u1', { method: 'PATCH' }).catch((e) => e)
+    const err = (await apiFetch('/api/profiles/u1', { method: 'PATCH' }).catch((e) => e)) as ConflictError
     expect(err).toBeInstanceOf(ConflictError)
     expect(err.current.uuid).toBe('u1')
   })
 
   it('500 → ApiError; сетевые сбои → ApiError со status 0 и русским текстом', async () => {
     mockFetch(500, { message: 'Внутренняя ошибка' })
-    const err = await apiFetch('/api/profiles').catch((e) => e)
+    const err = (await apiFetch('/api/profiles').catch((e) => e)) as ApiError
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(500)
 
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('failed') }))
-    const err2 = await apiFetch('/api/profiles').catch((e) => e)
+    const err2 = (await apiFetch('/api/profiles').catch((e) => e)) as ApiError
     expect(err2).toBeInstanceOf(ApiError)
     expect(err2.status).toBe(0)
     expect(err2.message).toBe('Сервер недоступен')
