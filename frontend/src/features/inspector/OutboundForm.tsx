@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Button } from '../../shared/ui'
 import { NumberField, SelectField, StringListField, TextField, type Option } from './fields'
 
@@ -43,6 +44,9 @@ export function OutboundForm({ value, onChange }: Props) {
   const protocol = (value.protocol as string) ?? 'freedom'
   const settings = (value.settings as Obj) ?? {}
   const peer = ((settings.peers as Obj[]) ?? [])[0] ?? {}
+  // StringListField хранит текст в локальном state и читает value только при монтировании,
+  // поэтому массовая замена settings кнопкой WARP не обновит поле само по себе — нужен remount по key
+  const [warpFillCount, setWarpFillCount] = useState(0)
 
   function patch(mut: (draft: Obj) => void) {
     const next = structuredClone(value)
@@ -87,7 +91,10 @@ export function OutboundForm({ value, onChange }: Props) {
 
       {protocol === 'wireguard' && (
         <>
-          <Button onClick={() => patch((n) => { n.settings = structuredClone(WARP_TEMPLATE) })}>
+          <Button onClick={() => {
+            patch((n) => { n.settings = structuredClone(WARP_TEMPLATE) })
+            setWarpFillCount((c) => c + 1)
+          }}>
             Заполнить шаблон WARP
           </Button>
           <p className="muted" style={{ margin: 0 }}>
@@ -95,13 +102,13 @@ export function OutboundForm({ value, onChange }: Props) {
           </p>
           <TextField label="Приватный ключ (secretKey)" mono value={settings.secretKey as string | undefined}
             onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.secretKey; else s.secretKey = v })} />
-          <StringListField label="Адреса интерфейса" placeholder="172.16.0.2/32" value={settings.address as string[] | undefined}
+          <StringListField key={`address:${warpFillCount}`} label="Адреса интерфейса" placeholder="172.16.0.2/32" value={settings.address as string[] | undefined}
             onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.address; else s.address = v })} />
           <TextField label="Публичный ключ пира" mono value={peer.publicKey as string | undefined}
             onChange={(v) => patchPeer((p) => { if (v === undefined) delete p.publicKey; else p.publicKey = v })} />
           <TextField label="Endpoint пира" mono placeholder="engage.cloudflareclient.com:2408" value={peer.endpoint as string | undefined}
             onChange={(v) => patchPeer((p) => { if (v === undefined) delete p.endpoint; else p.endpoint = v })} />
-          <StringListField label="AllowedIPs пира" placeholder={'0.0.0.0/0\n::/0'} value={peer.allowedIPs as string[] | undefined}
+          <StringListField key={`allowedIPs:${warpFillCount}`} label="AllowedIPs пира" placeholder={'0.0.0.0/0\n::/0'} value={peer.allowedIPs as string[] | undefined}
             onChange={(v) => patchPeer((p) => { if (v === undefined) delete p.allowedIPs; else p.allowedIPs = v })} />
           <NumberField label="MTU" placeholder="1280" value={settings.mtu as number | undefined}
             onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.mtu; else s.mtu = v })} />
