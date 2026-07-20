@@ -1,4 +1,4 @@
-import type { ConfigProfile, RemnawavePort } from './types.js'
+import type { ConfigProfile, PanelInboundDetail, RemnawavePort } from './types.js'
 
 export class RemnawaveError extends Error {
   constructor(
@@ -105,5 +105,13 @@ export class RemnawaveClient implements RemnawavePort {
       '/api/internal-squads',
     )
     return r.response.internalSquads
+  }
+
+  async getProfileInbounds(uuid: string): Promise<PanelInboundDetail[]> {
+    const r = await this.request<{ response: { inbounds: PanelInboundDetail[] } }>(
+      'GET',
+      `/api/config-profiles/${uuid}/inbounds`,
+    )
+    return r.response.inbounds
   }
 }

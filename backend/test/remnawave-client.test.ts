@@ -124,4 +124,17 @@ describe('RemnawaveClient', () => {
     expect(await client.getNodes()).toEqual([{ uuid: 'n1' }])
     expect(await client.getSquads()).toEqual([{ uuid: 's1' }])
   })
+
+  it('getProfileInbounds разворачивает inbounds с activeSquads', async () => {
+    const inbound = { uuid: 'i1', profileUuid: 'p1', tag: 'vless-in', type: 'vless', network: 'tcp', security: 'reality', port: 443, rawInbound: {}, activeSquads: ['s1'] }
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: fakeFetch((url) => {
+        expect(url).toBe('http://panel.test/api/config-profiles/p1/inbounds')
+        return { status: 200, body: { response: { total: 1, inbounds: [inbound] } } }
+      }),
+    })
+    expect(await client.getProfileInbounds('p1')).toEqual([inbound])
+  })
 })

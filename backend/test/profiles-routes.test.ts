@@ -87,4 +87,19 @@ describe('profile routes', () => {
     expect(squads.json().squads).toEqual([{ uuid: 'squad-1', name: 'Default' }])
     await app.close()
   })
+
+  it('GET /api/profiles/:uuid/inbounds отдаёт inbounds со сквадами', async () => {
+    const p = makeProfile()
+    const { app, cookie } = await makeApp(makeStubRemnawave([p]))
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/profiles/${p.uuid}/inbounds`,
+      headers: { cookie },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().inbounds).toEqual([
+      { uuid: 'pi-1', profileUuid: p.uuid, tag: 'vless-in', type: 'vless', network: 'tcp', security: 'none', port: 443, rawInbound: {}, activeSquads: ['squad-1'] },
+    ])
+    await app.close()
+  })
 })
