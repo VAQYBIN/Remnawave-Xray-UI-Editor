@@ -82,5 +82,8 @@ describe('InboundSchema', () => {
       settings: { method: 123 },
     })
     expect(badSs.success).toBe(false)
+    if (!badSs.success) {
+      expect(badSs.error.issues.some((i) => i.path.join('.') === 'settings.method')).toBe(true)
+    }
   })
 })
