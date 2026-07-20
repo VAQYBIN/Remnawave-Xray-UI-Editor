@@ -2,3 +2,5 @@ node_modules/
 dist/
 data/
 .env
+frontend/test-results/
+frontend/playwright-report/

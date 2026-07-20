@@ -94,6 +94,23 @@ describe('buildGraph', () => {
     expect(nodes.some((n) => n.id === 'squad:s1')).toBe(false)
   })
 
+  it('дубликаты тегов не порождают дубликаты id узлов', () => {
+    const config = {
+      inbounds: [
+        { tag: 'dup', protocol: 'vless' },
+        { tag: 'dup', protocol: 'trojan' },
+      ],
+      outbounds: [
+        { tag: 'out-dup', protocol: 'freedom' },
+        { tag: 'out-dup', protocol: 'blackhole' },
+      ],
+    }
+    const { nodes } = buildGraph(config)
+    const ids = nodes.map((n) => n.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids.filter((id) => id === 'in:dup')).toHaveLength(1)
+  })
+
   it('layoutColumns раскладывает по колонкам детерминированно', () => {
     const { nodes } = buildGraph(config)
     const laid = layoutColumns(nodes)

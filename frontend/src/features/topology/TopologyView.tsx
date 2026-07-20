@@ -30,6 +30,12 @@ function ruleIndexOf(edgeId: string): number {
   return m ? Number(m[1]) : -1
 }
 
+// Пересборка графа заменяет объекты рёбер — переносим флаг выделения по id
+export function resyncEdges(prev: Edge[], next: Edge[]): Edge[] {
+  const selected = new Set(prev.filter((e) => e.selected).map((e) => e.id))
+  return next.map((e) => (selected.has(e.id) ? { ...e, selected: true } : e))
+}
+
 export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, onChangeConfig }: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
@@ -50,7 +56,7 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
   const [nodes, setNodes] = useState<Node[]>(computed.nodes)
   useEffect(() => setNodes(computed.nodes), [computed.nodes])
   const [edges, setEdges] = useState<Edge[]>(computed.edges)
-  useEffect(() => setEdges(computed.edges), [computed.edges])
+  useEffect(() => setEdges((prev) => resyncEdges(prev, computed.edges)), [computed.edges])
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {

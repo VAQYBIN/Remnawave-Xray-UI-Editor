@@ -4,6 +4,7 @@ import { useDeleteProfile, useLogout, useProfiles, type Profile } from '../../sh
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { useDraftStore } from '../editor/draftStore'
+import { usePositionsStore } from '../topology/positionsStore'
 import { CreateProfileDialog } from './CreateProfileDialog'
 
 const MAX_CHIPS = 4
@@ -114,6 +115,7 @@ export function ProfilesPage() {
                 del.mutate(toDelete.uuid, {
                   onSuccess: () => {
                     useDraftStore.getState().clearDraft(toDelete.uuid)
+                    usePositionsStore.getState().resetPositions(toDelete.uuid)
                     setToDelete(null)
                   },
                 })
