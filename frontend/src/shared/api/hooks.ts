@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
-import type { Profile } from './types'
+import type { Profile, ProfileInboundDetail, SquadInfo } from './types'
 
 export function useMe() {
   return useQuery({
@@ -77,5 +77,24 @@ export function useSaveProfile(uuid: string) {
       qc.setQueryData(['profiles', uuid], profile)
       qc.invalidateQueries({ queryKey: ['profiles'] })
     },
+  })
+}
+
+export function useSquads() {
+  return useQuery({
+    queryKey: ['squads'],
+    queryFn: () => apiFetch<{ squads: SquadInfo[] }>('/api/squads').then((r) => r.squads),
+    staleTime: 60_000,
+  })
+}
+
+export function useProfileInbounds(uuid: string) {
+  return useQuery({
+    queryKey: ['profiles', uuid, 'inbounds'],
+    queryFn: () =>
+      apiFetch<{ inbounds: ProfileInboundDetail[] }>(`/api/profiles/${uuid}/inbounds`).then(
+        (r) => r.inbounds,
+      ),
+    staleTime: 60_000,
   })
 }

@@ -23,3 +23,18 @@ export interface Profile {
   createdAt: string
   updatedAt: string
 }
+
+export interface SquadInfo {
+  uuid: string
+  name: string
+}
+
+export interface ProfileInboundDetail {
+  uuid: string
+  tag: string
+  type: string
+  network: string | null
+  security: string | null
+  port: number | null
+  activeSquads: string[]
+}

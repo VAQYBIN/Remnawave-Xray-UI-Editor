@@ -56,5 +56,11 @@ export function makeStubRemnawave(
     async getSquads() {
       return [{ uuid: 'squad-1', name: 'Default' }]
     },
+    async getProfileInbounds(uuid) {
+      find(uuid)
+      return [
+        { uuid: 'pi-1', profileUuid: uuid, tag: 'vless-in', type: 'vless', network: 'tcp', security: 'none', port: 443, rawInbound: {}, activeSquads: ['squad-1'] },
+      ]
+    },
   }
 }
