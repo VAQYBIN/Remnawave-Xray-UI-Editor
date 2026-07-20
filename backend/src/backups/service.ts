@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
 import type { ConfigProfile } from '../remnawave/types.js'
 
 export interface BackupEntry {
@@ -26,7 +27,7 @@ export class BackupService {
     const dir = this.dirFor(profile.uuid)
     await mkdir(dir, { recursive: true })
     const savedAt = new Date().toISOString()
-    const file = `${savedAt.replace(/[:.]/g, '-')}.json`
+    const file = `${savedAt.replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}.json`
     const payload: BackupFile = { savedAt, profile }
     await writeFile(join(dir, file), JSON.stringify(payload, null, 2), 'utf8')
     return file

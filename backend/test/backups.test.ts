@@ -41,4 +41,12 @@ describe('BackupService', () => {
       /Некорректное имя файла/,
     )
   })
+
+  it('одновременные бэкапы не перезаписывают друг друга', async () => {
+    const svc = makeService()
+    const profile = makeProfile()
+    const [f1, f2] = await Promise.all([svc.saveBackup(profile), svc.saveBackup(profile)])
+    expect(f1).not.toBe(f2)
+    expect(await svc.list(profile.uuid)).toHaveLength(2)
+  })
 })
