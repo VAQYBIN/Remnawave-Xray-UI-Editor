@@ -11,6 +11,7 @@ function outboundIndex(config: XrayConfig, tag: string): number {
   return (config.outbounds ?? []).findIndex((o) => o.tag === tag)
 }
 
+// Возвращает живую ссылку внутрь config — НЕ мутируйте результат, используйте applyNodeJson
 export function getNodeJson(config: XrayConfig, nodeId: string): unknown | undefined {
   if (nodeId === 'dns') return config.dns
   if (nodeId.startsWith('in:')) {
@@ -103,7 +104,7 @@ export function addOutbound(config: XrayConfig): XrayConfig {
   const next = clone(config)
   next.outbounds = next.outbounds ?? []
   const tag = uniqueTag(new Set(next.outbounds.map((o) => o.tag)), 'direct')
-  // первый direct обычно уже есть — начинаем с direct-2
+  // uniqueTag сам подберёт свободный суффикс
   next.outbounds.push({ tag, protocol: 'freedom', settings: {} })
   return next
 }

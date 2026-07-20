@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  applyNodeChanges, Background, Controls, Panel, ReactFlow,
-  type Edge, type NodeChange, type Connection, type Node,
+  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow,
+  type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { XrayConfig } from '../../entities/xray'
@@ -39,6 +39,7 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
     const g = buildGraph(config, ctx)
     const laid = layoutColumns(g.nodes).map((n) => ({
       ...n,
+      deletable: false,
       position: saved?.[n.id] ?? n.position,
       selected: n.id === selectedId,
     }))
@@ -48,7 +49,8 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
   // controlled-режим: drag применяется к локальному стейту, ресинк при пересборке графа
   const [nodes, setNodes] = useState<Node[]>(computed.nodes)
   useEffect(() => setNodes(computed.nodes), [computed.nodes])
-  const edges = computed.edges
+  const [edges, setEdges] = useState<Edge[]>(computed.edges)
+  useEffect(() => setEdges(computed.edges), [computed.edges])
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -60,6 +62,11 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
       }
     },
     [profileUuid, setPosition],
+  )
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [],
   )
 
   const onConnect = useCallback(
@@ -78,7 +85,15 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
       // за один вызов последовательные splice сдвигают индексы оставшихся правил, поэтому
       // сортируем по индексу правила по убыванию — тогда более поздние правила удаляются
       // первыми и не смещают индексы ещё не обработанных.
-      const sorted = [...deleted].sort((a, b) => ruleIndexOf(b.id) - ruleIndexOf(a.id))
+      // При равном индексе правила сперва обрабатываем e:in:...->rule:i (просто фильтрует
+      // inboundTag, индексы не смещает), и только потом e:rule:i->out:... (делает splice)
+      // — тег должен вычиститься до splice правила.
+      const isRuleOut = (id: string) => (id.startsWith('e:rule:') ? 1 : 0)
+      const sorted = [...deleted].sort((a, b) => {
+        const byIndex = ruleIndexOf(b.id) - ruleIndexOf(a.id)
+        if (byIndex !== 0) return byIndex
+        return isRuleOut(a.id) - isRuleOut(b.id)
+      })
       let next = config
       for (const edge of sorted) next = disconnectEdge(next, edge.id)
       if (next !== config) onChangeConfig(next)
@@ -96,6 +111,7 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
         fitView
         proOptions={{ hideAttribution: true }}
         onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={(_, node: Node) => onSelect(node.id)}
         onPaneClick={() => onSelect(null)}
         onConnect={onConnect}

@@ -130,7 +130,15 @@ function EditorInner({ profile }: { profile: Profile }) {
 
       <div className="row" style={{ gap: 4, marginBottom: 12 }}>
         <Button variant={tab === 'topology' ? 'primary' : 'ghost'} onClick={() => setTab('topology')}>Топология</Button>
-        <Button variant={tab === 'json' ? 'primary' : 'ghost'} onClick={() => setTab('json')}>JSON</Button>
+        <Button
+          variant={tab === 'json' ? 'primary' : 'ghost'}
+          onClick={() => {
+            setTab('json')
+            setSelectedNode(null)
+          }}
+        >
+          JSON
+        </Button>
       </div>
 
       {tab === 'json' && (
@@ -156,6 +164,7 @@ function EditorInner({ profile }: { profile: Profile }) {
           </div>
           {selectedNode && (
             <NodeInspector
+              key={selectedNode}
               config={parsedConfig}
               nodeId={selectedNode}
               onApply={(value) => changeConfig(applyNodeJson(parsedConfig, selectedNode, value))}

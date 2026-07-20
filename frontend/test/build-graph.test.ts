@@ -86,6 +86,14 @@ describe('buildGraph', () => {
     expect(nodes.some((n) => n.id === 'squad:s-unused')).toBe(false)
   })
 
+  it('сквад, привязанный только к отсутствующему в конфиге тегу, не создаёт узел', () => {
+    const { nodes } = buildGraph(config, {
+      squads: [{ uuid: 's1', name: 'Default' }],
+      inboundSquads: { 'renamed-tag': ['s1'] },
+    })
+    expect(nodes.some((n) => n.id === 'squad:s1')).toBe(false)
+  })
+
   it('layoutColumns раскладывает по колонкам детерминированно', () => {
     const { nodes } = buildGraph(config)
     const laid = layoutColumns(nodes)

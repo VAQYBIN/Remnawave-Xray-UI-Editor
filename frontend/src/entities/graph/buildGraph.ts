@@ -30,7 +30,14 @@ export function buildGraph(
   const outboundTags = new Set(outbounds.map((o) => o.tag))
 
   const inboundSquads = ctx.inboundSquads ?? {}
-  const usedSquads = new Set(Object.values(inboundSquads).flat())
+  // Учитываем сквады только тех тегов, что реально есть среди inbound'ов текущего
+  // конфига — иначе сквад, привязанный к переименованному/удалённому в черновике
+  // тегу, всё ещё попадёт в граф как изолированный узел без рёбер.
+  const usedSquads = new Set(
+    Object.entries(inboundSquads)
+      .filter(([tag]) => inboundTags.has(tag))
+      .flatMap(([, uuids]) => uuids),
+  )
   const knownSquads = new Set((ctx.squads ?? []).map((s) => s.uuid))
   for (const squad of ctx.squads ?? []) {
     if (!usedSquads.has(squad.uuid)) continue
