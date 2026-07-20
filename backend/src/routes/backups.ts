@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 
 const listParams = z.object({ uuid: z.string().uuid() })
-const readParams = z.object({ uuid: z.string().uuid(), file: z.string().min(1) })
+const readParams = z.object({ uuid: z.string().uuid(), file: z.string().regex(/^[A-Za-z0-9_-]+\.json$/, 'Некорректное имя файла бэкапа') })
 
 export const backupRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/profiles/:uuid/backups', async (req) => {

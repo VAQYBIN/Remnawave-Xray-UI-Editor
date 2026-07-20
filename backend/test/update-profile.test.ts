@@ -62,6 +62,19 @@ describe('PATCH /api/profiles/:uuid', () => {
     expect(res.statusCode).toBe(400)
     await app.close()
   })
+
+  it('невалидное имя при PATCH — 400 с русским сообщением', async () => {
+    const { app, cookie, profile } = await makeApp()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/profiles/${profile.uuid}`,
+      headers: { cookie },
+      payload: { name: 'Кириллица!', expectedUpdatedAt: profile.updatedAt },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.stringify(res.json().issues)).toContain('латиница')
+    await app.close()
+  })
 })
 
 describe('backup routes', () => {
@@ -89,6 +102,17 @@ describe('backup routes', () => {
     })
     expect(readRes.statusCode).toBe(200)
     expect(readRes.json().profile.name).toBe('Germany')
+    await app.close()
+  })
+
+  it('небезопасное имя файла бэкапа — 400', async () => {
+    const { app, cookie, profile } = await makeApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/profiles/${profile.uuid}/backups/evil.txt`,
+      headers: { cookie },
+    })
+    expect(res.statusCode).toBe(400)
     await app.close()
   })
 })

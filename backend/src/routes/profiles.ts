@@ -17,7 +17,7 @@ const updateSchema = z.object({
     .string()
     .min(2)
     .max(30)
-    .regex(/^[A-Za-z0-9_\s-]+$/)
+    .regex(/^[A-Za-z0-9_\s-]+$/, 'Имя: латиница, цифры, пробел, - и _')
     .optional(),
   config: z.record(z.unknown()).optional(),
   expectedUpdatedAt: z.string().min(1),
