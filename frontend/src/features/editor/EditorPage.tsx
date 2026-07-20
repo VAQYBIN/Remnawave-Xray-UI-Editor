@@ -19,6 +19,7 @@ import { Button, Chip, Dialog } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
 import { NodeInspector } from '../topology/NodeInspector'
 import { useDraftStore, type Draft } from './draftStore'
+import { BackupsDialog } from './BackupsDialog'
 import { IssueList } from './IssueList'
 import { JsonView } from './JsonView'
 import { SaveDialog } from './SaveDialog'
@@ -88,6 +89,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   const save = useSaveProfile(profile.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
+  const [backupsOpen, setBackupsOpen] = useState(false)
   const [conflict, setConflict] = useState<Profile | null>(null)
 
   function doSave(expectedUpdatedAt: string) {
@@ -155,6 +157,7 @@ function EditorInner({ profile }: { profile: Profile }) {
         {save.isError && !(save.error instanceof ConflictError) && (
           <span className="field-error">{(save.error as Error).message}</span>
         )}
+        <Button variant="ghost" onClick={() => setBackupsOpen(true)}>Бэкапы</Button>
         <Button variant="ghost" disabled={!dirty} onClick={() => setResetOpen(true)}>
           Сбросить к версии панели
         </Button>
@@ -263,6 +266,13 @@ function EditorInner({ profile }: { profile: Profile }) {
           </Button>
         </div>
       </Dialog>
+
+      <BackupsDialog
+        open={backupsOpen}
+        profileUuid={profile.uuid}
+        onRestore={(configText) => setDraft(profile.uuid, configText, draft?.baseUpdatedAt ?? profile.updatedAt)}
+        onClose={() => setBackupsOpen(false)}
+      />
     </main>
   )
 }
