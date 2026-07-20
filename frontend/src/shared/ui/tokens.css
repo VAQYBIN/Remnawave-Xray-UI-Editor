@@ -106,6 +106,7 @@ h2 { font-size: 16px; }
   max-width: min(720px, 92vw);
 }
 .dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+.dialog-wide { width: min(1280px, 95vw); max-width: 95vw; }
 .dialog-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 16px; border-bottom: 1px solid var(--border);

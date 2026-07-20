@@ -40,11 +40,11 @@ export function SaveDialog({ open, onClose, original, modified, issues, busy, on
   }, [open, original, modified])
 
   return (
-    <Dialog open={open} title="Сохранить в панель" onClose={onClose}>
+    <Dialog open={open} title="Сохранить в панель" onClose={onClose} wide>
       <p className="muted" style={{ marginTop: 0 }}>
         Слева — версия панели, справа — ваш черновик.
       </p>
-      <div ref={ref} style={{ maxHeight: '50vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 6 }} />
+      <div ref={ref} style={{ maxHeight: '65vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: 6 }} />
       {warnings.length > 0 && (
         <>
           <IssueList issues={warnings} />

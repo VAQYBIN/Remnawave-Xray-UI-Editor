@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { Button, Chip, EmptyState } from '../src/shared/ui'
+import { Button, Chip, Dialog, EmptyState } from '../src/shared/ui'
 
 describe('UI-кит', () => {
   it('Chip с направлением in получает класс chip-in и точку направления', () => {
@@ -24,5 +24,14 @@ describe('UI-кит', () => {
     render(<EmptyState title="Профилей пока нет" hint="Создайте первый" />)
     expect(screen.getByText('Профилей пока нет')).toBeInTheDocument()
     expect(screen.getByText('Создайте первый')).toBeInTheDocument()
+  })
+
+  it('Dialog с wide получает класс dialog-wide', () => {
+    render(
+      <Dialog open={false} title="Тест" onClose={() => {}} wide>
+        <p>содержимое</p>
+      </Dialog>,
+    )
+    expect(document.querySelector('dialog')).toHaveClass('dialog', 'dialog-wide')
   })
 })

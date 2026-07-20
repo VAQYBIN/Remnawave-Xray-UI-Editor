@@ -6,9 +6,11 @@ interface Props {
   title: string
   onClose: () => void
   children: ReactNode
+  /** Широкий вариант — для diff-сравнений и другого объёмного контента */
+  wide?: boolean
 }
 
-export function Dialog({ open, title, onClose, children }: Props) {
+export function Dialog({ open, title, onClose, children, wide }: Props) {
   const ref = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -19,7 +21,12 @@ export function Dialog({ open, title, onClose, children }: Props) {
   }, [open])
 
   return (
-    <dialog ref={ref} className="dialog" onClose={onClose} aria-label={title}>
+    <dialog
+      ref={ref}
+      className={wide ? 'dialog dialog-wide' : 'dialog'}
+      onClose={onClose}
+      aria-label={title}
+    >
       <div className="dialog-header">
         <h2>{title}</h2>
         <Button variant="ghost" onClick={onClose} aria-label="Закрыть">
