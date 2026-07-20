@@ -52,6 +52,8 @@ function EditorInner({ profile }: { profile: Profile }) {
   const validation = useMemo(() => validateXrayConfig(text), [text])
   const hasErrors = validation.issues.some((i) => i.level === 'error')
 
+  const extensions = useMemo(() => [json(), lintGutter(), xrayLinter(), editorTheme], [])
+
   const save = useSaveProfile(profile.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
@@ -99,7 +101,7 @@ function EditorInner({ profile }: { profile: Profile }) {
         value={text}
         height="calc(100vh - 240px)"
         theme="dark"
-        extensions={[json(), lintGutter(), xrayLinter(), editorTheme]}
+        extensions={extensions}
         onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)}
       />
 
@@ -166,7 +168,7 @@ function EditorInner({ profile }: { profile: Profile }) {
           </Button>
           <Button
             variant="danger"
-            disabled={save.isPending}
+            disabled={save.isPending || hasErrors}
             onClick={() => {
               if (conflict) doSave(conflict.updatedAt)
             }}
