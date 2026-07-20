@@ -12,6 +12,17 @@ const createSchema = z.object({
   config: z.record(z.unknown()),
 })
 
+const updateSchema = z.object({
+  name: z
+    .string()
+    .min(2)
+    .max(30)
+    .regex(/^[A-Za-z0-9_\s-]+$/)
+    .optional(),
+  config: z.record(z.unknown()).optional(),
+  expectedUpdatedAt: z.string().min(1),
+})
+
 export const profileRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/profiles', async () => ({ profiles: await app.remnawave.listProfiles() }))
 
@@ -31,5 +42,24 @@ export const profileRoutes: FastifyPluginAsync = async (app) => {
     const { uuid } = paramsSchema.parse(req.params)
     await app.remnawave.deleteProfile(uuid)
     return { ok: true }
+  })
+
+  app.patch('/api/profiles/:uuid', async (req, reply) => {
+    const { uuid } = paramsSchema.parse(req.params)
+    const body = updateSchema.parse(req.body)
+    const current = await app.remnawave.getProfile(uuid)
+    if (current.updatedAt !== body.expectedUpdatedAt) {
+      return reply.status(409).send({
+        message: 'Профиль был изменён в панели после открытия',
+        current,
+      })
+    }
+    await app.backups.saveBackup(current)
+    const profile = await app.remnawave.updateProfile({
+      uuid,
+      name: body.name,
+      config: body.config,
+    })
+    return { profile }
   })
 }

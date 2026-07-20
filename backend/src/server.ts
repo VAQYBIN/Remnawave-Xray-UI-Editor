@@ -9,15 +9,19 @@ import { RemnawaveClient, RemnawaveError } from './remnawave/client.js'
 import type { RemnawavePort } from './remnawave/types.js'
 import { profileRoutes } from './routes/profiles.js'
 import { panelRoutes } from './routes/panel.js'
+import { BackupService } from './backups/service.js'
+import { backupRoutes } from './routes/backups.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
     remnawave: RemnawavePort
+    backups: BackupService
   }
 }
 
 export interface ServerDeps {
   remnawave?: RemnawavePort
+  backups?: BackupService
 }
 
 export async function buildServer(
@@ -40,6 +44,7 @@ export async function buildServer(
     deps.remnawave ??
       new RemnawaveClient({ baseUrl: config.remnawaveUrl, token: config.remnawaveToken }),
   )
+  app.decorate('backups', deps.backups ?? new BackupService(config.dataDir))
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err instanceof RemnawaveError) {
@@ -61,6 +66,7 @@ export async function buildServer(
   await app.register(authRoutes, { config })
   await app.register(profileRoutes)
   await app.register(panelRoutes)
+  await app.register(backupRoutes)
 
   return app
 }
