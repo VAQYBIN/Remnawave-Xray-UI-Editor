@@ -28,7 +28,11 @@ docker compose up -d --build
 npm install
 npm test          # тесты бэкенда
 npm run dev       # dev-сервер (нужен .env или переменные окружения)
+npm run dev:frontend   # dev-сервер фронтенда (http://localhost:5173, проксирует /api на :3000)
 ```
+
+Для локальной разработки запустите бэкенд (`npm run dev`, нужен `.env`) и фронтенд
+(`npm run dev:frontend`) в двух терминалах.
 
 ## Безопасность
 

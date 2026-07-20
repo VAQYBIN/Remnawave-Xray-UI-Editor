@@ -8,7 +8,7 @@ services:
     environment:
       PORT: 3000
       DATA_DIR: /data
-      STATIC_DIR: /app/backend/public
+      STATIC_DIR: /app/frontend/dist
     volumes:
       - ./data:/data
     healthcheck:
