@@ -49,7 +49,12 @@ export function buildGraph(
     })
   }
 
+  // Дубликаты тегов уже подсвечены analyzeIntegrity как warning; здесь пропускаем
+  // повторы, иначе одинаковые id узлов ломают React Flow
+  const seenInboundTags = new Set<string>()
   inbounds.forEach((inb, index) => {
+    if (seenInboundTags.has(inb.tag)) return
+    seenInboundTags.add(inb.tag)
     const squadUuids = inboundSquads[inb.tag] ?? []
     nodes.push({
       id: `in:${inb.tag}`,
@@ -77,7 +82,10 @@ export function buildGraph(
     }
   })
 
+  const seenOutboundTags = new Set<string>()
   outbounds.forEach((out, index) => {
+    if (seenOutboundTags.has(out.tag)) return
+    seenOutboundTags.add(out.tag)
     nodes.push({
       id: `out:${out.tag}`,
       type: 'outbound',

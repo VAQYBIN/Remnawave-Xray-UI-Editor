@@ -1,9 +1,11 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProfilesPage } from '../src/features/profiles/ProfilesPage'
 import { TEMPLATE } from '../src/features/profiles/CreateProfileDialog'
+import { usePositionsStore } from '../src/features/topology/positionsStore'
 
 const profile = {
   uuid: 'u1',
@@ -46,6 +48,20 @@ describe('ProfilesPage', () => {
   it('пустой список — empty state с призывом создать', async () => {
     renderPage([])
     expect(await screen.findByText('Профилей пока нет')).toBeInTheDocument()
+  })
+
+  it('удаление профиля очищает сохранённые позиции узлов', async () => {
+    const user = userEvent.setup()
+    renderPage([profile])
+    expect(await screen.findByText('Germany')).toBeInTheDocument()
+
+    usePositionsStore.getState().setPosition(profile.uuid, 'in:x', { x: 1, y: 2 })
+
+    await user.click(screen.getByRole('button', { name: 'Удалить' }))
+    const dialog = screen.getByRole('dialog', { name: 'Удалить профиль' })
+    await user.click(within(dialog).getByRole('button', { name: 'Удалить' }))
+
+    await waitFor(() => expect(usePositionsStore.getState().positions[profile.uuid]).toBeUndefined())
   })
 })
 
