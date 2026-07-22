@@ -22,6 +22,8 @@ interface Props {
   onApply: (value: unknown) => void
   onRemove: () => void
   onClose: () => void
+  /** Перестановка правила (только для rule-узлов); dir: -1 — выше, +1 — ниже */
+  onMoveRule?: (dir: -1 | 1) => void
 }
 
 function parseNode(text: string): Obj | null {
@@ -33,7 +35,7 @@ function parseNode(text: string): Obj | null {
   }
 }
 
-export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove, onClose }: Props) {
+export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove, onClose, onMoveRule }: Props) {
   const original = useMemo(() => JSON.stringify(getNodeJson(config, nodeId) ?? {}, null, 2), [config, nodeId])
   const [text, setText] = useState(original)
   const [parseError, setParseError] = useState<string | null>(null)
@@ -51,6 +53,8 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
   const [tab, setTab] = useState<'form' | 'json'>(kind === 'other' ? 'json' : 'form')
   const parsedNode = useMemo(() => parseNode(text), [text])
   const oldTag = kind === 'inbound' ? nodeId.slice(3) : ''
+  const ruleIndex = kind === 'rule' ? Number(nodeId.slice(5)) : -1
+  const ruleCount = config.routing?.rules?.length ?? 0
 
   function apply() {
     let parsed: unknown
@@ -92,6 +96,31 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
         <div className="row" style={{ gap: 4 }}>
           <Button variant={tab === 'form' ? 'primary' : 'ghost'} onClick={() => setTab('form')}>Форма</Button>
           <Button variant={tab === 'json' ? 'primary' : 'ghost'} onClick={() => setTab('json')}>JSON узла</Button>
+        </div>
+      )}
+
+      {kind === 'rule' && onMoveRule && (
+        <div className="row">
+          <span className="muted">порядок: {ruleIndex + 1} из {ruleCount}</span>
+          <span className="spacer" />
+          {/* Перестановка меняет selectedNode → инспектор remount'ится; при
+              неприменённых правках они потерялись бы молча — блокируем кнопки */}
+          <Button
+            variant="ghost"
+            disabled={ruleIndex <= 0 || text !== original}
+            aria-label="Переместить правило выше"
+            onClick={() => onMoveRule(-1)}
+          >
+            ↑
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={ruleIndex >= ruleCount - 1 || text !== original}
+            aria-label="Переместить правило ниже"
+            onClick={() => onMoveRule(1)}
+          >
+            ↓
+          </Button>
         </div>
       )}
 

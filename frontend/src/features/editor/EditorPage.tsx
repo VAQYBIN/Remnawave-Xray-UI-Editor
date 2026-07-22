@@ -13,7 +13,7 @@ import {
 } from '../../shared/api'
 import { validateXrayConfig, type XrayConfig } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
-import { applyNodeJson, getNodeJson, removeNode } from '../../entities/graph/mutations'
+import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Chip, Dialog } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
@@ -56,6 +56,20 @@ export function nextSelection(
     if (prevLen !== nextLen) return null
   }
   return selected
+}
+
+// Перестановка выбранного правила: конфиг меняется, а позиционный id выбора
+// должен «переехать» вместе с правилом — иначе rule:N укажет на соседа
+export function moveSelectedRule(
+  config: XrayConfig,
+  selected: string | null,
+  dir: -1 | 1,
+): { config: XrayConfig; selected: string } | null {
+  if (!selected || !selected.startsWith('rule:')) return null
+  const from = Number(selected.slice(5))
+  const next = moveRule(config, from, dir)
+  if (next === config) return null
+  return { config: next, selected: `rule:${from + dir}` }
 }
 
 function EditorInner({ profile }: { profile: Profile }) {
@@ -196,6 +210,14 @@ function EditorInner({ profile }: { profile: Profile }) {
               nodeId={selectedNode}
               inboundSquads={ctx.inboundSquads}
               onApply={(value) => changeConfig(applyNodeJson(parsedConfig, selectedNode, value))}
+              onMoveRule={(dir) => {
+                const moved = moveSelectedRule(parsedConfig, selectedNode, dir)
+                if (!moved) return
+                changeConfig(moved.config)
+                // Перекрывает nextSelection из changeConfig: число правил не изменилось,
+                // но правило переехало — выбор следует за ним
+                setSelectedNode(moved.selected)
+              }}
               onRemove={() => {
                 changeConfig(removeNode(parsedConfig, selectedNode))
                 setSelectedNode(null)

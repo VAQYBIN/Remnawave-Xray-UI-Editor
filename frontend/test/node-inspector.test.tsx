@@ -164,4 +164,71 @@ describe('NodeInspector — rule-узлы', () => {
     await userEvent.click(screen.getByText('JSON узла'))
     expect(document.querySelector('.cm-content')).toBeInTheDocument()
   })
+
+  const twoRulesConfig = {
+    ...ruleConfig,
+    routing: {
+      rules: [
+        { type: 'field', inboundTag: ['vless-in'], outboundTag: 'direct' },
+        { type: 'field', outboundTag: 'warp' },
+      ],
+    },
+  }
+
+  it('кнопки порядка: у первого правила «выше» недоступна, «ниже» вызывает onMoveRule(1)', async () => {
+    const onMoveRule = vi.fn()
+    wrap(
+      <NodeInspector
+        config={twoRulesConfig}
+        nodeId="rule:0"
+        onMoveRule={onMoveRule}
+        onApply={() => {}}
+        onRemove={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByText('порядок: 1 из 2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Переместить правило выше' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Переместить правило ниже' }))
+    expect(onMoveRule).toHaveBeenCalledWith(1)
+  })
+
+  it('у последнего правила «ниже» недоступна, «выше» вызывает onMoveRule(-1)', async () => {
+    const onMoveRule = vi.fn()
+    wrap(
+      <NodeInspector
+        config={twoRulesConfig}
+        nodeId="rule:1"
+        onMoveRule={onMoveRule}
+        onApply={() => {}}
+        onRemove={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Переместить правило ниже' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Переместить правило выше' }))
+    expect(onMoveRule).toHaveBeenCalledWith(-1)
+  })
+
+  it('кнопки порядка блокируются при неприменённых правках', async () => {
+    wrap(
+      <NodeInspector
+        config={twoRulesConfig}
+        nodeId="rule:0"
+        onMoveRule={vi.fn()}
+        onApply={() => {}}
+        onRemove={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), 'warp')
+    expect(screen.getByRole('button', { name: 'Переместить правило ниже' })).toBeDisabled()
+  })
+
+  it('без onMoveRule кнопок порядка нет', () => {
+    wrap(
+      <NodeInspector config={twoRulesConfig} nodeId="rule:0" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    expect(screen.queryByRole('button', { name: 'Переместить правило выше' })).not.toBeInTheDocument()
+  })
 })

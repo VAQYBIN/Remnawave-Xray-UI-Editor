@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatConfig, nextSelection, resolveEditorText, toGraphContext } from '../src/features/editor/EditorPage'
+import { formatConfig, moveSelectedRule, nextSelection, resolveEditorText, toGraphContext } from '../src/features/editor/EditorPage'
 
 describe('editor logic', () => {
   it('formatConfig — JSON с отступом 2', () => {
@@ -46,5 +46,25 @@ describe('nextSelection', () => {
   })
   it('null остаётся null', () => {
     expect(nextSelection(null, prev, prev)).toBeNull()
+  })
+})
+
+describe('moveSelectedRule', () => {
+  const cfg = {
+    routing: { rules: [{ type: 'field' }, { type: 'field', outboundTag: 'x' }] },
+  }
+
+  it('переставляет правило и переносит выбор на новую позицию', () => {
+    const moved = moveSelectedRule(cfg, 'rule:0', 1)!
+    expect(moved.selected).toBe('rule:1')
+    expect(moved.config.routing!.rules![1]).toEqual({ type: 'field' })
+    expect(moved.config.routing!.rules![0]).toEqual({ type: 'field', outboundTag: 'x' })
+  })
+
+  it('null на границе, для не-rule узлов и без выбора', () => {
+    expect(moveSelectedRule(cfg, 'rule:0', -1)).toBeNull()
+    expect(moveSelectedRule(cfg, 'rule:1', 1)).toBeNull()
+    expect(moveSelectedRule(cfg, 'in:a', 1)).toBeNull()
+    expect(moveSelectedRule(cfg, null, 1)).toBeNull()
   })
 })
