@@ -279,3 +279,29 @@ describe('OutboundForm — freedom fragment, blackhole response, wireguard по�
     expect(next.settings.domainStrategy).toBe('ForceIPv4')
   })
 })
+
+describe('OutboundForm — mux и sendThrough', () => {
+  it('vless: mux включается, выключение удаляет пустой mux', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulOutboundForm initial={{ tag: 'chain', protocol: 'vless', settings: {} }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(outbound\)/ }))
+    await userEvent.click(screen.getByLabelText('Mux включён'))
+    expect((onChange.mock.lastCall![0] as Record<string, unknown>).mux).toEqual({ enabled: true })
+    await userEvent.type(screen.getByLabelText('Concurrency'), '8')
+    expect((onChange.mock.lastCall![0] as Record<string, unknown>).mux).toEqual({ enabled: true, concurrency: 8 })
+    await userEvent.click(screen.getByLabelText('Mux включён'))
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.mux).toEqual({ concurrency: 8 })
+  })
+
+  it('sendThrough пишется и удаляется; у freedom mux-полей нет', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulOutboundForm initial={{ tag: 'direct', protocol: 'freedom', settings: {} }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(outbound\)/ }))
+    expect(screen.queryByLabelText('Mux включён')).not.toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Исходящий адрес (sendThrough)'), '10.0.0.5')
+    expect((onChange.mock.lastCall![0] as Record<string, unknown>).sendThrough).toBe('10.0.0.5')
+    await userEvent.clear(screen.getByLabelText('Исходящий адрес (sendThrough)'))
+    expect('sendThrough' in (onChange.mock.lastCall![0] as Record<string, unknown>)).toBe(false)
+  })
+})

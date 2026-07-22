@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, CollapsibleSection } from '../../shared/ui'
-import { NumberField, SelectField, StringListField, TextField, type Option } from './fields'
+import { CheckboxField, NumberField, SelectField, StringListField, TextField, type Option } from './fields'
 import { StreamForm } from './StreamForm'
 import { ListEditor } from './collections'
 
@@ -41,6 +41,16 @@ const BLACKHOLE_RESPONSES: Option[] = [
   { value: 'http', label: 'http — пустой HTTP-ответ (мягкий отказ)' },
 ]
 
+const XUDP_MODES: Option[] = [
+  { value: '', label: 'reject (по умолчанию)' },
+  { value: 'reject', label: 'reject — отклонять UDP/443' },
+  { value: 'allow', label: 'allow — пропускать через mux' },
+  { value: 'skip', label: 'skip — мимо mux' },
+]
+
+// Протоколы, для которых mux имеет смысл (мультиплексируемый прокси-транспорт)
+const MUX_PROTOCOLS = ['vless', 'socks', 'http']
+
 // Публичный ключ WARP-пира Cloudflare и endpoint одинаковы для всех аккаунтов;
 // secretKey и address выдаются при регистрации устройства (wgcf / приложение WARP)
 export const WARP_TEMPLATE: Obj = {
@@ -80,6 +90,7 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
   const servers = settings.servers as Obj[] | undefined
   const peers = settings.peers as Obj[] | undefined
   const fragment = (settings.fragment as Obj) ?? {}
+  const mux = (value.mux as Obj) ?? {}
   // StringListField хранит текст в локальном state и читает value только при монтировании,
   // поэтому массовая замена settings кнопкой WARP не обновит поле само по себе — нужен remount по key
   const [warpFillCount, setWarpFillCount] = useState(0)
@@ -105,6 +116,16 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
       mut(f)
       if (Object.keys(f).length === 0) delete s.fragment
       else s.fragment = f
+    })
+  }
+
+  // Правка top-level секции outbound (mux); опустевшая секция удаляется целиком
+  function patchTop(key: string, mut: (s: Obj) => void) {
+    patch((next) => {
+      const s = (next[key] as Obj) ?? {}
+      mut(s)
+      if (Object.keys(s).length === 0) delete next[key]
+      else next[key] = s
     })
   }
 
@@ -319,6 +340,37 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
           outboundTags={(outboundTags ?? []).filter((t) => t !== (value.tag as string | undefined))}
         />
       )}
+
+      <CollapsibleSection title="Продвинутые (outbound)">
+        <TextField
+          label="Исходящий адрес (sendThrough)"
+          mono
+          placeholder="0.0.0.0"
+          hint="IP интерфейса для исходящих соединений (мульти-IP серверы)"
+          value={value.sendThrough as string | undefined}
+          onChange={(v) => patch((n) => { if (v === undefined) delete n.sendThrough; else n.sendThrough = v })}
+        />
+        {MUX_PROTOCOLS.includes(protocol) && (
+          <>
+            <CheckboxField
+              label="Mux включён"
+              hint="Мультиплексирование потоков; несовместим с flow xtls-rprx-vision"
+              value={mux.enabled as boolean | undefined}
+              onChange={(v) => patchTop('mux', (m) => { if (v === undefined) delete m.enabled; else m.enabled = v })}
+            />
+            <NumberField label="Concurrency" placeholder="8" value={mux.concurrency as number | undefined}
+              onChange={(v) => patchTop('mux', (m) => { if (v === undefined) delete m.concurrency; else m.concurrency = v })} />
+            <NumberField label="xudpConcurrency" placeholder="16" value={mux.xudpConcurrency as number | undefined}
+              onChange={(v) =>
+                patchTop('mux', (m) => { if (v === undefined) delete m.xudpConcurrency; else m.xudpConcurrency = v })
+              } />
+            <SelectField label="UDP/443 (xudpProxyUDP443)" value={(mux.xudpProxyUDP443 as string) ?? ''} options={XUDP_MODES}
+              onChange={(v) =>
+                patchTop('mux', (m) => { if (v === '') delete m.xudpProxyUDP443; else m.xudpProxyUDP443 = v })
+              } />
+          </>
+        )}
+      </CollapsibleSection>
     </>
   )
 }
