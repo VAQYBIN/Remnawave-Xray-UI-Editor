@@ -4,6 +4,7 @@ export const UUID = '11111111-1111-4111-8111-111111111111'
 
 export const CONFIG = {
   log: { loglevel: 'warning' },
+  dns: { servers: ['1.1.1.1'] },
   inbounds: [
     {
       tag: 'vless-in',
