@@ -123,6 +123,7 @@ h2 { font-size: 16px; }
 .empty h2 { color: var(--text); margin-bottom: 6px; }
 
 .field { display: grid; gap: 6px; margin-bottom: 14px; }
+.field-control { display: grid; gap: 6px; }
 .field-label { font-size: 12px; color: var(--muted); }
 .field-error { font-size: 12px; color: var(--danger); }
 .row { display: flex; gap: 8px; align-items: center; }

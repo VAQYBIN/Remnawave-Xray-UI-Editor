@@ -17,12 +17,16 @@ export function Field({
   mono?: boolean
   children: ReactNode
 }) {
+  // hint вынесен за <label>: внутри label его текст приклеился бы к accessible-имени
+  // контрола (getByLabelText/скринридер видели бы «лейбл + подсказка»)
   return (
-    <label className={mono ? 'field field-mono' : 'field'}>
-      <span className="field-label">{label}</span>
-      {children}
+    <div className={mono ? 'field field-mono' : 'field'}>
+      <label className="field-control">
+        <span className="field-label">{label}</span>
+        {children}
+      </label>
       {hint ? <span className="field-hint">{hint}</span> : null}
-    </label>
+    </div>
   )
 }
 
