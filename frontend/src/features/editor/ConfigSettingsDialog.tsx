@@ -1,6 +1,6 @@
 import type { XrayConfig } from '../../entities/xray'
 import { Button, Dialog } from '../../shared/ui'
-import { SelectField, type Option } from '../inspector/fields'
+import { CheckboxField, SelectField, TextField, type Option } from '../inspector/fields'
 
 type Obj = Record<string, unknown>
 
@@ -19,6 +19,15 @@ const DOMAIN_MATCHERS: Option[] = [
   { value: 'linear', label: 'linear — линейный перебор (для отладки)' },
 ]
 
+const LOG_LEVELS: Option[] = [
+  { value: '', label: 'не задан (warning)' },
+  { value: 'debug', label: 'debug — максимально подробно' },
+  { value: 'info', label: 'info' },
+  { value: 'warning', label: 'warning (по умолчанию)' },
+  { value: 'error', label: 'error' },
+  { value: 'none', label: 'none — ничего не логировать' },
+]
+
 interface Props {
   open: boolean
   config: XrayConfig
@@ -31,6 +40,7 @@ interface Props {
 // параллельных правок конфига при открытом диалоге не бывает.
 export function ConfigSettingsDialog({ open, config, onChange, onClose }: Props) {
   const routing = (config.routing as Obj | undefined) ?? {}
+  const log = (config.log as Obj | undefined) ?? {}
 
   // Ставшая пустой секция удаляется целиком — не оставляем в JSON висящие "{}"
   function patchSection(key: 'routing' | 'log', mut: (s: Obj) => void) {
@@ -65,6 +75,34 @@ export function ConfigSettingsDialog({ open, config, onChange, onClose }: Props)
         onChange={(v) =>
           patchSection('routing', (r) => { if (v === '') delete r.domainMatcher; else r.domainMatcher = v })
         }
+      />
+      <h3 style={{ marginTop: 16 }}>Лог</h3>
+      <SelectField
+        label="Уровень лога (loglevel)"
+        value={(log.loglevel as string) ?? ''}
+        options={LOG_LEVELS}
+        onChange={(v) => patchSection('log', (l) => { if (v === '') delete l.loglevel; else l.loglevel = v })}
+      />
+      <TextField
+        label="Файл access-лога"
+        mono
+        hint="Путь к файлу; none — отключить; пусто — stdout"
+        placeholder="/var/log/xray/access.log"
+        value={log.access as string | undefined}
+        onChange={(v) => patchSection('log', (l) => { if (v === undefined) delete l.access; else l.access = v })}
+      />
+      <TextField
+        label="Файл error-лога"
+        mono
+        hint="Путь к файлу; none — отключить; пусто — stderr"
+        placeholder="/var/log/xray/error.log"
+        value={log.error as string | undefined}
+        onChange={(v) => patchSection('log', (l) => { if (v === undefined) delete l.error; else l.error = v })}
+      />
+      <CheckboxField
+        label="Логировать DNS-запросы (dnsLog)"
+        value={log.dnsLog as boolean | undefined}
+        onChange={(v) => patchSection('log', (l) => { if (v === undefined) delete l.dnsLog; else l.dnsLog = v })}
       />
       <div className="row" style={{ marginTop: 12 }}>
         <span className="spacer" />

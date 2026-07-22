@@ -37,3 +37,47 @@ describe('ConfigSettingsDialog — маршрутизация', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 })
+
+describe('ConfigSettingsDialog — лог', () => {
+  it('выбор loglevel создаёт log', async () => {
+    const onChange = vi.fn()
+    render(<ConfigSettingsDialog open config={{}} onChange={onChange} onClose={() => {}} />)
+    await userEvent.selectOptions(screen.getByLabelText('Уровень лога (loglevel)'), 'debug')
+    expect(onChange).toHaveBeenLastCalledWith({ log: { loglevel: 'debug' } })
+  })
+
+  it('правка access не трогает остальные поля log', async () => {
+    const onChange = vi.fn()
+    render(
+      <ConfigSettingsDialog
+        open
+        config={{ log: { loglevel: 'warning', access: '/var/log/a.log' } }}
+        onChange={onChange}
+        onClose={() => {}}
+      />,
+    )
+    await userEvent.type(screen.getByLabelText('Файл access-лога'), '2')
+    expect(onChange).toHaveBeenLastCalledWith({ log: { loglevel: 'warning', access: '/var/log/a.log2' } })
+  })
+
+  it('dnsLog: включение даёт true, выключение удаляет ключ и пустой log', async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <ConfigSettingsDialog open config={{}} onChange={onChange} onClose={() => {}} />,
+    )
+    await userEvent.click(screen.getByLabelText('Логировать DNS-запросы (dnsLog)'))
+    expect(onChange).toHaveBeenLastCalledWith({ log: { dnsLog: true } })
+    rerender(<ConfigSettingsDialog open config={{ log: { dnsLog: true } }} onChange={onChange} onClose={() => {}} />)
+    await userEvent.click(screen.getByLabelText('Логировать DNS-запросы (dnsLog)'))
+    expect(onChange).toHaveBeenLastCalledWith({})
+  })
+
+  it('сброс loglevel в «не задан» при других полях log сохраняет их', async () => {
+    const onChange = vi.fn()
+    render(
+      <ConfigSettingsDialog open config={{ log: { loglevel: 'error', dnsLog: true } }} onChange={onChange} onClose={() => {}} />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Уровень лога (loglevel)'), '')
+    expect(onChange).toHaveBeenLastCalledWith({ log: { dnsLog: true } })
+  })
+})
