@@ -98,13 +98,20 @@ export function CreateProfileDialog({ open, onClose }: { open: boolean; onClose:
         {invalid && <span className="field-error">Имя: 2–30 символов, латиница, цифры, пробел, - и _</span>}
         {create.isError && <span className="field-error">{(create.error as Error).message}</span>}
       </div>
-      <label className="field">
-        <span className="field-label">Шаблон</span>
-        <Select value={preset} onChange={(e) => setPreset(e.target.value as Preset)}>
-          <option value="minimal">Минимальный VLESS (TCP)</option>
-          <option value="reality">VLESS Reality Vision</option>
-        </Select>
-      </label>
+      <div className="field">
+        <label className="field-label" htmlFor="profile-preset">
+          Шаблон
+        </label>
+        <Select
+          id="profile-preset"
+          value={preset}
+          onChange={(v) => setPreset(v as Preset)}
+          options={[
+            { value: 'minimal', label: 'Минимальный VLESS (TCP)' },
+            { value: 'reality', label: 'VLESS Reality Vision' },
+          ]}
+        />
+      </div>
       {preset === 'reality' && (
         <p className="muted">Reality-ключи и короткий ID будут сгенерированы автоматически при создании.</p>
       )}

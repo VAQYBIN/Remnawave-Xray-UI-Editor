@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { selectOption } from './helpers'
 import { describe, expect, it, vi } from 'vitest'
 import { ConfigSettingsDialog } from '../src/features/editor/ConfigSettingsDialog'
 
@@ -7,7 +8,7 @@ describe('ConfigSettingsDialog — маршрутизация', () => {
   it('выбор domainStrategy создаёт routing, остальной конфиг не задет', async () => {
     const onChange = vi.fn()
     render(<ConfigSettingsDialog open config={{ inbounds: [] }} onChange={onChange} onClose={() => {}} />)
-    await userEvent.selectOptions(screen.getByLabelText('Стратегия доменов (domainStrategy)'), 'IPIfNonMatch')
+    await selectOption('Стратегия доменов (domainStrategy)', 'IPIfNonMatch')
     expect(onChange).toHaveBeenLastCalledWith({ inbounds: [], routing: { domainStrategy: 'IPIfNonMatch' } })
   })
 
@@ -16,7 +17,7 @@ describe('ConfigSettingsDialog — маршрутизация', () => {
     render(
       <ConfigSettingsDialog open config={{ routing: { domainStrategy: 'AsIs' } }} onChange={onChange} onClose={() => {}} />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Стратегия доменов (domainStrategy)'), '')
+    await selectOption('Стратегия доменов (domainStrategy)', '')
     expect(onChange).toHaveBeenLastCalledWith({})
   })
 
@@ -24,7 +25,7 @@ describe('ConfigSettingsDialog — маршрутизация', () => {
     const onChange = vi.fn()
     const config = { routing: { rules: [{ type: 'field' }], custom: 1 } }
     render(<ConfigSettingsDialog open config={config} onChange={onChange} onClose={() => {}} />)
-    await userEvent.selectOptions(screen.getByLabelText('Матчер доменов (domainMatcher)'), 'linear')
+    await selectOption('Матчер доменов (domainMatcher)', 'linear')
     expect(onChange).toHaveBeenLastCalledWith({
       routing: { rules: [{ type: 'field' }], custom: 1, domainMatcher: 'linear' },
     })
@@ -42,7 +43,7 @@ describe('ConfigSettingsDialog — лог', () => {
   it('выбор loglevel создаёт log', async () => {
     const onChange = vi.fn()
     render(<ConfigSettingsDialog open config={{}} onChange={onChange} onClose={() => {}} />)
-    await userEvent.selectOptions(screen.getByLabelText('Уровень лога (loglevel)'), 'debug')
+    await selectOption('Уровень лога (loglevel)', 'debug')
     expect(onChange).toHaveBeenLastCalledWith({ log: { loglevel: 'debug' } })
   })
 
@@ -77,7 +78,7 @@ describe('ConfigSettingsDialog — лог', () => {
     render(
       <ConfigSettingsDialog open config={{ log: { loglevel: 'error', dnsLog: true } }} onChange={onChange} onClose={() => {}} />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Уровень лога (loglevel)'), '')
+    await selectOption('Уровень лога (loglevel)', '')
     expect(onChange).toHaveBeenLastCalledWith({ log: { dnsLog: true } })
   })
 })

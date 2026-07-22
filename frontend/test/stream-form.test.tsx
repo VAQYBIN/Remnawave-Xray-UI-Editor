@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { optionLabels, selectOption, selectedValue } from './helpers'
 import { useState } from 'react'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { StreamForm } from '../src/features/inspector/StreamForm'
@@ -38,7 +39,7 @@ describe('StreamForm', () => {
   it('смена security на reality создаёт realitySettings, посторонние поля сохраняются', async () => {
     const onChange = vi.fn()
     wrap(<StreamForm value={{ network: 'tcp', security: 'none', sockopt: { mark: 1 } }} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Шифрование'), 'reality')
+    await selectOption('Шифрование', 'reality')
     expect(onChange).toHaveBeenLastCalledWith({
       network: 'tcp',
       security: 'reality',
@@ -148,7 +149,7 @@ describe('StreamForm — транспорты полностью', () => {
     const onChange = vi.fn()
     wrap(<StatefulStreamForm initial={{ network: 'xhttp', security: 'none' }} onChange={onChange} />)
     await userEvent.type(screen.getByLabelText('Путь XHTTP'), '/api/data')
-    await userEvent.selectOptions(screen.getByLabelText('Режим (mode)'), 'packet-up')
+    await selectOption('Режим (mode)', 'packet-up')
     const next = onChange.mock.lastCall![0] as { xhttpSettings: Record<string, unknown> }
     expect(next.xhttpSettings.path).toBe('/api/data')
     expect(next.xhttpSettings.mode).toBe('packet-up')
@@ -201,7 +202,7 @@ describe('StreamForm — TLS целиком', () => {
     const onChange = vi.fn()
     wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'tls', tlsSettings: {} }} onChange={onChange} />)
     await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(TLS\)/ }))
-    await userEvent.selectOptions(screen.getByLabelText('Мин. версия TLS'), '1.3')
+    await selectOption('Мин. версия TLS', '1.3')
     const next = onChange.mock.lastCall![0] as { tlsSettings: Record<string, unknown> }
     expect(next.tlsSettings).toEqual({ minVersion: '1.3' })
   })
@@ -240,7 +241,7 @@ describe('StreamForm — TLS целиком', () => {
         mode="outbound"
       />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Отпечаток (fingerprint)'), 'chrome')
+    await selectOption('Отпечаток (fingerprint)', 'chrome')
     const next = onChange.mock.lastCall![0] as { tlsSettings: Record<string, unknown> }
     expect(next.tlsSettings).toEqual({ fingerprint: 'chrome' })
     expect(screen.queryByText('+ Сертификат')).not.toBeInTheDocument()
@@ -291,7 +292,7 @@ describe('StreamForm — Reality целиком', () => {
     await userEvent.type(screen.getByLabelText('Публичный ключ сервера (password)'), 'PBK')
     await userEvent.type(screen.getByLabelText('Короткий ID (shortId)'), 'aa11')
     await userEvent.type(screen.getByLabelText('spiderX'), '/')
-    await userEvent.selectOptions(screen.getByLabelText('Отпечаток (fingerprint)'), 'randomized')
+    await selectOption('Отпечаток (fingerprint)', 'randomized')
     const next = onChange.mock.lastCall![0] as { realitySettings: Record<string, unknown> }
     expect(next.realitySettings).toEqual({
       serverName: 'a.com',
@@ -321,7 +322,7 @@ describe('StreamForm — транспорт hysteria', () => {
   it('выбор hysteria создаёт hysteriaSettings с version: 2', async () => {
     const onChange = vi.fn()
     wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'tls', tlsSettings: {} }} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Транспорт'), 'hysteria')
+    await selectOption('Транспорт', 'hysteria')
     const next = onChange.mock.lastCall![0] as Record<string, unknown>
     expect(next.network).toBe('hysteria')
     expect(next.hysteriaSettings).toEqual({ version: 2 })
@@ -349,7 +350,7 @@ describe('StreamForm — транспорт hysteria', () => {
         onChange={onChange}
       />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Маскировка (masquerade)'), 'file')
+    await selectOption('Маскировка (masquerade)', 'file')
     await userEvent.type(screen.getByLabelText('Каталог сайта (masquerade.dir)'), '/var/www')
     const next = onChange.mock.lastCall![0] as { hysteriaSettings: Record<string, unknown> }
     expect(next.hysteriaSettings.masquerade).toEqual({ type: 'file', dir: '/var/www' })
@@ -363,7 +364,7 @@ describe('StreamForm — транспорт hysteria', () => {
         onChange={onChange}
       />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Congestion control'), 'brutal')
+    await selectOption('Congestion control', 'brutal')
     await userEvent.type(screen.getByLabelText('brutalUp (Мбит/с)'), '100')
     const next = onChange.mock.lastCall![0] as { finalmask: { quicParams: Record<string, unknown> } }
     expect(next.finalmask.quicParams).toEqual({ congestion: 'brutal', brutalUp: 100 })
@@ -382,57 +383,61 @@ describe('StreamForm — транспорт hysteria', () => {
         onChange={onChange}
       />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Congestion control'), '')
+    await selectOption('Congestion control', '')
     const next = onChange.mock.lastCall![0] as Record<string, unknown>
     expect(next.finalmask).toBeUndefined()
   })
 })
 
 describe('StreamForm — матрица совместимости', () => {
-  it('reality: транспорт-селект не предлагает ws/httpupgrade/hysteria', () => {
+  it('reality: транспорт-селект не предлагает ws/httpupgrade/hysteria', async () => {
     wrap(<StreamForm value={{ network: 'tcp', security: 'reality', realitySettings: {} }} onChange={vi.fn()} />)
-    expect(screen.queryByRole('option', { name: 'WebSocket' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'HTTPUpgrade' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'Hysteria 2 (QUIC)' })).not.toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'gRPC' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'XHTTP' })).toBeInTheDocument()
+    const options = await optionLabels('Транспорт')
+    expect(options).not.toContain('WebSocket')
+    expect(options).not.toContain('HTTPUpgrade')
+    expect(options).not.toContain('Hysteria 2 (QUIC)')
+    expect(options).toContain('gRPC')
+    expect(options).toContain('XHTTP')
   })
 
-  it('ws: шифрование-селект не предлагает Reality', () => {
+  it('ws: шифрование-селект не предлагает Reality', async () => {
     wrap(<StreamForm value={{ network: 'ws', security: 'none' }} onChange={vi.fn()} />)
-    expect(screen.queryByRole('option', { name: 'Reality' })).not.toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'TLS' })).toBeInTheDocument()
+    const options = await optionLabels('Шифрование')
+    expect(options).not.toContain('Reality')
+    expect(options).toContain('TLS')
   })
 
-  it('существующая пара reality+ws не переписывается: опция с пометкой + предупреждение', () => {
+  it('существующая пара reality+ws не переписывается: опция с пометкой + предупреждение', async () => {
     const onChange = vi.fn()
     wrap(<StreamForm value={{ network: 'ws', security: 'reality', realitySettings: {} }} onChange={onChange} />)
-    expect(screen.getByLabelText('Транспорт')).toHaveValue('ws')
-    expect(screen.getByRole('option', { name: 'ws (несовместимо)' })).toBeInTheDocument()
+    expect(selectedValue('Транспорт')).toBe('ws')
+    expect(await optionLabels('Транспорт')).toContain('ws (несовместимо)')
     expect(screen.getByText(/Reality несовместим с транспортом «ws»/)).toBeInTheDocument()
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('network raw — легитимный алиас tcp: опция «(= tcp)», предупреждения нет', () => {
+  it('network raw — легитимный алиас tcp: опция «(= tcp)», предупреждения нет', async () => {
     wrap(<StreamForm value={{ network: 'raw', security: 'reality', realitySettings: {} }} onChange={vi.fn()} />)
-    expect(screen.getByLabelText('Транспорт')).toHaveValue('raw')
-    expect(screen.getByRole('option', { name: 'raw (= tcp)' })).toBeInTheDocument()
+    expect(selectedValue('Транспорт')).toBe('raw')
+    expect(await optionLabels('Транспорт')).toContain('raw (= tcp)')
     expect(screen.queryByText(/несовместим/)).not.toBeInTheDocument()
   })
 
-  it('flow vision + ws: предупреждение и транспорт-селект только с TCP', () => {
+  it('flow vision + ws: предупреждение и транспорт-селект только с TCP', async () => {
     wrap(<StreamForm value={{ network: 'ws', security: 'none' }} onChange={vi.fn()} flow="xtls-rprx-vision" />)
     expect(screen.getByText(/работает только поверх raw/)).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'gRPC' })).not.toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'TCP (raw)' })).toBeInTheDocument()
+    const options = await optionLabels('Транспорт')
+    expect(options).not.toContain('gRPC')
+    expect(options).toContain('TCP (raw)')
   })
 
-  it('hysteria + none: предупреждение, шифрование-селект предлагает только TLS', () => {
+  it('hysteria + none: предупреждение, шифрование-селект предлагает только TLS', async () => {
     wrap(<StreamForm value={{ network: 'hysteria', security: 'none' }} onChange={vi.fn()} />)
     expect(screen.getByText(/hysteria требует security «tls»/)).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'TLS' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'Reality' })).not.toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'none (несовместимо)' })).toBeInTheDocument()
+    const options = await optionLabels('Шифрование')
+    expect(options).toContain('TLS')
+    expect(options).not.toContain('Reality')
+    expect(options).toContain('none (несовместимо)')
   })
 
   it('hysteria + tls без certificates: предупреждение про сертификат; с certificates — нет', () => {
@@ -463,7 +468,7 @@ describe('StreamForm — sockopt', () => {
       />,
     )
     await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
-    await userEvent.selectOptions(screen.getByLabelText('Проксировать через outbound (dialerProxy)'), 'warp')
+    await selectOption('Проксировать через outbound (dialerProxy)', 'warp')
     const next = onChange.mock.lastCall![0] as { sockopt: Record<string, unknown> }
     expect(next.sockopt).toEqual({ dialerProxy: 'warp' })
   })
@@ -478,8 +483,8 @@ describe('StreamForm — sockopt', () => {
       />,
     )
     await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
-    expect(screen.getByLabelText('Проксировать через outbound (dialerProxy)')).toHaveValue('ghost')
-    expect(screen.getByRole('option', { name: 'ghost (нет в конфиге)' })).toBeInTheDocument()
+    expect(selectedValue('Проксировать через outbound (dialerProxy)')).toBe('ghost')
+    expect(await optionLabels('Проксировать через outbound (dialerProxy)')).toContain('ghost (нет в конфиге)')
   })
 
   it('outbound: сброс единственного ключа удаляет sockopt целиком', async () => {
@@ -493,7 +498,7 @@ describe('StreamForm — sockopt', () => {
       />,
     )
     await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
-    await userEvent.selectOptions(screen.getByLabelText('Проксировать через outbound (dialerProxy)'), '')
+    await selectOption('Проксировать через outbound (dialerProxy)', '')
     const next = onChange.mock.lastCall![0] as Record<string, unknown>
     expect(next.sockopt).toBeUndefined()
   })

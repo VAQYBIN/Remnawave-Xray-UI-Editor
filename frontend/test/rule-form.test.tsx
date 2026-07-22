@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { optionLabels, selectOption, selectedValue } from './helpers'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { RuleForm, keywordEntries, portSpecError } from '../src/features/inspector/RuleForm'
@@ -16,20 +17,20 @@ describe('RuleForm — базовые поля', () => {
   it('outboundTag выбирается из существующих outbound, посторонние поля сохраняются', async () => {
     const onChange = vi.fn()
     render(<RuleForm value={{ type: 'field', custom: 1 }} onChange={onChange} {...TAGS} />)
-    await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), 'warp')
+    await selectOption('Outbound (куда отправить)', 'warp')
     expect(onChange).toHaveBeenLastCalledWith({ custom: 1, outboundTag: 'warp' })
   })
 
   it('сброс outboundTag в «— не задан —» удаляет ключ', async () => {
     const onChange = vi.fn()
     render(<RuleForm value={{ type: 'field', outboundTag: 'direct' }} onChange={onChange} {...TAGS} />)
-    await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), '')
+    await selectOption('Outbound (куда отправить)', '')
     expect(onChange).toHaveBeenLastCalledWith({})
   })
 
   it('битая ссылка outboundTag видна как выбранная опция', () => {
     render(<RuleForm value={{ type: 'field', outboundTag: 'ghost' }} onChange={vi.fn()} {...TAGS} />)
-    expect(screen.getByLabelText('Outbound (куда отправить)')).toHaveValue('ghost')
+    expect(selectedValue('Outbound (куда отправить)')).toBe('ghost')
   })
 
   it('inboundTag — чипы: клик добавляет, снятие последнего удаляет ключ', async () => {
@@ -51,9 +52,9 @@ describe('RuleForm — базовые поля', () => {
 
   it('network выбирается, protocol переключается чипами', async () => {
     render(<StatefulRuleForm initial={{ type: 'field' }} />)
-    await userEvent.selectOptions(screen.getByLabelText('Сеть (network)'), 'tcp,udp')
+    await selectOption('Сеть (network)', 'tcp,udp')
     await userEvent.click(screen.getByRole('button', { name: 'bittorrent' }))
-    expect(screen.getByLabelText('Сеть (network)')).toHaveValue('tcp,udp')
+    expect(selectedValue('Сеть (network)')).toBe('tcp,udp')
     expect(screen.getByRole('button', { name: 'bittorrent' })).toHaveAttribute('aria-pressed', 'true')
   })
 

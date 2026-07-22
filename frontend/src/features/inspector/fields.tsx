@@ -1,30 +1,41 @@
-import { useState, type ReactNode } from 'react'
-import { Button, Checkbox, Select, TextInput } from '../../shared/ui'
+import { useId, useState, type ReactNode } from 'react'
+import { Button, Checkbox, Select, TextInput, type SelectOption } from '../../shared/ui'
 
-export interface Option {
-  value: string
-  label: string
-}
+export type Option = SelectOption
 
 export function Field({
   label,
   hint,
   mono,
+  controlId,
   children,
 }: {
   label: string
   hint?: string
   mono?: boolean
+  /** Связать лейбл с контролом по id вместо обёртки. Нужно контролам, у которых
+   *  значение лежит в текстовом содержимом (кастомный select): внутри <label>
+   *  оно приклеилось бы к accessible-имени («Протокол vless» вместо «Протокол»). */
+  controlId?: string
   children: ReactNode
 }) {
   // hint вынесен за <label>: внутри label его текст приклеился бы к accessible-имени
   // контрола (getByLabelText/скринридер видели бы «лейбл + подсказка»)
   return (
     <div className={mono ? 'field field-mono' : 'field'}>
-      <label className="field-control">
-        <span className="field-label">{label}</span>
-        {children}
-      </label>
+      {controlId ? (
+        <div className="field-control">
+          <label className="field-label" htmlFor={controlId}>
+            {label}
+          </label>
+          {children}
+        </div>
+      ) : (
+        <label className="field-control">
+          <span className="field-label">{label}</span>
+          {children}
+        </label>
+      )}
       {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   )
@@ -124,15 +135,10 @@ export function SelectField({
   options: Option[]
   onChange: (v: string) => void
 }) {
+  const id = useId()
   return (
-    <Field label={label} hint={hint}>
-      <Select value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </Select>
+    <Field label={label} hint={hint} controlId={id}>
+      <Select id={id} value={value} options={options} onChange={onChange} />
     </Field>
   )
 }

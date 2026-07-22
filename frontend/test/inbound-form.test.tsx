@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { selectOption } from './helpers'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { InboundForm } from '../src/features/inspector/InboundForm'
@@ -64,7 +65,7 @@ describe('InboundForm', () => {
         onChange={onChange}
       />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Протокол'), 'vless')
+    await selectOption('Протокол', 'vless')
     const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
     // настройки Shadowsocks не должны «висеть» в JSON после смены протокола
     expect(next.settings).toEqual({ clients: [], decryption: 'none' })
@@ -73,7 +74,7 @@ describe('InboundForm', () => {
   it('vless: flow выбирается на уровне settings, «нет» удаляет ключ', async () => {
     const onChange = vi.fn()
     const first = wrap(<InboundForm value={VLESS} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Flow'), 'xtls-rprx-vision')
+    await selectOption('Flow', 'xtls-rprx-vision')
     let next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
     expect(next.settings.flow).toBe('xtls-rprx-vision')
     expect(next.settings.clients).toEqual([{ id: 'u1' }])
@@ -81,7 +82,7 @@ describe('InboundForm', () => {
 
     onChange.mockClear()
     wrap(<InboundForm value={{ ...VLESS, settings: { ...VLESS.settings, flow: 'xtls-rprx-vision' } }} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Flow'), '')
+    await selectOption('Flow', '')
     next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
     expect('flow' in next.settings).toBe(false)
   })
@@ -168,7 +169,7 @@ describe('InboundForm — hysteria2, shadowsocks network, sniffing', () => {
   it('переключение на hysteria: settings = { version: 2 }, подсказка про TLS, клиентов нет', async () => {
     const onChange = vi.fn()
     wrap(<StatefulInboundForm initial={VLESS} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Протокол'), 'hysteria')
+    await selectOption('Протокол', 'hysteria')
     const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
     expect(next.settings).toEqual({ version: 2 })
     expect(screen.getByText(/настоящий TLS-сертификат/)).toBeInTheDocument()
@@ -178,9 +179,9 @@ describe('InboundForm — hysteria2, shadowsocks network, sniffing', () => {
   it('shadowsocks: network пишется и удаляется', async () => {
     const onChange = vi.fn()
     wrap(<StatefulInboundForm initial={{ tag: 's', protocol: 'shadowsocks', settings: {} }} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Сеть (network)'), 'tcp,udp')
+    await selectOption('Сеть (network)', 'tcp,udp')
     expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.network).toBe('tcp,udp')
-    await userEvent.selectOptions(screen.getByLabelText('Сеть (network)'), '')
+    await selectOption('Сеть (network)', '')
     expect('network' in (onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings).toBe(false)
   })
 
