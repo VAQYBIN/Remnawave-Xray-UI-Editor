@@ -232,3 +232,15 @@ describe('NodeInspector — rule-узлы', () => {
     expect(screen.queryByRole('button', { name: 'Переместить правило выше' })).not.toBeInTheDocument()
   })
 })
+
+describe('NodeInspector — streamSettings у outbound', () => {
+  it('outbound-узел показывает форму транспорта, dialerProxy получает теги конфига без своего', async () => {
+    wrap(
+      <NodeInspector config={ruleConfig} nodeId="out:direct" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    expect(screen.getByLabelText('Транспорт')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
+    expect(screen.getByRole('option', { name: 'warp' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'direct' })).not.toBeInTheDocument()
+  })
+})

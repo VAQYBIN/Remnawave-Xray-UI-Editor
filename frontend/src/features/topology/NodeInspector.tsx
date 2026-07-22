@@ -131,7 +131,11 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
             <InboundForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
           )}
           {parsedNode !== null && kind === 'outbound' && (
-            <OutboundForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
+            <OutboundForm
+              value={parsedNode}
+              onChange={(next) => setText(JSON.stringify(next, null, 2))}
+              outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+            />
           )}
           {parsedNode !== null && kind === 'rule' && (
             <RuleForm

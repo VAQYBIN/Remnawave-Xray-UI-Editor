@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '../../shared/ui'
 import { NumberField, SelectField, StringListField, TextField, type Option } from './fields'
+import { StreamForm } from './StreamForm'
 
 type Obj = Record<string, unknown>
 
@@ -38,9 +39,11 @@ export const WARP_TEMPLATE: Obj = {
 interface Props {
   value: Obj // outbound целиком
   onChange: (next: Obj) => void
+  /** Теги всех outbound конфига — для select'а sockopt.dialerProxy; свой тег исключается */
+  outboundTags?: string[]
 }
 
-export function OutboundForm({ value, onChange }: Props) {
+export function OutboundForm({ value, onChange, outboundTags }: Props) {
   const protocol = (value.protocol as string) ?? 'freedom'
   const settings = (value.settings as Obj) ?? {}
   const peer = ((settings.peers as Obj[]) ?? [])[0] ?? {}
@@ -127,6 +130,16 @@ export function OutboundForm({ value, onChange }: Props) {
         <p className="muted" style={{ margin: 0 }}>
           Настройки протокола «{protocol}» редактируются на вкладке JSON узла.
         </p>
+      )}
+
+      {protocol !== 'wireguard' && protocol !== 'blackhole' && (
+        // wireguard не поддерживает streamSettings, для blackhole транспорт бессмыслен
+        <StreamForm
+          mode="outbound"
+          value={(value.streamSettings as Obj) ?? {}}
+          onChange={(stream) => patch((n) => { n.streamSettings = stream })}
+          outboundTags={(outboundTags ?? []).filter((t) => t !== (value.tag as string | undefined))}
+        />
       )}
     </>
   )
