@@ -15,6 +15,7 @@ export const RoutingRuleSchema = z
     network: z.string().optional(),
     protocol: z.array(z.string()).optional(),
     user: z.array(z.string()).optional(),
+    source: z.array(z.string()).optional(),
   })
   .passthrough()
 

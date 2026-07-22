@@ -1,5 +1,7 @@
 import { z } from 'zod'
+import { DnsSchema } from './dns'
 import { InboundSchema } from './inbounds'
+import { LogSchema } from './log'
 import { OutboundSchema } from './outbounds'
 import { RoutingSchema } from './routing'
 
@@ -7,8 +9,8 @@ const obj = () => z.object({}).passthrough()
 
 export const XrayConfigSchema = z
   .object({
-    log: obj().optional(),
-    dns: obj().optional(),
+    log: LogSchema.optional(),
+    dns: DnsSchema.optional(),
     inbounds: z.array(InboundSchema).optional(),
     outbounds: z.array(OutboundSchema).optional(),
     routing: RoutingSchema.optional(),

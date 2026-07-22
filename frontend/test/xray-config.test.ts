@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateXrayConfig, XrayConfigSchema } from '../src/entities/xray'
+import { DnsSchema, LogSchema, RoutingRuleSchema, validateXrayConfig, XrayConfigSchema } from '../src/entities/xray'
 
 const fullConfig = {
   log: { loglevel: 'warning' },
@@ -101,5 +101,51 @@ describe('validateXrayConfig', () => {
     }
     const res = validateXrayConfig(JSON.stringify(cfg))
     expect(res.issues.some((i) => i.level === 'warning' && i.message.includes('443'))).toBe(true)
+  })
+})
+
+describe('RoutingRuleSchema — source', () => {
+  it('парсит source как массив строк', () => {
+    const parsed = RoutingRuleSchema.parse({ type: 'field', source: ['192.168.0.0/24'], outboundTag: 'direct' })
+    expect(parsed.source).toEqual(['192.168.0.0/24'])
+  })
+})
+
+describe('DnsSchema', () => {
+  it('servers: строки и объекты вперемешку', () => {
+    const parsed = DnsSchema.parse({
+      servers: [
+        '8.8.8.8',
+        { address: '1.1.1.1', port: 53, domains: ['geosite:openai'], expectIPs: ['geoip:us'], skipFallback: true },
+      ],
+      hosts: { 'example.com': '1.2.3.4', 'multi.example.com': ['1.2.3.4', '5.6.7.8'] },
+      queryStrategy: 'UseIPv4',
+      tag: 'dns-inbound',
+    })
+    expect(parsed.servers?.[0]).toBe('8.8.8.8')
+    expect(typeof parsed.servers?.[1]).toBe('object')
+    expect(parsed.queryStrategy).toBe('UseIPv4')
+  })
+
+  it('servers не-массивом — ошибка', () => {
+    expect(DnsSchema.safeParse({ servers: '8.8.8.8' }).success).toBe(false)
+  })
+})
+
+describe('LogSchema', () => {
+  it('парсит loglevel/access/error/dnsLog', () => {
+    const parsed = LogSchema.parse({ loglevel: 'warning', access: 'none', error: '/var/log/xray.log', dnsLog: true })
+    expect(parsed.loglevel).toBe('warning')
+    expect(parsed.dnsLog).toBe(true)
+  })
+})
+
+describe('XrayConfigSchema — dns и log типизированы', () => {
+  it('битый dns.servers ловится на уровне конфига', () => {
+    const res = XrayConfigSchema.safeParse({ dns: { servers: 'nope' } })
+    expect(res.success).toBe(false)
+    if (!res.success) {
+      expect(res.error.issues[0].path.join('.')).toBe('dns.servers')
+    }
   })
 })
