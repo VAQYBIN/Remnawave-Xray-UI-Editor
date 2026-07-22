@@ -6,6 +6,7 @@ import { getNodeJson } from '../../entities/graph/mutations'
 import { Button, Dialog } from '../../shared/ui'
 import { InboundForm } from '../inspector/InboundForm'
 import { OutboundForm } from '../inspector/OutboundForm'
+import { RuleForm } from '../inspector/RuleForm'
 
 const inspectorTheme = EditorView.theme({
   '&': { backgroundColor: 'var(--bg)', fontSize: '12px' },
@@ -40,7 +41,13 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
   const [retagValue, setRetagValue] = useState<Obj | null>(null)
   const extensions = useMemo(() => [json(), inspectorTheme], [])
 
-  const kind = nodeId.startsWith('in:') ? 'inbound' : nodeId.startsWith('out:') ? 'outbound' : 'other'
+  const kind = nodeId.startsWith('in:')
+    ? 'inbound'
+    : nodeId.startsWith('out:')
+      ? 'outbound'
+      : nodeId.startsWith('rule:')
+        ? 'rule'
+        : 'other'
   const [tab, setTab] = useState<'form' | 'json'>(kind === 'other' ? 'json' : 'form')
   const parsedNode = useMemo(() => parseNode(text), [text])
   const oldTag = kind === 'inbound' ? nodeId.slice(3) : ''
@@ -96,6 +103,14 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
           )}
           {parsedNode !== null && kind === 'outbound' && (
             <OutboundForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
+          )}
+          {parsedNode !== null && kind === 'rule' && (
+            <RuleForm
+              value={parsedNode}
+              onChange={(next) => setText(JSON.stringify(next, null, 2))}
+              inboundTags={(config.inbounds ?? []).map((i) => i.tag)}
+              outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+            />
           )}
         </div>
       )}

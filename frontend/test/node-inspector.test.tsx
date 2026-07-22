@@ -27,6 +27,15 @@ const config = {
   outbounds: [],
 }
 
+const ruleConfig = {
+  inbounds: [{ tag: 'vless-in', port: 443, protocol: 'vless' }],
+  outbounds: [
+    { tag: 'direct', protocol: 'freedom' },
+    { tag: 'warp', protocol: 'wireguard' },
+  ],
+  routing: { rules: [{ type: 'field', inboundTag: ['vless-in'], outboundTag: 'direct' }] },
+}
+
 // CodeMirror в jsdom не поддерживает реальный ввод в contenteditable — правим документ через
 // его собственную команду «выделить всё» (не зависит от нативного выделения в jsdom) и paste-событие,
 // которое CodeMirror обрабатывает напрямую через clipboardData.
@@ -64,7 +73,7 @@ describe('NodeInspector', () => {
     expect(screen.queryByText('JSON узла')).toBeInTheDocument()
   })
 
-  it('для rule:/dns узлов вкладок нет — сразу JSON', () => {
+  it('для dns узла вкладок нет — сразу JSON', () => {
     const dnsConfig = { ...config, dns: { servers: ['8.8.8.8'] } }
     wrap(
       <NodeInspector config={dnsConfig} nodeId="dns" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
@@ -125,5 +134,34 @@ describe('NodeInspector', () => {
     await setNodeJsonText(JSON.stringify({ tag: 'renamed', port: 443, protocol: 'vless' }))
     await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
     expect(onApply).toHaveBeenCalledWith({ tag: 'renamed', port: 443, protocol: 'vless' })
+  })
+})
+
+describe('NodeInspector — rule-узлы', () => {
+  it('для rule: узла по умолчанию открыта вкладка «Форма» с RuleForm', () => {
+    wrap(
+      <NodeInspector config={ruleConfig} nodeId="rule:0" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    expect(screen.getByText('Форма')).toBeInTheDocument()
+    expect(screen.getByLabelText('Outbound (куда отправить)')).toHaveValue('direct')
+    expect(screen.getByRole('button', { name: 'vless-in' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('правка правила формой применяется через «Применить»', async () => {
+    const onApply = vi.fn()
+    wrap(
+      <NodeInspector config={ruleConfig} nodeId="rule:0" onApply={onApply} onRemove={() => {}} onClose={() => {}} />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), 'warp')
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
+    expect(onApply).toHaveBeenCalledWith({ type: 'field', inboundTag: ['vless-in'], outboundTag: 'warp' })
+  })
+
+  it('вкладка «JSON узла» доступна для правила', async () => {
+    wrap(
+      <NodeInspector config={ruleConfig} nodeId="rule:0" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    await userEvent.click(screen.getByText('JSON узла'))
+    expect(document.querySelector('.cm-content')).toBeInTheDocument()
   })
 })
