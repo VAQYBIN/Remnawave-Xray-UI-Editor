@@ -87,3 +87,60 @@ describe('InboundSchema', () => {
     }
   })
 })
+
+describe('fallbacks', () => {
+  it('vless-inbound с типизированными fallbacks парсится', () => {
+    const parsed = InboundSchema.parse({
+      tag: 'vless-in',
+      protocol: 'vless',
+      settings: {
+        clients: [],
+        decryption: 'none',
+        fallbacks: [
+          { dest: 9443, xver: 1 },
+          { alpn: 'h2', dest: '/dev/shm/h2.sock', path: '/ws' },
+        ],
+      },
+    })
+    const settings = parsed.settings as { fallbacks: Array<{ dest?: string | number; xver?: number }> }
+    expect(settings.fallbacks[0].dest).toBe(9443)
+    expect(settings.fallbacks[1].dest).toBe('/dev/shm/h2.sock')
+  })
+
+  it('битый fallback (xver строкой) — ошибка с путём settings.fallbacks', () => {
+    const res = InboundSchema.safeParse({
+      tag: 'vless-in',
+      protocol: 'vless',
+      settings: { fallbacks: [{ dest: 80, xver: 'one' }] },
+    })
+    expect(res.success).toBe(false)
+    if (!res.success) {
+      expect(res.error.issues[0].path.join('.')).toBe('settings.fallbacks.0.xver')
+    }
+  })
+})
+
+describe('hysteria inbound', () => {
+  it('парсит settings hysteria (version 2, clients)', () => {
+    const parsed = InboundSchema.parse({
+      tag: 'hy2-in',
+      protocol: 'hysteria',
+      port: 443,
+      settings: { version: 2, clients: [{ auth: 'pass', email: 'user' }] },
+    })
+    const settings = parsed.settings as { version: number }
+    expect(settings.version).toBe(2)
+  })
+
+  it('clients не-массивом — ошибка с путём settings.clients', () => {
+    const res = InboundSchema.safeParse({
+      tag: 'hy2-in',
+      protocol: 'hysteria',
+      settings: { version: 2, clients: 'nope' },
+    })
+    expect(res.success).toBe(false)
+    if (!res.success) {
+      expect(res.error.issues[0].path.join('.')).toBe('settings.clients')
+    }
+  })
+})

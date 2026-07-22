@@ -7,16 +7,44 @@ export const VlessClientSchema = z
   .object({ id: z.string().optional(), email: z.string().optional(), flow: z.string().optional() })
   .passthrough()
 
+export const FallbackSchema = z
+  .object({
+    name: z.string().optional(),
+    alpn: z.string().optional(),
+    path: z.string().optional(),
+    dest: z.union([z.string(), z.number()]).optional(),
+    xver: z.number().optional(),
+  })
+  .passthrough()
+
+export const TrojanClientSchema = z
+  .object({ password: z.string().optional(), email: z.string().optional(), level: z.number().optional() })
+  .passthrough()
+
+export const HysteriaClientSchema = z
+  .object({ auth: z.string().optional(), email: z.string().optional(), level: z.number().optional() })
+  .passthrough()
+
+export const HysteriaInboundSettingsSchema = z
+  .object({
+    version: z.number().optional(),
+    clients: z.array(HysteriaClientSchema).optional(),
+  })
+  .passthrough()
+
 export const VlessInboundSettingsSchema = z
   .object({
     clients: z.array(VlessClientSchema).optional(),
     decryption: z.string().optional(),
-    fallbacks: z.array(obj()).optional(),
+    fallbacks: z.array(FallbackSchema).optional(),
   })
   .passthrough()
 
 export const TrojanInboundSettingsSchema = z
-  .object({ clients: z.array(obj()).optional(), fallbacks: z.array(obj()).optional() })
+  .object({
+    clients: z.array(TrojanClientSchema).optional(),
+    fallbacks: z.array(FallbackSchema).optional(),
+  })
   .passthrough()
 
 export const ShadowsocksInboundSettingsSchema = z
@@ -48,7 +76,9 @@ export const InboundSchema = z
           ? TrojanInboundSettingsSchema
           : inb.protocol === 'shadowsocks'
             ? ShadowsocksInboundSettingsSchema
-            : null
+            : inb.protocol === 'hysteria'
+              ? HysteriaInboundSettingsSchema
+              : null
     if (settingsSchema && inb.settings !== undefined) {
       const res = settingsSchema.safeParse(inb.settings)
       if (!res.success) {
