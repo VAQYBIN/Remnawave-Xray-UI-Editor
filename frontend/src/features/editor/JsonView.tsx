@@ -5,9 +5,9 @@ import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
 import { validateXrayConfig } from '../../entities/xray'
 
 const editorTheme = EditorView.theme({
-  '&': { backgroundColor: 'var(--surface)', fontSize: '13px' },
+  '&': { backgroundColor: 'var(--void)', fontSize: '13px', height: '100%' },
   '.cm-content': { fontFamily: 'var(--font-mono)' },
-  '.cm-gutters': { backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)' },
+  '.cm-gutters': { backgroundColor: 'var(--void)', borderRight: '1px solid var(--rail)' },
 })
 
 function xrayLinter() {
@@ -26,7 +26,6 @@ function xrayLinter() {
 
 export function JsonView({ text, onChange }: { text: string; onChange: (v: string) => void }) {
   const extensions = useMemo(() => [json(), lintGutter(), xrayLinter(), editorTheme], [])
-  return (
-    <CodeMirror value={text} height="calc(100vh - 200px)" theme="dark" extensions={extensions} onChange={onChange} />
-  )
+  return <CodeMirror value={text} height="100%" theme="dark" extensions={extensions} onChange={onChange} />
+
 }

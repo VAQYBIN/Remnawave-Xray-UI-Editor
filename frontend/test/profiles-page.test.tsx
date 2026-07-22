@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProfilesPage } from '../src/features/profiles/ProfilesPage'
 import { TEMPLATE } from '../src/features/profiles/CreateProfileDialog'
+import { useDraftStore } from '../src/features/editor/draftStore'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
 
 const profile = {
@@ -38,11 +39,35 @@ function renderPage(profiles: unknown[]) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('ProfilesPage', () => {
-  it('показывает карточку профиля с чипом inbound и нодой', async () => {
+  it('показывает карточку профиля с метриками inbound и нодой', async () => {
     renderPage([profile])
     expect(await screen.findByText('Germany')).toBeInTheDocument()
-    expect(screen.getByText('vless-in :443')).toBeInTheDocument()
+    expect(screen.getByText('vless-in')).toBeInTheDocument()
+    expect(screen.getByText(':443')).toBeInTheDocument()
+    expect(screen.getByText('reality')).toBeInTheDocument()
     expect(screen.getByText(/DE-1/)).toBeInTheDocument()
+  })
+
+  it('имя профиля — ссылка на редактор, доступная с клавиатуры', async () => {
+    renderPage([profile])
+    const link = await screen.findByRole('link', { name: 'Germany' })
+    expect(link).toHaveAttribute('href', '/profiles/u1')
+  })
+
+  it('черновик в localStorage помечает карточку и считается в шапке', async () => {
+    useDraftStore.getState().setDraft(profile.uuid, '{}', profile.updatedAt)
+    renderPage([profile])
+    expect(await screen.findByText('Germany')).toBeInTheDocument()
+    expect(screen.getByText('черновик')).toBeInTheDocument()
+    expect(screen.getByText('незасейвленных черновиков: 1')).toBeInTheDocument()
+    useDraftStore.getState().clearDraft(profile.uuid)
+  })
+
+  it('без черновиков счётчик в шапке не показывается', async () => {
+    renderPage([profile])
+    expect(await screen.findByText('Germany')).toBeInTheDocument()
+    expect(screen.queryByText(/незасейвленных черновиков/)).not.toBeInTheDocument()
+    expect(screen.queryByText('черновик')).not.toBeInTheDocument()
   })
 
   it('пустой список — empty state с призывом создать', async () => {

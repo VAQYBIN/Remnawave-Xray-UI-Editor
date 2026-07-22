@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { optionLabels, selectOption, selectedValue } from './helpers'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { OutboundForm, WARP_TEMPLATE } from '../src/features/inspector/OutboundForm'
@@ -35,7 +36,7 @@ describe('OutboundForm', () => {
     wrap(
       <OutboundForm value={{ tag: 'direct', protocol: 'freedom', settings: {}, custom: 1 }} onChange={onChange} />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Стратегия доменов'), 'UseIP')
+    await selectOption('Стратегия доменов', 'UseIP')
     expect(onChange).toHaveBeenLastCalledWith({
       tag: 'direct',
       protocol: 'freedom',
@@ -93,7 +94,7 @@ describe('OutboundForm', () => {
     wrap(
       <OutboundForm value={{ tag: 'warp', protocol: 'wireguard', settings: { secretKey: 'sk' } }} onChange={onChange} />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Протокол'), 'blackhole')
+    await selectOption('Протокол', 'blackhole')
     // настройки wireguard не должны «висеть» в JSON после смены протокола
     expect(onChange).toHaveBeenLastCalledWith({ tag: 'warp', protocol: 'blackhole', settings: {} })
   })
@@ -131,7 +132,7 @@ describe('OutboundForm — streamSettings', () => {
       )
     }
     wrap(<Stateful />)
-    await userEvent.selectOptions(screen.getByLabelText('Транспорт'), 'ws')
+    await selectOption('Транспорт', 'ws')
     await userEvent.type(screen.getByLabelText('Путь WebSocket'), '/ws')
     const next = onChange.mock.lastCall![0] as { streamSettings: Record<string, unknown> }
     expect(next.streamSettings).toEqual({ network: 'ws', wsSettings: { path: '/ws' } })
@@ -139,7 +140,7 @@ describe('OutboundForm — streamSettings', () => {
 
   it('vless + tls: клиентский fingerprint есть, серверных сертификатов нет', async () => {
     wrap(<StatefulOutboundForm initial={{ tag: 'chain', protocol: 'vless', streamSettings: { network: 'tcp' } }} />)
-    await userEvent.selectOptions(screen.getByLabelText('Шифрование'), 'tls')
+    await selectOption('Шифрование', 'tls')
     expect(screen.getByLabelText('Отпечаток (fingerprint)')).toBeInTheDocument()
     expect(screen.queryByText('+ Сертификат')).not.toBeInTheDocument()
   })
@@ -153,10 +154,10 @@ describe('OutboundForm — streamSettings', () => {
       />,
     )
     await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
-    const select = screen.getByLabelText('Проксировать через outbound (dialerProxy)')
-    expect(select).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'warp' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'proxy' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Проксировать через outbound (dialerProxy)')).toBeInTheDocument()
+    const options = await optionLabels('Проксировать через outbound (dialerProxy)')
+    expect(options).toContain('warp')
+    expect(options).not.toContain('proxy')
   })
 })
 
@@ -187,7 +188,7 @@ describe('OutboundForm — vless vnext', () => {
       />,
     )
     await userEvent.type(screen.getByLabelText('UUID (users[0].id)'), 'uuid-1')
-    await userEvent.selectOptions(screen.getByLabelText('Flow'), 'xtls-rprx-vision')
+    await selectOption('Flow', 'xtls-rprx-vision')
     let next = onChange.mock.lastCall![0] as { settings: { vnext: { users: Record<string, unknown>[] }[] } }
     expect(next.settings.vnext[0]!.users[0]).toEqual({ encryption: 'none', id: 'uuid-1', flow: 'xtls-rprx-vision' })
 
@@ -246,9 +247,9 @@ describe('OutboundForm — freedom fragment, blackhole response, wireguard по�
   it('blackhole: response.type пишется и удаляется', async () => {
     const onChange = vi.fn()
     wrap(<StatefulOutboundForm initial={{ tag: 'block', protocol: 'blackhole', settings: {} }} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Ответ (response.type)'), 'http')
+    await selectOption('Ответ (response.type)', 'http')
     expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.response).toEqual({ type: 'http' })
-    await userEvent.selectOptions(screen.getByLabelText('Ответ (response.type)'), '')
+    await selectOption('Ответ (response.type)', '')
     expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.response).toBeUndefined()
   })
 
@@ -274,7 +275,7 @@ describe('OutboundForm — freedom fragment, blackhole response, wireguard по�
     wrap(<StatefulOutboundForm initial={{ tag: 'warp', protocol: 'wireguard', settings: {} }} onChange={onChange} />)
     await userEvent.type(screen.getByLabelText('Reserved (по числу на строку)'), '51{enter}77')
     expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.reserved).toEqual([51, 77])
-    await userEvent.selectOptions(screen.getByLabelText('Стратегия доменов'), 'ForceIPv4')
+    await selectOption('Стратегия доменов', 'ForceIPv4')
     const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
     expect(next.settings.domainStrategy).toBe('ForceIPv4')
   })

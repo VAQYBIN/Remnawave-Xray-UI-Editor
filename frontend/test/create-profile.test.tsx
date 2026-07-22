@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { selectOption } from './helpers'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CreateProfileDialog, TEMPLATE, realityTemplate } from '../src/features/profiles/CreateProfileDialog'
@@ -59,7 +60,7 @@ describe('CreateProfileDialog — выбор пресета', () => {
     renderDialog()
 
     await userEvent.type(screen.getByLabelText('Имя профиля'), 'Germany 1')
-    await userEvent.selectOptions(screen.getByLabelText('Шаблон'), 'VLESS Reality Vision')
+    await selectOption('Шаблон', 'VLESS Reality Vision')
     await userEvent.click(screen.getByRole('button', { name: 'Создать' }))
 
     await vi.waitFor(() => {

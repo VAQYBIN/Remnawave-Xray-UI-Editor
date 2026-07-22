@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { optionLabels, selectOption, selectedValue } from './helpers'
 import { NodeInspector } from '../src/features/topology/NodeInspector'
 
 // jsdom не реализует layout, поэтому у Range нет getClientRects/getBoundingClientRect —
@@ -81,7 +82,7 @@ describe('NodeInspector', () => {
     )
     expect(screen.getByText('Форма')).toBeInTheDocument()
     expect(screen.getByText('JSON узла')).toBeInTheDocument()
-    await userEvent.selectOptions(screen.getByLabelText('Стратегия запросов (queryStrategy)'), 'UseIPv4')
+    await selectOption('Стратегия запросов (queryStrategy)', 'UseIPv4')
     await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
     expect(onApply).toHaveBeenCalledWith({ servers: ['8.8.8.8'], queryStrategy: 'UseIPv4' })
   })
@@ -146,7 +147,7 @@ describe('NodeInspector — rule-узлы', () => {
       <NodeInspector config={ruleConfig} nodeId="rule:0" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
     )
     expect(screen.getByText('Форма')).toBeInTheDocument()
-    expect(screen.getByLabelText('Outbound (куда отправить)')).toHaveValue('direct')
+    expect(selectedValue('Outbound (куда отправить)')).toBe('direct')
     expect(screen.getByRole('button', { name: 'vless-in' })).toHaveAttribute('aria-pressed', 'true')
   })
 
@@ -155,7 +156,7 @@ describe('NodeInspector — rule-узлы', () => {
     wrap(
       <NodeInspector config={ruleConfig} nodeId="rule:0" onApply={onApply} onRemove={() => {}} onClose={() => {}} />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), 'warp')
+    await selectOption('Outbound (куда отправить)', 'warp')
     await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
     expect(onApply).toHaveBeenCalledWith({ inboundTag: ['vless-in'], outboundTag: 'warp' })
   })
@@ -224,7 +225,7 @@ describe('NodeInspector — rule-узлы', () => {
         onClose={() => {}}
       />,
     )
-    await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), 'warp')
+    await selectOption('Outbound (куда отправить)', 'warp')
     expect(screen.getByRole('button', { name: 'Переместить правило ниже' })).toBeDisabled()
   })
 
@@ -243,7 +244,8 @@ describe('NodeInspector — streamSettings у outbound', () => {
     )
     expect(screen.getByLabelText('Транспорт')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
-    expect(screen.getByRole('option', { name: 'warp' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'direct' })).not.toBeInTheDocument()
+    const options = await optionLabels('Проксировать через outbound (dialerProxy)')
+    expect(options).toContain('warp')
+    expect(options).not.toContain('direct')
   })
 })

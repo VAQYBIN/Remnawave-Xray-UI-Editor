@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { selectOption } from './helpers'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { DnsForm } from '../src/features/inspector/DnsForm'
@@ -39,7 +40,7 @@ describe('DnsForm — servers', () => {
   it('переключение в расширенный объект переносит адрес; domains пишутся', async () => {
     const onChange = vi.fn()
     render(<StatefulDnsForm initial={{ servers: ['8.8.8.8'] }} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Тип сервера'), 'full')
+    await selectOption('Тип сервера', 'full')
     expect((onChange.mock.lastCall![0] as { servers: unknown[] }).servers).toEqual([{ address: '8.8.8.8' }])
     await userEvent.type(screen.getByLabelText('Домены (domains)'), 'geosite:category-ru')
     const next = onChange.mock.lastCall![0] as { servers: { domains?: string[] }[] }
@@ -87,7 +88,7 @@ describe('DnsForm — hosts, queryStrategy, продвинутые', () => {
   it('queryStrategy, tag и clientIp пишутся', async () => {
     const onChange = vi.fn()
     render(<StatefulDnsForm initial={{}} onChange={onChange} />)
-    await userEvent.selectOptions(screen.getByLabelText('Стратегия запросов (queryStrategy)'), 'UseIPv4')
+    await selectOption('Стратегия запросов (queryStrategy)', 'UseIPv4')
     await userEvent.type(screen.getByLabelText('Тег (tag)'), 'dns-out')
     await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(DNS\)/ }))
     await userEvent.type(screen.getByLabelText('IP клиента (clientIp)'), '203.0.113.1')

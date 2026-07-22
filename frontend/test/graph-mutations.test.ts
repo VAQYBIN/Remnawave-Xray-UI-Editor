@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addInbound, addOutbound, addRule, applyNodeJson, connectRule, moveRule,
-  disconnectEdge, getNodeJson, removeNode,
+  addInbound, addOutbound, addRule, applyNodeJson, attachInboundToRule, connectRule, moveRule,
+  disconnectEdge, getNodeJson, removeNode, setRuleOutbound,
 } from '../src/entities/graph/mutations'
 
 const base = () => ({
@@ -81,6 +81,49 @@ describe('graph mutations', () => {
     connectRule(cfg, 'vless-in', 'direct')
     disconnectEdge(cfg, 'e:rule:0->out:direct')
     expect(cfg).toEqual(snapshot)
+  })
+})
+
+describe('attachInboundToRule — ребро inbound → правило', () => {
+  it('добавляет тег в inboundTag правила', () => {
+    const cfg = { routing: { rules: [{ inboundTag: ['a-in'], outboundTag: 'direct' }] } }
+    const next = attachInboundToRule(cfg, 'b-in', 0)
+    expect(next.routing!.rules![0]!.inboundTag).toEqual(['a-in', 'b-in'])
+  })
+
+  it('правилу «для всех inbound» проставляет первый тег', () => {
+    const cfg = { routing: { rules: [{ outboundTag: 'block' }] } }
+    expect(attachInboundToRule(cfg, 'a-in', 0).routing!.rules![0]!.inboundTag).toEqual(['a-in'])
+  })
+
+  it('повтор и несуществующее правило возвращают тот же config', () => {
+    const cfg = { routing: { rules: [{ inboundTag: ['a-in'] }] } }
+    expect(attachInboundToRule(cfg, 'a-in', 0)).toBe(cfg)
+    expect(attachInboundToRule(cfg, 'b-in', 5)).toBe(cfg)
+  })
+
+  it('не мутирует исходный конфиг', () => {
+    const cfg = { routing: { rules: [{ inboundTag: ['a-in'] }] } }
+    attachInboundToRule(cfg, 'b-in', 0)
+    expect(cfg.routing.rules[0]!.inboundTag).toEqual(['a-in'])
+  })
+})
+
+describe('setRuleOutbound — ребро правило → outbound', () => {
+  it('назначает outboundTag правилу без него', () => {
+    const cfg = { routing: { rules: [{ inboundTag: ['a-in'] }] } }
+    expect(setRuleOutbound(cfg, 0, 'warp').routing!.rules![0]!.outboundTag).toBe('warp')
+  })
+
+  it('перезаписывает прежний outbound — у правила он один', () => {
+    const cfg = { routing: { rules: [{ outboundTag: 'direct' }] } }
+    expect(setRuleOutbound(cfg, 0, 'warp').routing!.rules![0]!.outboundTag).toBe('warp')
+  })
+
+  it('тот же outbound и несуществующее правило возвращают тот же config', () => {
+    const cfg = { routing: { rules: [{ outboundTag: 'direct' }] } }
+    expect(setRuleOutbound(cfg, 0, 'direct')).toBe(cfg)
+    expect(setRuleOutbound(cfg, 9, 'warp')).toBe(cfg)
   })
 })
 

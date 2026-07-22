@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow,
+  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow, useReactFlow, ViewportPortal,
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { XrayConfig } from '../../entities/xray'
-import { buildGraph, layoutColumns } from '../../entities/graph/buildGraph'
+import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
 import type { GraphContext } from '../../entities/graph/types'
-import { addInbound, addOutbound, addRule, connectRule, disconnectEdge } from '../../entities/graph/mutations'
+import {
+  addInbound, addOutbound, addRule, attachInboundToRule, connectRule, disconnectEdge, setRuleOutbound,
+} from '../../entities/graph/mutations'
 import { Button } from '../../shared/ui'
+import { edgeTypes } from './edges'
 import { nodeTypes } from './nodes'
 import { usePositionsStore } from './positionsStore'
 
@@ -36,6 +39,73 @@ export function resyncEdges(prev: Edge[], next: Edge[]): Edge[] {
   return next.map((e) => (selected.has(e.id) ? { ...e, selected: true } : e))
 }
 
+/**
+ * Что можно коммутировать: inbound уходит в правило или напрямую в outbound
+ * (тогда правило создаётся само), правило — только в outbound. Гнёзда сквадов
+ * закрыты: привязку сквадов задаёт панель Remnawave, не редактор.
+ */
+export function isValidConnection(conn: { source?: string | null; target?: string | null }): boolean {
+  const source = conn.source ?? ''
+  const target = conn.target ?? ''
+  if (source === target) return false
+  if (source.startsWith('in:')) return target.startsWith('rule:') || target.startsWith('out:')
+  if (source.startsWith('rule:')) return target.startsWith('out:')
+  return false
+}
+
+/** Применяет протянутый кабель к конфигу. Недопустимая пара возвращает ТОТ ЖЕ config. */
+export function applyConnection(
+  config: XrayConfig,
+  conn: { source?: string | null; target?: string | null },
+): XrayConfig {
+  const source = conn.source ?? ''
+  const target = conn.target ?? ''
+  if (source.startsWith('in:') && target.startsWith('out:')) {
+    return connectRule(config, source.slice(3), target.slice(4))
+  }
+  if (source.startsWith('in:') && target.startsWith('rule:')) {
+    return attachInboundToRule(config, source.slice(3), Number(target.slice(5)))
+  }
+  if (source.startsWith('rule:') && target.startsWith('out:')) {
+    return setRuleOutbound(config, Number(source.slice(5)), target.slice(4))
+  }
+  return config
+}
+
+/** Ширина инспектора; держится в паре с --inspector-w в tokens.css */
+export function inspectorWidth(viewportWidth: number): number {
+  return Math.min(440, viewportWidth * 0.92)
+}
+
+/**
+ * Инспектор выезжает поверх канваса, поэтому без компенсации правая колонка узлов
+ * оказалась бы под ним и стала недоступной для клика. Сдвигаем вьюпорт ровно на
+ * ширину панели — граф не перекомпоновывается, но «выталкивается» из-под неё.
+ * Между двумя выбранными узлами сдвиг не меняется, так что дёргается только
+ * открытие и закрытие.
+ */
+function ViewportShift({ shift }: { shift: number }) {
+  const { getViewport, setViewport } = useReactFlow()
+  const applied = useRef(0)
+
+  useEffect(() => {
+    const delta = shift - applied.current
+    if (delta === 0) return
+    applied.current = shift
+    const vp = getViewport()
+    setViewport({ ...vp, x: vp.x - delta }, { duration: 180 })
+  }, [shift, getViewport, setViewport])
+
+  return null
+}
+
+const COLUMNS = [
+  { kind: 'squad', title: 'сквады', x: COLUMN_X.squad },
+  { kind: 'inbound', title: 'inbound', x: COLUMN_X.inbound },
+  { kind: 'rule', title: 'правила', x: COLUMN_X.rule },
+  { kind: 'outbound', title: 'outbound', x: COLUMN_X.outbound },
+] as const
+
 export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, onChangeConfig }: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
@@ -49,7 +119,14 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
       position: saved?.[n.id] ?? n.position,
       selected: n.id === selectedId,
     }))
-    return { nodes: laid, edges: g.edges }
+    // Кабели, касающиеся выбранного узла, подсвечиваются бегущим пунктиром —
+    // видно весь путь трафика от входа до выхода
+    const wired = g.edges.map((e) => ({
+      ...e,
+      type: 'signal',
+      data: { active: selectedId !== null && (e.source === selectedId || e.target === selectedId) },
+    }))
+    return { nodes: laid, edges: wired }
   }, [config, ctx, saved, selectedId])
 
   // controlled-режим: drag применяется к локальному стейту, ресинк при пересборке графа
@@ -77,9 +154,8 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
 
   const onConnect = useCallback(
     (conn: Connection) => {
-      if (conn.source?.startsWith('in:') && conn.target?.startsWith('out:')) {
-        onChangeConfig(connectRule(config, conn.source.slice(3), conn.target.slice(4)))
-      }
+      const next = applyConnection(config, conn)
+      if (next !== config) onChangeConfig(next)
     },
     [config, onChangeConfig],
   )
@@ -107,35 +183,69 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
     [config, onChangeConfig],
   )
 
+  const filledColumns = useMemo(() => {
+    const kinds = new Set(computed.nodes.map((n) => n.data.kind))
+    return COLUMNS.filter((c) => kinds.has(c.kind))
+  }, [computed.nodes])
+
+  const noRules = (config.routing?.rules?.length ?? 0) === 0
+
   return (
-    <div style={{ height: 'calc(100vh - 190px)', border: '1px solid var(--border)', borderRadius: 8 }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        colorMode="dark"
-        fitView
-        proOptions={{ hideAttribution: true }}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={(_, node: Node) => onSelect(node.id)}
-        onPaneClick={() => onSelect(null)}
-        onConnect={onConnect}
-        onEdgesDelete={onEdgesDelete}
-      >
-        <Background />
-        <Controls />
-        <Panel position="top-left">
-          <div className="row">
-            <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
-            <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
-            <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
-            <Button variant="ghost" onClick={() => resetPositions(profileUuid)}>
-              Сбросить расположение
-            </Button>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      colorMode="dark"
+      fitView
+      fitViewOptions={{ padding: 0.22 }}
+      minZoom={0.25}
+      maxZoom={1.75}
+      proOptions={{ hideAttribution: true }}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onNodeClick={(_, node: Node) => onSelect(node.id)}
+      onPaneClick={() => onSelect(null)}
+      onConnect={onConnect}
+      isValidConnection={isValidConnection}
+      onEdgesDelete={onEdgesDelete}
+    >
+      <Background gap={22} size={1} />
+      <Controls showInteractive={false} position="bottom-right" />
+      <ViewportShift shift={selectedId === null ? 0 : inspectorWidth(window.innerWidth)} />
+
+      {/* Подписи колонок живут в координатах канваса и едут вместе с узлами */}
+      <ViewportPortal>
+        {filledColumns.map((c) => (
+          <div
+            key={c.kind}
+            className="column-label"
+            style={{ position: 'absolute', transform: `translate(${c.x}px, -52px)` }}
+          >
+            {c.title}
           </div>
+        ))}
+      </ViewportPortal>
+
+      {noRules && (
+        <Panel position="top-center">
+          <p className="canvas-hint">
+            Правил пока нет. Протяните кабель от гнезда inbound к outbound — правило создастся само.
+          </p>
         </Panel>
-      </ReactFlow>
-    </div>
+      )}
+
+      <Panel position="bottom-center">
+        <div className="wb-dock">
+          <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
+          <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
+          <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
+          <span className="wb-dock-sep" aria-hidden="true" />
+          <Button variant="ghost" onClick={() => resetPositions(profileUuid)}>
+            Сбросить расположение
+          </Button>
+        </div>
+      </Panel>
+    </ReactFlow>
   )
 }

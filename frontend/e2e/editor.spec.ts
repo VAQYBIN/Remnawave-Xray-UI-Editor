@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { UUID, mockApi } from './mocks'
+import { pickOption } from './helpers'
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page)
@@ -39,7 +40,7 @@ test('переключение узлов меняет содержимое ин
 test('форма inbound: выбор flow создаёт черновик', async ({ page }) => {
   const inspector = page.locator('aside')
   await page.locator('.react-flow__node[data-id="in:vless-in"]').click()
-  await inspector.getByLabel('Flow').selectOption('xtls-rprx-vision')
+  await pickOption(page, inspector.getByLabel('Flow'), 'xtls-rprx-vision')
   await inspector.getByRole('button', { name: 'Применить' }).click()
   // exact: true — иначе матчится и текст скрытых диалогов, упоминающих слово «черновик»
   await expect(page.getByText('черновик', { exact: true })).toBeVisible()
