@@ -314,3 +314,74 @@ describe('StreamForm — Reality целиком', () => {
     expect(screen.queryByLabelText('Цель маскировки (dest)')).not.toBeInTheDocument()
   })
 })
+
+describe('StreamForm — транспорт hysteria', () => {
+  it('выбор hysteria создаёт hysteriaSettings с version: 2', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'tls', tlsSettings: {} }} onChange={onChange} />)
+    await userEvent.selectOptions(screen.getByLabelText('Транспорт'), 'hysteria')
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.network).toBe('hysteria')
+    expect(next.hysteriaSettings).toEqual({ version: 2 })
+  })
+
+  it('up/down пишутся строками, version сохраняется', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'hysteria', security: 'tls', hysteriaSettings: { version: 2 } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.type(screen.getByLabelText('Скорость вверх (up)'), '100mbps')
+    await userEvent.type(screen.getByLabelText('Скорость вниз (down)'), '300mbps')
+    const next = onChange.mock.lastCall![0] as { hysteriaSettings: Record<string, unknown> }
+    expect(next.hysteriaSettings).toEqual({ version: 2, up: '100mbps', down: '300mbps' })
+  })
+
+  it('masquerade: тип file + каталог', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'hysteria', security: 'tls', hysteriaSettings: { version: 2 } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Маскировка (masquerade)'), 'file')
+    await userEvent.type(screen.getByLabelText('Каталог сайта (masquerade.dir)'), '/var/www')
+    const next = onChange.mock.lastCall![0] as { hysteriaSettings: Record<string, unknown> }
+    expect(next.hysteriaSettings.masquerade).toEqual({ type: 'file', dir: '/var/www' })
+  })
+
+  it('congestion/brutalUp пишутся в finalmask.quicParams', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'hysteria', security: 'tls', hysteriaSettings: { version: 2 } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Congestion control'), 'brutal')
+    await userEvent.type(screen.getByLabelText('brutalUp (Мбит/с)'), '100')
+    const next = onChange.mock.lastCall![0] as { finalmask: { quicParams: Record<string, unknown> } }
+    expect(next.finalmask.quicParams).toEqual({ congestion: 'brutal', brutalUp: 100 })
+  })
+
+  it('сброс единственного quic-параметра удаляет finalmask целиком', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{
+          network: 'hysteria',
+          security: 'tls',
+          hysteriaSettings: { version: 2 },
+          finalmask: { quicParams: { congestion: 'bbr' } },
+        }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Congestion control'), '')
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.finalmask).toBeUndefined()
+  })
+})

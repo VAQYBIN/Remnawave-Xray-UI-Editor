@@ -21,6 +21,7 @@ const NETWORKS: Option[] = [
   { value: 'grpc', label: 'gRPC' },
   { value: 'httpupgrade', label: 'HTTPUpgrade' },
   { value: 'xhttp', label: 'XHTTP' },
+  { value: 'hysteria', label: 'Hysteria 2 (QUIC)' },
 ]
 
 const SECURITIES: Option[] = [
@@ -50,6 +51,19 @@ const TLS_VERSIONS: Option[] = [
   { value: '1.3', label: '1.3' },
 ]
 
+const MASQUERADE_TYPES: Option[] = [
+  { value: '', label: 'нет' },
+  { value: 'file', label: 'file — отдавать сайт из каталога' },
+]
+
+const CONGESTIONS: Option[] = [
+  { value: '', label: 'по умолчанию (brutal)' },
+  { value: 'reno', label: 'reno' },
+  { value: 'bbr', label: 'bbr' },
+  { value: 'brutal', label: 'brutal' },
+  { value: 'force-brutal', label: 'force-brutal' },
+]
+
 export type StreamFormMode = 'inbound' | 'outbound'
 
 interface Props {
@@ -73,6 +87,9 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
   // Xray понимает и tcpSettings, и rawSettings (network tcp→raw) — редактируем тот ключ, что уже есть
   const tcpKey = 'rawSettings' in value ? 'rawSettings' : 'tcpSettings'
   const tcp = (value[tcpKey] as Obj) ?? {}
+  const hysteria = (value.hysteriaSettings as Obj) ?? {}
+  const masquerade = (hysteria.masquerade as Obj) ?? {}
+  const quic = ((value.finalmask as Obj | undefined)?.quicParams as Obj | undefined) ?? {}
 
   function patch(mut: (draft: Obj) => void) {
     const next = structuredClone(value)
@@ -99,13 +116,38 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
     })
   }
 
+  // QUIC-параметры (congestion/brutal*) унифицированы в finalmask.quicParams (Xray v26.3.27+),
+  // одноимённые поля в hysteriaSettings soft-deprecated; опустевшие уровни удаляются
+  function patchQuic(mut: (q: Obj) => void) {
+    patch((next) => {
+      const fm = (next.finalmask as Obj) ?? {}
+      const q = (fm.quicParams as Obj) ?? {}
+      mut(q)
+      if (Object.keys(q).length === 0) delete fm.quicParams
+      else fm.quicParams = q
+      if (Object.keys(fm).length === 0) delete next.finalmask
+      else next.finalmask = fm
+    })
+  }
+
   // Xray ≥24.09 понимает и dest, и target — редактируем тот ключ, что уже есть
   const destKey = 'target' in reality ? 'target' : 'dest'
   const shownPublicKey = derive.data?.publicKey ?? keypair.data?.publicKey
 
   return (
     <>
-      <SelectField label="Транспорт" value={network} options={NETWORKS} onChange={(v) => patch((n) => { n.network = v })} />
+      <SelectField
+        label="Транспорт"
+        value={network}
+        options={NETWORKS}
+        onChange={(v) =>
+          patch((n) => {
+            n.network = v
+            // Hysteria 2 жёстко требует version: 2 — иначе ядро не стартует
+            if (v === 'hysteria' && n.hysteriaSettings === undefined) n.hysteriaSettings = { version: 2 }
+          })
+        }
+      />
       <SelectField
         label="Шифрование"
         value={security}
@@ -238,6 +280,75 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
           <p className="muted" style={{ margin: 0 }}>
             Поле extra (xmux, padding) редактируется на вкладке «JSON узла» — спека XHTTP нестабильна.
           </p>
+        </>
+      )}
+
+      {network === 'hysteria' && (
+        <>
+          <p className="muted" style={{ margin: 0 }}>
+            Hysteria 2 работает поверх QUIC: нужен security «TLS» с настоящим сертификатом; version: 2 фиксирован.
+          </p>
+          <TextField
+            label="Скорость вверх (up)"
+            mono
+            placeholder="100mbps"
+            hint="Единицы: bps/kbps/mbps/gbps"
+            value={hysteria.up as string | undefined}
+            onChange={(v) => patchSection('hysteriaSettings', (s) => { if (v === undefined) delete s.up; else s.up = v })}
+          />
+          <TextField
+            label="Скорость вниз (down)"
+            mono
+            placeholder="300mbps"
+            hint="Единицы: bps/kbps/mbps/gbps"
+            value={hysteria.down as string | undefined}
+            onChange={(v) => patchSection('hysteriaSettings', (s) => { if (v === undefined) delete s.down; else s.down = v })}
+          />
+          <SelectField
+            label="Маскировка (masquerade)"
+            hint="Неавторизованным отдаётся реальный сайт — HY2-аналог selfsteal"
+            value={(masquerade.type as string) ?? ''}
+            options={MASQUERADE_TYPES}
+            onChange={(v) =>
+              patchSection('hysteriaSettings', (s) => {
+                if (v === '') delete s.masquerade
+                else s.masquerade = { ...((s.masquerade as Obj) ?? {}), type: v }
+              })
+            }
+          />
+          {masquerade.type === 'file' && (
+            <TextField
+              label="Каталог сайта (masquerade.dir)"
+              mono
+              placeholder="/var/www"
+              value={masquerade.dir as string | undefined}
+              onChange={(v) =>
+                patchSection('hysteriaSettings', (s) => {
+                  const m = (s.masquerade as Obj) ?? { type: 'file' }
+                  if (v === undefined) delete m.dir
+                  else m.dir = v
+                  s.masquerade = m
+                })
+              }
+            />
+          )}
+          <SelectField
+            label="Congestion control"
+            hint="brutal требует brutalUp/brutalDown — фиксированная полоса, стабильность на потерях"
+            value={(quic.congestion as string) ?? ''}
+            options={CONGESTIONS}
+            onChange={(v) => patchQuic((q) => { if (v === '') delete q.congestion; else q.congestion = v })}
+          />
+          <NumberField
+            label="brutalUp (Мбит/с)"
+            value={quic.brutalUp as number | undefined}
+            onChange={(v) => patchQuic((q) => { if (v === undefined) delete q.brutalUp; else q.brutalUp = v })}
+          />
+          <NumberField
+            label="brutalDown (Мбит/с)"
+            value={quic.brutalDown as number | undefined}
+            onChange={(v) => patchQuic((q) => { if (v === undefined) delete q.brutalDown; else q.brutalDown = v })}
+          />
         </>
       )}
 
