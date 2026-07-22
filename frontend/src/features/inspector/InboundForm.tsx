@@ -1,7 +1,8 @@
-import { Button, Checkbox } from '../../shared/ui'
+import { Button, Checkbox, CollapsibleSection } from '../../shared/ui'
 import { ssPassword } from '../../entities/xray/generate'
 import { StreamForm } from './StreamForm'
-import { PortField, SelectField, TextField, type Option } from './fields'
+import { ListEditor } from './collections'
+import { NumberField, PortField, SelectField, TextField, type Option } from './fields'
 
 type Obj = Record<string, unknown>
 
@@ -42,6 +43,7 @@ export function InboundForm({ value, onChange }: Props) {
   const protocol = (value.protocol as string) ?? 'vless'
   const settings = (value.settings as Obj) ?? {}
   const sniffing = (value.sniffing as Obj) ?? {}
+  const fallbacks = settings.fallbacks as Obj[] | undefined
 
   function patch(mut: (draft: Obj) => void) {
     const next = structuredClone(value)
@@ -55,6 +57,62 @@ export function InboundForm({ value, onChange }: Props) {
       mut(s)
       next.settings = s
     })
+  }
+
+  // Fallbacks одинаковы у vless и trojan — общий рендер
+  function renderFallbacks() {
+    return (
+      <ListEditor<Obj>
+        label="Fallbacks"
+        hint="Не-протокольный трафик уходит сюда (маскировка под сайт); dest — порт, адрес или unix-сокет"
+        value={fallbacks}
+        onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.fallbacks; else s.fallbacks = v })}
+        createItem={() => ({})}
+        addLabel="+ Fallback"
+        renderItem={(item, update, i) => {
+          const total = fallbacks?.length ?? 0
+          return (
+            <>
+              {/* Mount-only буфер PortField: смена числа карточек сдвигает индексы — remount по key */}
+              <PortField
+                key={`fb-dest:${i}:${total}`}
+                label="Куда (dest)"
+                value={item.dest as number | string | undefined}
+                onChange={(v) => update({ dest: v })}
+              />
+              <TextField
+                label="Путь (path)"
+                mono
+                placeholder="/web"
+                value={item.path as string | undefined}
+                onChange={(v) => update({ path: v })}
+              />
+              <TextField
+                label="ALPN (alpn)"
+                mono
+                placeholder="h2"
+                hint="Fallback сработает только при совпадении ALPN хендшейка"
+                value={item.alpn as string | undefined}
+                onChange={(v) => update({ alpn: v })}
+              />
+              <TextField
+                label="SNI (name)"
+                mono
+                placeholder="example.com"
+                value={item.name as string | undefined}
+                onChange={(v) => update({ name: v })}
+              />
+              <NumberField
+                label="PROXY protocol (xver)"
+                placeholder="0"
+                value={item.xver as number | undefined}
+                onChange={(v) => update({ xver: v })}
+              />
+            </>
+          )
+        }}
+      />
+    )
   }
 
   return (
@@ -83,13 +141,26 @@ export function InboundForm({ value, onChange }: Props) {
             Пользователи добавляются панелью Remnawave автоматически; flow применяется ко всем пользователям
             этого inbound'а.
           </p>
+          {renderFallbacks()}
+          <CollapsibleSection title="Продвинутые (VLESS)">
+            <TextField
+              label="Decryption"
+              mono
+              hint="VLESS Encryption: «none» или ключ формата mlkem768x25519plus… (генерирует xray vlessenc)"
+              value={settings.decryption as string | undefined}
+              onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.decryption; else s.decryption = v })}
+            />
+          </CollapsibleSection>
         </>
       )}
 
       {protocol === 'trojan' && (
-        <p className="muted" style={{ margin: 0 }}>
-          Пользователи добавляются панелью Remnawave автоматически — клиентов настраивать не нужно.
-        </p>
+        <>
+          <p className="muted" style={{ margin: 0 }}>
+            Пользователи добавляются панелью Remnawave автоматически — клиентов настраивать не нужно.
+          </p>
+          {renderFallbacks()}
+        </>
       )}
 
       {protocol === 'shadowsocks' && (

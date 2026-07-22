@@ -1,12 +1,29 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { InboundForm } from '../src/features/inspector/InboundForm'
 
 function wrap(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+}
+
+// Обёртка-родитель как в реальном приложении: эхо-ит onChange обратно в value через useState
+function StatefulInboundForm({
+  initial,
+  onChange,
+}: {
+  initial: Record<string, unknown>
+  onChange?: (next: Record<string, unknown>) => void
+}) {
+  const [value, setValue] = useState(initial)
+  const handle = (next: Record<string, unknown>) => {
+    setValue(next)
+    onChange?.(next)
+  }
+  return <InboundForm value={value} onChange={handle} />
 }
 
 const VLESS = {
@@ -101,5 +118,48 @@ describe('InboundForm', () => {
       />,
     )
     expect(screen.getByText(/работает только поверх raw/)).toBeInTheDocument()
+  })
+})
+
+describe('InboundForm — fallbacks и decryption', () => {
+  it('vless: добавленный fallback пишет dest числом и path', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulInboundForm initial={VLESS} onChange={onChange} />)
+    await userEvent.click(screen.getByText('+ Fallback'))
+    await userEvent.type(screen.getByLabelText('Куда (dest)'), '8080')
+    await userEvent.type(screen.getByLabelText('Путь (path)'), '/web')
+    const next = onChange.mock.lastCall![0] as { settings: { fallbacks: Record<string, unknown>[] } }
+    expect(next.settings.fallbacks).toHaveLength(1)
+    expect(next.settings.fallbacks[0]!.dest).toBe(8080)
+    expect(next.settings.fallbacks[0]!.path).toBe('/web')
+  })
+
+  it('удаление последнего fallback удаляет ключ из settings', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulInboundForm
+        initial={{ ...VLESS, settings: { ...VLESS.settings, fallbacks: [{ dest: 80 }] } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.click(screen.getByLabelText('Удалить элемент 1'))
+    const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect(next.settings.fallbacks).toBeUndefined()
+  })
+
+  it('trojan: fallbacks тоже доступны', () => {
+    wrap(<StatefulInboundForm initial={{ tag: 't', protocol: 'trojan', settings: { clients: [] } }} />)
+    expect(screen.getByText('+ Fallback')).toBeInTheDocument()
+  })
+
+  it('vless: decryption в «Продвинутых (VLESS)»', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulInboundForm initial={VLESS} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(VLESS\)/ }))
+    const field = screen.getByLabelText('Decryption')
+    expect(field).toHaveValue('none')
+    await userEvent.type(field, '1')
+    const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect(next.settings.decryption).toBe('none1')
   })
 })
