@@ -15,7 +15,7 @@ import { validateXrayConfig, type XrayConfig } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
 import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
 import { relativeTime } from '../../shared/lib/relativeTime'
-import { Button, Chip, Dialog } from '../../shared/ui'
+import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
 import { NodeInspector } from '../topology/NodeInspector'
 import { useDraftStore, type Draft } from './draftStore'
@@ -106,6 +106,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [resetOpen, setResetOpen] = useState(false)
   const [backupsOpen, setBackupsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [issuesOpen, setIssuesOpen] = useState(false)
   const [conflict, setConflict] = useState<Profile | null>(null)
 
   function doSave(expectedUpdatedAt: string) {
@@ -129,109 +130,133 @@ function EditorInner({ profile }: { profile: Profile }) {
 
   const errorCount = validation.issues.filter((i) => i.level === 'error').length
   const warningCount = validation.issues.length - errorCount
+  const saveError = save.isError && !(save.error instanceof ConflictError) ? (save.error as Error).message : undefined
 
   return (
-    <main style={{ padding: '16px 24px' }}>
-      <div className="row" style={{ marginBottom: 12 }}>
+    <div className="workbench">
+      <header className="wb-topbar">
         <Button variant="ghost" onClick={() => navigate('/')}>
           ← Профили
         </Button>
-        <h1>{profile.name}</h1>
-        <div className="row-wrap">
-          {profile.inbounds.map((inb) => (
-            <Chip key={inb.uuid} dir="in">
-              {inb.port != null ? `${inb.tag} :${inb.port}` : inb.tag}
-            </Chip>
-          ))}
+        <div className="wb-title">
+          <h1>{profile.name}</h1>
+          <span className="eyebrow">обновлён {relativeTime(profile.updatedAt)}</span>
         </div>
+
+        <div className="segmented">
+          <Button aria-pressed={tab === 'topology'} onClick={() => setTab('topology')}>
+            Топология
+          </Button>
+          <Button
+            aria-pressed={tab === 'json'}
+            onClick={() => {
+              setTab('json')
+              setSelectedNode(null)
+            }}
+          >
+            JSON
+          </Button>
+        </div>
+
         <span className="spacer" />
         {dirty && <Chip dir="none">черновик</Chip>}
-        <span className="muted">обновлён {relativeTime(profile.updatedAt)}</span>
-      </div>
-
-      <div className="row" style={{ gap: 4, marginBottom: 12 }}>
-        <Button variant={tab === 'topology' ? 'primary' : 'ghost'} onClick={() => setTab('topology')}>Топология</Button>
-        <Button
-          variant={tab === 'json' ? 'primary' : 'ghost'}
-          onClick={() => {
-            setTab('json')
-            setSelectedNode(null)
-          }}
-        >
-          JSON
-        </Button>
-        <span className="spacer" />
-        {validation.issues.length === 0 ? (
-          <span style={{ color: 'var(--ok)' }}>Конфиг валиден</span>
-        ) : (
-          <span className="muted">
-            {errorCount > 0 && <span className="field-error">ошибок: {errorCount}</span>}
-            {errorCount > 0 && warningCount > 0 && ' · '}
-            {warningCount > 0 && <span style={{ color: 'var(--out)' }}>предупреждений: {warningCount}</span>}
-          </span>
-        )}
-        {save.isError && !(save.error instanceof ConflictError) && (
-          <span className="field-error">{(save.error as Error).message}</span>
-        )}
         <Button variant="ghost" disabled={parsedConfig === undefined} onClick={() => setSettingsOpen(true)}>
           Настройки конфига
         </Button>
-        <Button variant="ghost" onClick={() => setBackupsOpen(true)}>Бэкапы</Button>
+        <Button variant="ghost" onClick={() => setBackupsOpen(true)}>
+          Бэкапы
+        </Button>
         <Button variant="ghost" disabled={!dirty} onClick={() => setResetOpen(true)}>
           Сбросить к версии панели
         </Button>
         <Button variant="primary" disabled={hasErrors || !dirty || save.isPending} onClick={() => setSaveOpen(true)}>
           Сохранить в панель
         </Button>
-      </div>
+      </header>
 
-      {validation.issues.length > 0 && <IssueList issues={validation.issues} />}
-
-      {tab === 'json' && (
-        <JsonView text={text} onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)} />
-      )}
-      {tab === 'topology' && parsedConfig === undefined && (
-        <div className="empty">
-          <h2>Конфиг не проходит валидацию</h2>
-          <p>Исправьте ошибки на вкладке JSON — топология строится по валидному документу.</p>
-        </div>
-      )}
-      {tab === 'topology' && parsedConfig !== undefined && (
-        <div className="row" style={{ alignItems: 'stretch', gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <TopologyView
-              profileUuid={profile.uuid}
-              config={parsedConfig}
-              ctx={ctx}
-              selectedId={selectedNode}
-              onSelect={setSelectedNode}
-              onChangeConfig={changeConfig}
+      <div className="wb-stage">
+        {tab === 'json' && (
+          <div className="wb-canvas">
+            <JsonView
+              text={text}
+              onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)}
             />
           </div>
-          {selectedNode && (
-            <NodeInspector
-              key={selectedNode}
-              config={parsedConfig}
-              nodeId={selectedNode}
-              inboundSquads={ctx.inboundSquads}
-              onApply={(value) => changeConfig(applyNodeJson(parsedConfig, selectedNode, value))}
-              onMoveRule={(dir) => {
-                const moved = moveSelectedRule(parsedConfig, selectedNode, dir)
-                if (!moved) return
-                changeConfig(moved.config)
-                // Перекрывает nextSelection из changeConfig: число правил не изменилось,
-                // но правило переехало — выбор следует за ним
-                setSelectedNode(moved.selected)
-              }}
-              onRemove={() => {
-                changeConfig(removeNode(parsedConfig, selectedNode))
-                setSelectedNode(null)
-              }}
-              onClose={() => setSelectedNode(null)}
+        )}
+        {tab === 'topology' && parsedConfig === undefined && (
+          <div className="wb-canvas wb-canvas-empty">
+            <EmptyState
+              title="Конфиг не проходит валидацию"
+              hint="Исправьте ошибки на вкладке JSON — топология строится по валидному документу."
             />
+          </div>
+        )}
+        {tab === 'topology' && parsedConfig !== undefined && (
+          <>
+            <div className="wb-canvas">
+              <TopologyView
+                profileUuid={profile.uuid}
+                config={parsedConfig}
+                ctx={ctx}
+                selectedId={selectedNode}
+                onSelect={setSelectedNode}
+                onChangeConfig={changeConfig}
+              />
+            </div>
+            {selectedNode && (
+              <NodeInspector
+                key={selectedNode}
+                config={parsedConfig}
+                nodeId={selectedNode}
+                inboundSquads={ctx.inboundSquads}
+                onApply={(value) => changeConfig(applyNodeJson(parsedConfig, selectedNode, value))}
+                onMoveRule={(dir) => {
+                  const moved = moveSelectedRule(parsedConfig, selectedNode, dir)
+                  if (!moved) return
+                  changeConfig(moved.config)
+                  // Перекрывает nextSelection из changeConfig: число правил не изменилось,
+                  // но правило переехало — выбор следует за ним
+                  setSelectedNode(moved.selected)
+                }}
+                onRemove={() => {
+                  changeConfig(removeNode(parsedConfig, selectedNode))
+                  setSelectedNode(null)
+                }}
+                onClose={() => setSelectedNode(null)}
+              />
+            )}
+          </>
+        )}
+      </div>
+
+      <footer className="wb-statusbar">
+        <div className="wb-status-head">
+          {validation.issues.length === 0 ? (
+            <span className="muted">Конфиг валиден</span>
+          ) : (
+            <button
+              type="button"
+              className="wb-status-toggle"
+              aria-expanded={issuesOpen}
+              onClick={() => setIssuesOpen((v) => !v)}
+            >
+              <span className="collapsible-marker" aria-hidden="true">
+                ▸
+              </span>
+              {errorCount > 0 && <span className="field-error">ошибок: {errorCount}</span>}
+              {errorCount > 0 && warningCount > 0 && <span aria-hidden="true">·</span>}
+              {warningCount > 0 && <span className="field-warning">предупреждений: {warningCount}</span>}
+            </button>
           )}
+          <span className="spacer" />
+          {saveError && <span className="field-error">{saveError}</span>}
         </div>
-      )}
+        {issuesOpen && validation.issues.length > 0 && (
+          <div className="wb-status-body">
+            <IssueList issues={validation.issues} />
+          </div>
+        )}
+      </footer>
 
       <SaveDialog
         open={saveOpen}
@@ -315,7 +340,7 @@ function EditorInner({ profile }: { profile: Profile }) {
         }}
         onClose={() => setBackupsOpen(false)}
       />
-    </main>
+    </div>
   )
 }
 

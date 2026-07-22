@@ -70,6 +70,10 @@
 
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
   --dur: 140ms;
+
+  /* Держится в паре с inspectorWidth() в TopologyView: на эту ширину сдвигается
+     вьюпорт графа, чтобы узлы не уходили под панель */
+  --inspector-w: min(440px, 92vw);
 }
 
 * { box-sizing: border-box; }
@@ -497,6 +501,8 @@ p { margin: 0 0 10px; }
 
 .kv-rows { display: flex; flex-direction: column; gap: 6px; }
 .kv-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; align-items: center; }
+/* Кнопка «добавить» — по содержимому: во flex-колонке она растянулась бы на всю ширину */
+.list-editor > .btn, .kv-rows > .btn { align-self: flex-start; }
 
 .collapsible {
   display: flex;
@@ -553,7 +559,10 @@ p { margin: 0 0 10px; }
 .wb-title h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .wb-stage { position: relative; min-height: 0; }
-.wb-canvas { position: absolute; inset: 0; }
+/* overflow: редактор JSON тянет свою высоту от контента и без клипа
+   выезжает за сцену, накрывая статус-бар */
+.wb-canvas { position: absolute; inset: 0; overflow: hidden; }
+.wb-canvas-empty { display: grid; place-items: center; padding: 24px; }
 
 .wb-statusbar {
   display: flex;
@@ -583,15 +592,11 @@ p { margin: 0 0 10px; }
   padding: 0;
 }
 .wb-status-toggle:hover { color: var(--ink); }
+.wb-status-toggle[aria-expanded='true'] .collapsible-marker { transform: rotate(90deg); }
 .wb-status-body { overflow-y: auto; padding: 0 14px 12px; }
 
-/* Плавающий док инструментов над канвасом */
+/* Плавающий док инструментов над канвасом (позиционирует React Flow Panel) */
 .wb-dock {
-  position: absolute;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  z-index: 8;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -601,6 +606,18 @@ p { margin: 0 0 10px; }
   border: 1px solid var(--rail-hi);
   border-radius: 999px;
   box-shadow: var(--shadow-2);
+}
+
+/* Подсказка на пустом канвасе — приглашение к действию, а не украшение */
+.canvas-hint {
+  margin: 0;
+  padding: 7px 14px;
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+  background: color-mix(in srgb, var(--panel-2) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--rail);
+  border-radius: 999px;
 }
 .wb-dock .btn { border-color: transparent; background: transparent; border-radius: 999px; }
 .wb-dock .btn:hover:not(:disabled) { background: var(--panel-3); border-color: transparent; }
@@ -612,7 +629,7 @@ p { margin: 0 0 10px; }
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(440px, 92vw);
+  width: var(--inspector-w);
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -629,16 +646,21 @@ p { margin: 0 0 10px; }
   flex: none;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--rail);
 }
+/* Переключатель вкладок — по содержимому, а не во всю ширину колонки */
+.wb-inspector-head > .segmented { align-self: flex-start; }
 .wb-inspector-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 14px;
 }
+/* Редактор JSON сам управляет своей прокруткой и занимает высоту целиком */
+.wb-inspector-body-flush { padding: 0; overflow: hidden; }
 .wb-inspector-foot {
   flex: none;
   display: flex;
@@ -683,6 +705,9 @@ p { margin: 0 0 10px; }
 
 .fnode {
   --node-hue: var(--rail-hi);
+  /* Кольцо выделения: у правил своего цвета нет, поэтому им достаётся акцент,
+     иначе выбранное правило было бы неотличимо от невыбранного */
+  --node-select: var(--flux);
   position: relative;
   min-width: 216px;
   padding: 9px 11px 10px;
@@ -694,9 +719,9 @@ p { margin: 0 0 10px; }
     background var(--dur) var(--ease);
 }
 .fnode:hover { border-color: var(--rail-hi); background: var(--panel-2); }
-.fnode-in { --node-hue: var(--flux); }
-.fnode-out { --node-hue: var(--ember); }
-.fnode-squad { --node-hue: var(--flux); }
+.fnode-in { --node-hue: var(--flux); --node-select: var(--flux); }
+.fnode-out { --node-hue: var(--ember); --node-select: var(--ember); }
+.fnode-squad { --node-hue: var(--flux); --node-select: var(--flux); }
 
 /* Торцевая марка — цветной корешок со стороны, откуда приходит/уходит сигнал */
 .fnode-in::before, .fnode-out::before, .fnode-squad::before {
@@ -713,8 +738,8 @@ p { margin: 0 0 10px; }
 .fnode-out::before { right: -1px; }
 
 .fnode-selected {
-  border-color: var(--node-hue);
-  box-shadow: 0 0 0 1px var(--node-hue), 0 0 24px -6px var(--node-hue), var(--shadow-2);
+  border-color: var(--node-select);
+  box-shadow: 0 0 0 1px var(--node-select), 0 0 24px -6px var(--node-select), var(--shadow-2);
 }
 
 .fnode-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
@@ -758,7 +783,6 @@ p { margin: 0 0 10px; }
   border-right: 1px solid var(--rail);
 }
 .fnode-metric:last-child { border-right: none; }
-.fnode-metric-key { color: var(--ink-faint); }
 .fnode-metric-accent { color: var(--node-hue); }
 
 .fnode-flag {
@@ -776,17 +800,17 @@ p { margin: 0 0 10px; }
 /* Приоритет правила: правила срабатывают сверху вниз, номер несёт смысл */
 .fnode-priority {
   position: absolute;
-  top: 4px;
-  right: 8px;
+  top: 6px;
+  right: 10px;
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 700;
   line-height: 1;
   color: var(--ink);
-  opacity: 0.07;
+  opacity: 0.16;
   pointer-events: none;
 }
-.fnode-conds { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.fnode-conds { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .fnode-cond {
   font-family: var(--font-mono);
   font-size: var(--t-micro);
@@ -868,4 +892,6 @@ p { margin: 0 0 10px; }
 .react-flow__controls-button:hover { background: var(--panel-3); color: var(--ink); }
 .react-flow__controls-button svg { fill: currentColor; }
 .react-flow__controls-button:last-child { border-bottom: none; }
-.react-flow__minimap { background: var(--panel); border: 1px solid var(--rail); border-radius: var(--radius-xs); }
+/* Точки фона задаём стилем: React Flow пишет цвет в презентационный атрибут fill,
+   где var() не раскрывается */
+.react-flow__background pattern circle { fill: var(--rail); }

@@ -142,6 +142,29 @@ export function connectRule(config: XrayConfig, inboundTag: string, outboundTag:
   return next
 }
 
+// Ребро inbound → правило: добавляет тег в inboundTag правила.
+// Правило без inboundTag означает «любой inbound»; протянув кабель, пользователь
+// сужает его до конкретного — это и есть смысл нарисованного соединения.
+// Повтор и несуществующий индекс возвращают ТОТ ЖЕ config (вызывающий проверяет `=== config`).
+export function attachInboundToRule(config: XrayConfig, inboundTag: string, ruleIndex: number): XrayConfig {
+  const rule = config.routing?.rules?.[ruleIndex]
+  if (!rule || (rule.inboundTag ?? []).includes(inboundTag)) return config
+  const next = clone(config)
+  const target = next.routing!.rules![ruleIndex]!
+  target.inboundTag = [...(target.inboundTag ?? []), inboundTag]
+  return next
+}
+
+// Ребро правило → outbound: назначает правилу точку выхода.
+// Правило имеет ровно один outboundTag, поэтому прежний перезаписывается.
+export function setRuleOutbound(config: XrayConfig, ruleIndex: number, outboundTag: string): XrayConfig {
+  const rule = config.routing?.rules?.[ruleIndex]
+  if (!rule || rule.outboundTag === outboundTag) return config
+  const next = clone(config)
+  next.routing!.rules![ruleIndex]!.outboundTag = outboundTag
+  return next
+}
+
 const EDGE_IN_RULE = /^e:in:(.+)->rule:(\d+)$/
 const EDGE_RULE_OUT = /^e:rule:(\d+)->out:(.+)$/
 

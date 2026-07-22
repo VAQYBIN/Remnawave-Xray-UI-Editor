@@ -13,7 +13,11 @@ export function CollapsibleSection({
   return (
     <div className="collapsible">
       <button type="button" className="collapsible-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span> {title}
+        {/* Маркер один, поворачивается CSS'ом — состояние читается по aria-expanded */}
+        <span className="collapsible-marker" aria-hidden="true">
+          ▸
+        </span>
+        {title}
       </button>
       {open ? <div className="collapsible-body">{children}</div> : null}
     </div>

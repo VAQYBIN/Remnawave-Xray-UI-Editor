@@ -20,7 +20,10 @@ interface Props {
 }
 
 interface PopPosition {
-  top: number
+  /** Раскрытие вниз — якорь сверху; вверх — снизу, иначе короткий список
+   *  повис бы в отрыве от кнопки на всю разрешённую высоту */
+  top?: number
+  bottom?: number
   left: number
   width: number
   maxHeight: number
@@ -37,7 +40,8 @@ export function computePosition(rect: DOMRect, viewportHeight: number): PopPosit
   const dropDown = below >= Math.min(POP_MAX, above) || below >= above
   const maxHeight = Math.max(120, Math.min(POP_MAX, dropDown ? below : above))
   return {
-    top: dropDown ? rect.bottom + POP_GAP : rect.top - POP_GAP - maxHeight,
+    top: dropDown ? rect.bottom + POP_GAP : undefined,
+    bottom: dropDown ? undefined : viewportHeight - rect.top + POP_GAP,
     left: rect.left,
     width: rect.width,
     maxHeight,
@@ -74,9 +78,15 @@ export function Select({
   const selectedIndex = useMemo(() => options.findIndex((o) => o.value === value), [options, value])
   const selected = selectedIndex === -1 ? undefined : options[selectedIndex]
 
+  // Модальный <dialog> живёт в top layer: портал в body оказался бы под ним при любом
+  // z-index. Поэтому список едет в тот же диалог, если триггер внутри него.
+  const [container, setContainer] = useState<HTMLElement | null>(null)
+
   const openList = useCallback(() => {
-    const rect = triggerRef.current?.getBoundingClientRect()
+    const trigger = triggerRef.current
+    const rect = trigger?.getBoundingClientRect()
     if (rect) setPos(computePosition(rect, window.innerHeight))
+    setContainer(trigger?.closest('dialog') ?? document.body)
     setActive(selectedIndex === -1 ? 0 : selectedIndex)
     setOpen(true)
   }, [selectedIndex])
@@ -96,7 +106,9 @@ export function Select({
     [options, onChange, closeList],
   )
 
-  // Закрываем на клик вне, прокрутку предка и ресайз — иначе список «отклеится» от кнопки
+  // Клик вне закрывает список. Прокрутка и ресайз не закрывают, а пересчитывают
+  // позицию: закрытие ломало бы выбор, когда браузер сам подкручивает опцию
+  // в видимую область (клавиатура, скринридер, автотесты).
   useEffect(() => {
     if (!open) return
     const onPointerDown = (e: MouseEvent) => {
@@ -104,14 +116,17 @@ export function Select({
       if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return
       setOpen(false)
     }
-    const onAway = () => setOpen(false)
+    const reposition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect()
+      if (rect) setPos(computePosition(rect, window.innerHeight))
+    }
     document.addEventListener('mousedown', onPointerDown)
-    window.addEventListener('resize', onAway)
-    window.addEventListener('scroll', onAway, true)
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
     return () => {
       document.removeEventListener('mousedown', onPointerDown)
-      window.removeEventListener('resize', onAway)
-      window.removeEventListener('scroll', onAway, true)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
     }
   }, [open])
 
@@ -203,13 +218,24 @@ export function Select({
       </button>
 
       {open &&
+        container &&
         createPortal(
           <div
             ref={popRef}
             id={listId}
             role="listbox"
             className="select-pop"
-            style={pos ? { top: pos.top, left: pos.left, minWidth: pos.width, maxHeight: pos.maxHeight } : undefined}
+            style={
+              pos
+                ? {
+                    top: pos.top,
+                    bottom: pos.bottom,
+                    left: pos.left,
+                    minWidth: pos.width,
+                    maxHeight: pos.maxHeight,
+                  }
+                : undefined
+            }
           >
             {options.map((option, index) => (
               <div
@@ -232,7 +258,7 @@ export function Select({
               </div>
             ))}
           </div>,
-          document.body,
+          container,
         )}
     </>
   )

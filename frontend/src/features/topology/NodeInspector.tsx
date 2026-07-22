@@ -10,11 +10,20 @@ import { RuleForm } from '../inspector/RuleForm'
 import { DnsForm } from '../inspector/DnsForm'
 
 const inspectorTheme = EditorView.theme({
-  '&': { backgroundColor: 'var(--bg)', fontSize: '12px' },
+  '&': { backgroundColor: 'var(--void)', fontSize: '12px', height: '100%' },
   '.cm-content': { fontFamily: 'var(--font-mono)' },
+  '.cm-gutters': { backgroundColor: 'var(--void)', borderRight: '1px solid var(--rail)' },
 })
 
 type Obj = Record<string, unknown>
+
+const KIND_LABEL: Record<string, string> = {
+  inbound: 'вход',
+  outbound: 'выход',
+  rule: 'правило',
+  dns: 'резолвер',
+  other: 'узел',
+}
 
 interface Props {
   config: XrayConfig
@@ -58,6 +67,7 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
   const oldTag = kind === 'inbound' ? nodeId.slice(3) : ''
   const ruleIndex = kind === 'rule' ? Number(nodeId.slice(5)) : -1
   const ruleCount = config.routing?.rules?.length ?? 0
+  const showJson = tab === 'json' || kind === 'other'
 
   function apply() {
     let parsed: unknown
@@ -83,100 +93,116 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
   }
 
   return (
-    <aside
-      style={{
-        width: 420, flex: 'none', display: 'flex', flexDirection: 'column', gap: 8,
-        border: '1px solid var(--border)', borderRadius: 8, padding: 12, background: 'var(--surface)',
-      }}
-    >
-      <div className="row">
+    <aside className="wb-inspector">
+      <div className="wb-inspector-head">
+        <div className="row">
+          <span className="eyebrow">{KIND_LABEL[kind]}</span>
+          <span className="spacer" />
+          <Button variant="ghost" onClick={onClose} aria-label="Закрыть">
+            ✕
+          </Button>
+        </div>
         <span className="mono">{nodeId}</span>
-        <span className="spacer" />
-        <Button variant="ghost" onClick={onClose} aria-label="Закрыть">✕</Button>
+
+        {kind !== 'other' && (
+          <div className="segmented">
+            <Button aria-pressed={tab === 'form'} onClick={() => setTab('form')}>
+              Форма
+            </Button>
+            <Button aria-pressed={tab === 'json'} onClick={() => setTab('json')}>
+              JSON узла
+            </Button>
+          </div>
+        )}
+
+        {kind === 'rule' && onMoveRule && (
+          <div className="row">
+            <span className="muted">
+              порядок: {ruleIndex + 1} из {ruleCount}
+            </span>
+            <span className="spacer" />
+            {/* Перестановка меняет selectedNode → инспектор remount'ится; при
+                неприменённых правках они потерялись бы молча — блокируем кнопки */}
+            <Button
+              variant="ghost"
+              disabled={ruleIndex <= 0 || text !== original}
+              aria-label="Переместить правило выше"
+              onClick={() => onMoveRule(-1)}
+            >
+              ↑
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={ruleIndex >= ruleCount - 1 || text !== original}
+              aria-label="Переместить правило ниже"
+              onClick={() => onMoveRule(1)}
+            >
+              ↓
+            </Button>
+          </div>
+        )}
       </div>
 
-      {kind !== 'other' && (
-        <div className="row" style={{ gap: 4 }}>
-          <Button variant={tab === 'form' ? 'primary' : 'ghost'} onClick={() => setTab('form')}>Форма</Button>
-          <Button variant={tab === 'json' ? 'primary' : 'ghost'} onClick={() => setTab('json')}>JSON узла</Button>
-        </div>
-      )}
+      <div className={showJson ? 'wb-inspector-body wb-inspector-body-flush' : 'wb-inspector-body'}>
+        {!showJson && (
+          <div className="inspector-form">
+            {parsedNode === null && (
+              <p className="muted">JSON узла некорректен — исправьте его на вкладке «JSON узла».</p>
+            )}
+            {parsedNode !== null && kind === 'inbound' && (
+              <InboundForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
+            )}
+            {parsedNode !== null && kind === 'outbound' && (
+              <OutboundForm
+                value={parsedNode}
+                onChange={(next) => setText(JSON.stringify(next, null, 2))}
+                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+              />
+            )}
+            {parsedNode !== null && kind === 'rule' && (
+              <RuleForm
+                value={parsedNode}
+                onChange={(next) => setText(JSON.stringify(next, null, 2))}
+                inboundTags={(config.inbounds ?? []).map((i) => i.tag)}
+                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+              />
+            )}
+            {parsedNode !== null && kind === 'dns' && (
+              <DnsForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
+            )}
+          </div>
+        )}
 
-      {kind === 'rule' && onMoveRule && (
-        <div className="row">
-          <span className="muted">порядок: {ruleIndex + 1} из {ruleCount}</span>
-          <span className="spacer" />
-          {/* Перестановка меняет selectedNode → инспектор remount'ится; при
-              неприменённых правках они потерялись бы молча — блокируем кнопки */}
-          <Button
-            variant="ghost"
-            disabled={ruleIndex <= 0 || text !== original}
-            aria-label="Переместить правило выше"
-            onClick={() => onMoveRule(-1)}
-          >
-            ↑
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={ruleIndex >= ruleCount - 1 || text !== original}
-            aria-label="Переместить правило ниже"
-            onClick={() => onMoveRule(1)}
-          >
-            ↓
-          </Button>
-        </div>
-      )}
+        {showJson && (
+          <CodeMirror
+            key={`${nodeId}:${original}`}
+            value={text}
+            height="100%"
+            theme="dark"
+            extensions={extensions}
+            onChange={setText}
+          />
+        )}
+      </div>
 
-      {tab === 'form' && kind !== 'other' && (
-        <div className="inspector-form">
-          {parsedNode === null && <p className="muted">JSON узла некорректен — исправьте его на вкладке «JSON узла».</p>}
-          {parsedNode !== null && kind === 'inbound' && (
-            <InboundForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
-          )}
-          {parsedNode !== null && kind === 'outbound' && (
-            <OutboundForm
-              value={parsedNode}
-              onChange={(next) => setText(JSON.stringify(next, null, 2))}
-              outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
-            />
-          )}
-          {parsedNode !== null && kind === 'rule' && (
-            <RuleForm
-              value={parsedNode}
-              onChange={(next) => setText(JSON.stringify(next, null, 2))}
-              inboundTags={(config.inbounds ?? []).map((i) => i.tag)}
-              outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
-            />
-          )}
-          {parsedNode !== null && kind === 'dns' && (
-            <DnsForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
-          )}
-        </div>
-      )}
-
-      {(tab === 'json' || kind === 'other') && (
-        <CodeMirror
-          key={`${nodeId}:${original}`}
-          value={text}
-          height="calc(100vh - 380px)"
-          theme="dark"
-          extensions={extensions}
-          onChange={setText}
-        />
-      )}
-
-      {parseError && <span className="field-error">{parseError}</span>}
-      <div className="row">
-        <Button variant="danger" onClick={() => setConfirmOpen(true)}>Удалить узел</Button>
+      <div className="wb-inspector-foot">
+        <Button variant="danger" onClick={() => setConfirmOpen(true)}>
+          Удалить узел
+        </Button>
         <span className="spacer" />
-        <Button variant="primary" onClick={apply} disabled={text === original}>Применить</Button>
+        {parseError && <span className="field-error">{parseError}</span>}
+        <Button variant="primary" onClick={apply} disabled={text === original}>
+          Применить
+        </Button>
       </div>
 
       <Dialog open={confirmOpen} title="Удалить узел" onClose={() => setConfirmOpen(false)}>
         <p>Удалить «{nodeId}» из конфига? Ссылки правил на него останутся и будут подсвечены как предупреждения.</p>
         <div className="row">
           <span className="spacer" />
-          <Button variant="ghost" onClick={() => setConfirmOpen(false)}>Отмена</Button>
+          <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
+            Отмена
+          </Button>
           <Button
             variant="danger"
             onClick={() => {
@@ -196,7 +222,9 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
         </p>
         <div className="row">
           <span className="spacer" />
-          <Button variant="ghost" onClick={() => setRetagValue(null)}>Отмена</Button>
+          <Button variant="ghost" onClick={() => setRetagValue(null)}>
+            Отмена
+          </Button>
           <Button
             variant="primary"
             onClick={() => {

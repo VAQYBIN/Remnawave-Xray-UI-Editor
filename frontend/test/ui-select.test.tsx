@@ -122,13 +122,15 @@ describe('computePosition', () => {
   it('раскрывает вниз, когда снизу достаточно места', () => {
     const pos = computePosition(rect(100, 130), 800)
     expect(pos.top).toBe(134)
+    expect(pos.bottom).toBeUndefined()
     expect(pos.left).toBe(20)
     expect(pos.width).toBe(200)
   })
 
-  it('раскрывает вверх, когда снизу места меньше, чем сверху', () => {
+  it('раскрывает вверх с якорем снизу, чтобы короткий список не отрывался от кнопки', () => {
     const pos = computePosition(rect(600, 630), 660)
-    expect(pos.top).toBeLessThan(600)
+    expect(pos.top).toBeUndefined()
+    expect(pos.bottom).toBe(64) // 660 - 600 + 4
     expect(pos.maxHeight).toBeLessThanOrEqual(320)
   })
 })
