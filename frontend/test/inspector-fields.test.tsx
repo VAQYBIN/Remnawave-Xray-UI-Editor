@@ -1,7 +1,14 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { PortField, StringListField, TagListField, TextField } from '../src/features/inspector/fields'
+import {
+  CheckboxField,
+  MultiSelectField,
+  PortField,
+  StringListField,
+  TagListField,
+  TextField,
+} from '../src/features/inspector/fields'
 
 describe('TextField', () => {
   it('пустая строка превращается в undefined (ключ удаляется)', async () => {
@@ -44,5 +51,48 @@ describe('TagListField', () => {
     expect(onChange).toHaveBeenCalledWith(['cd34'])
     await userEvent.click(screen.getByText('+ ID'))
     expect(onAdd).toHaveBeenCalled()
+  })
+})
+
+describe('CheckboxField', () => {
+  it('включение даёт true, выключение даёт undefined (ключ удаляется)', async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(<CheckboxField label="multiMode" value={undefined} onChange={onChange} />)
+    await userEvent.click(screen.getByLabelText('multiMode'))
+    expect(onChange).toHaveBeenLastCalledWith(true)
+    rerender(<CheckboxField label="multiMode" value={true} onChange={onChange} />)
+    await userEvent.click(screen.getByLabelText('multiMode'))
+    expect(onChange).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('показывает подсказку', () => {
+    render(<CheckboxField label="routeOnly" hint="Только для маршрутизации" value={undefined} onChange={() => {}} />)
+    expect(screen.getByText('Только для маршрутизации')).toBeInTheDocument()
+  })
+})
+
+describe('MultiSelectField', () => {
+  const options = [
+    { value: 'http', label: 'http' },
+    { value: 'tls', label: 'tls' },
+    { value: 'quic', label: 'quic' },
+  ]
+
+  it('клик добавляет значение, повторный клик убирает; пусто → undefined', async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <MultiSelectField label="destOverride" options={options} value={['http']} onChange={onChange} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'tls' }))
+    expect(onChange).toHaveBeenLastCalledWith(['http', 'tls'])
+    rerender(<MultiSelectField label="destOverride" options={options} value={['http']} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: 'http' }))
+    expect(onChange).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('выбранные чипы помечены aria-pressed', () => {
+    render(<MultiSelectField label="destOverride" options={options} value={['tls']} onChange={() => {}} />)
+    expect(screen.getByRole('button', { name: 'tls' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'http' })).toHaveAttribute('aria-pressed', 'false')
   })
 })

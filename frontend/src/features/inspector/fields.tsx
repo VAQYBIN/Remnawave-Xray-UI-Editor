@@ -1,16 +1,27 @@
 import { useState, type ReactNode } from 'react'
-import { Button, Select, TextInput } from '../../shared/ui'
+import { Button, Checkbox, Select, TextInput } from '../../shared/ui'
 
 export interface Option {
   value: string
   label: string
 }
 
-export function Field({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
+export function Field({
+  label,
+  hint,
+  mono,
+  children,
+}: {
+  label: string
+  hint?: string
+  mono?: boolean
+  children: ReactNode
+}) {
   return (
     <label className={mono ? 'field field-mono' : 'field'}>
       <span className="field-label">{label}</span>
       {children}
+      {hint ? <span className="field-hint">{hint}</span> : null}
     </label>
   )
 }
@@ -189,6 +200,68 @@ export function TagListField({
         ))}
         <Button onClick={onAdd}>{addLabel}</Button>
       </div>
+    </div>
+  )
+}
+
+// false → undefined: ключ с дефолтным значением удаляется из конфига
+export function CheckboxField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  value: boolean | undefined
+  onChange: (v: boolean | undefined) => void
+}) {
+  return (
+    <div className="field">
+      <Checkbox label={label} checked={value ?? false} onChange={(v) => onChange(v ? true : undefined)} />
+      {hint ? <span className="field-hint">{hint}</span> : null}
+    </div>
+  )
+}
+
+// Набор значений чипами-переключателями; пустой набор → undefined
+export function MultiSelectField({
+  label,
+  hint,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  options: Option[]
+  value: string[] | undefined
+  onChange: (v: string[] | undefined) => void
+}) {
+  const selected = value ?? []
+  return (
+    <div className="field">
+      <span className="field-label">{label}</span>
+      <div className="row-wrap">
+        {options.map((o) => {
+          const active = selected.includes(o.value)
+          return (
+            <button
+              key={o.value}
+              type="button"
+              className={active ? 'multi-chip multi-chip-active' : 'multi-chip'}
+              aria-pressed={active}
+              onClick={() => {
+                const next = active ? selected.filter((v) => v !== o.value) : [...selected, o.value]
+                onChange(next.length > 0 ? next : undefined)
+              }}
+            >
+              {o.label}
+            </button>
+          )
+        })}
+      </div>
+      {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   )
 }
