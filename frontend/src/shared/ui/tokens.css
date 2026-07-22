@@ -357,6 +357,28 @@ p { margin: 0 0 10px; }
 /* Опция, несовместимая с текущим набором — оставляем выбираемой, но помечаем */
 .select-option[data-warn='true'] .select-option-label { color: var(--ember); }
 
+/* Ряд метрик прибора: ячейки, разделённые хайрлайнами. Один язык у узлов графа
+   и у карточек профилей — inbound выглядит одинаково, где бы ни показывался. */
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--rail);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  background: var(--void);
+}
+.metric {
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--ink);
+  border-right: 1px solid var(--rail);
+  white-space: nowrap;
+}
+.metric:last-child { border-right: none; }
+/* --node-hue объявлен только на узлах графа; вне их берётся акцент по умолчанию */
+.metric-accent { color: var(--node-hue, var(--flux)); }
+
 /* =========================================================================
    Поверхности
    ========================================================================= */
@@ -368,12 +390,6 @@ p { margin: 0 0 10px; }
   padding: 16px;
   transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease),
     transform var(--dur) var(--ease);
-}
-.card[data-clickable='true'] { cursor: pointer; }
-.card[data-clickable='true']:hover {
-  border-color: var(--rail-hi);
-  background: var(--panel-2);
-  transform: translateY(-1px);
 }
 
 .chip {
@@ -532,6 +548,127 @@ p { margin: 0 0 10px; }
 .collapsible-marker { transition: transform var(--dur) var(--ease); flex: none; }
 .collapsible-toggle[aria-expanded='true'] .collapsible-marker { transform: rotate(90deg); color: var(--flux); }
 .collapsible-body { display: flex; flex-direction: column; gap: 8px; }
+
+/* =========================================================================
+   Страницы вне воркбенча: список профилей и вход
+   ========================================================================= */
+
+.page { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+
+.masthead {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--rail);
+}
+.masthead h1 { font-size: var(--t-xl); }
+.masthead-mark { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 14px;
+}
+
+.profile-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+.profile-card:hover, .profile-card:focus-within {
+  border-color: var(--rail-hi);
+  background: var(--panel-2);
+}
+/* Ссылка растягивается на карточку целиком: клик мышью работает где угодно,
+   а Tab и средняя кнопка — как на обычной ссылке, чего <div onClick> не давал */
+.card-link { color: inherit; text-decoration: none; outline: none; }
+.card-link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.card-link:focus-visible::after { outline: 2px solid var(--flux); outline-offset: 2px; }
+
+.profile-inbounds { display: flex; flex-direction: column; gap: 6px; }
+.profile-inbound { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.profile-inbound-tag {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink);
+}
+.profile-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rail);
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+}
+
+/* Иконочная кнопка — второстепенное действие рядом с заголовком.
+   Поверх ссылки-подложки карточки, иначе перехватится ею. */
+.icon-btn {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.icon-btn:hover { color: var(--alert); background: var(--alert-soft); border-color: var(--alert); }
+
+/* --- Вход --- */
+
+.auth {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Та же точечная сетка, что на канвасе, плюс мягкое свечение по центру */
+  background-image:
+    radial-gradient(circle, var(--rail) 1px, transparent 1px),
+    radial-gradient(ellipse 55% 45% at 50% 42%, color-mix(in srgb, var(--flux) 8%, transparent), transparent 70%);
+  background-size: 22px 22px, auto;
+}
+.auth-card {
+  width: min(360px, 100%);
+  padding: 24px;
+  box-shadow: var(--shadow-pop);
+}
+.auth-title { font-family: var(--font-mono); font-size: var(--t-lg); font-weight: 600; }
+.auth-caret { color: var(--flux); }
+.auth-sub { color: var(--ink-dim); margin: 2px 0 20px; }
+
+/* Поле пароля — гнездо коммутации: рамка загорается кабельным градиентом,
+   когда в него «включаются». Единственный акцент на этом экране. */
+.jack-field { position: relative; padding: 1px; border-radius: var(--radius-xs); }
+.jack-field::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--flux), var(--ember));
+  opacity: 0.32;
+  transition: opacity var(--dur) var(--ease);
+}
+.jack-field:focus-within::before { opacity: 1; }
+.jack-field .input {
+  position: relative;
+  border-color: transparent;
+  border-radius: calc(var(--radius-xs) - 1px);
+}
+.jack-field .input:focus { border-color: transparent; box-shadow: none; background: var(--void); }
 
 /* =========================================================================
    Воркбенч редактора — полноэкранная раскладка без скролла страницы
@@ -762,28 +899,7 @@ p { margin: 0 0 10px; }
 }
 .fnode-sub { font-size: var(--t-xs); color: var(--ink-dim); }
 
-/* Ряд метрик: ячейки прибора, разделённые хайрлайнами */
-.fnode-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  margin-top: 7px;
-  border: 1px solid var(--rail);
-  border-radius: var(--radius-xs);
-  overflow: hidden;
-  background: var(--void);
-}
-.fnode-metric {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 3px 8px;
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  color: var(--ink);
-  border-right: 1px solid var(--rail);
-}
-.fnode-metric:last-child { border-right: none; }
-.fnode-metric-accent { color: var(--node-hue); }
+.fnode .metrics { margin-top: 7px; }
 
 .fnode-flag {
   font-family: var(--font-mono);

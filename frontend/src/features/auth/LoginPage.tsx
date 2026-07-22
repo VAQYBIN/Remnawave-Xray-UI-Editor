@@ -14,29 +14,38 @@ export function LoginPage() {
   }
 
   return (
-    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-      <form onSubmit={onSubmit} className="card" style={{ width: 340 }}>
-        <h1 className="mono" style={{ marginBottom: 4 }}>
-          Xray UI Editor<span style={{ color: 'var(--in)' }}>_</span>
+    <main className="auth">
+      <form onSubmit={onSubmit} className="card auth-card">
+        <span className="eyebrow">remnawave · xray</span>
+        <h1 className="auth-title">
+          Xray UI Editor<span className="auth-caret">_</span>
         </h1>
-        <p className="muted" style={{ marginTop: 0, marginBottom: 16 }}>
-          Редактор конфигов Remnawave
-        </p>
+        <p className="auth-sub">Редактор конфиг-профилей панели</p>
+
         <div className="field">
           <label className="field-label" htmlFor="password">
             Пароль
           </label>
-          <TextInput
-            id="password"
-            type="password"
-            autoFocus
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          {login.isError && <span className="field-error">{(login.error as Error).message}</span>}
+          <div className="jack-field">
+            <TextInput
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              aria-describedby={login.isError ? 'login-error' : undefined}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {login.isError && (
+            <span className="field-error" id="login-error" role="alert">
+              {(login.error as Error).message}
+            </span>
+          )}
         </div>
-        <Button type="submit" variant="primary" disabled={!password || login.isPending} style={{ width: '100%' }}>
-          Войти
+
+        <Button type="submit" variant="primary" disabled={!password || login.isPending} style={{ width: '100%', justifyContent: 'center' }}>
+          {login.isPending ? 'Проверяем…' : 'Войти'}
         </Button>
       </form>
     </main>

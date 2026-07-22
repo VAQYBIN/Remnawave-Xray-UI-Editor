@@ -9,7 +9,7 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Remnawave](https://img.shields.io/badge/Remnawave-2.8.0-6E56CF)
-![tests](https://img.shields.io/badge/tests-384_passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-387_passing-brightgreen)
 
 </div>
 
@@ -114,7 +114,7 @@ npm run dev:frontend   # Vite на http://localhost:5173, проксирует /
 ```bash
 npm test                                    # тесты обоих workspace
 npm test -w backend                         # backend (vitest): 55 тестов
-npm test -w frontend                        # frontend (vitest, jsdom): 315 тестов
+npm test -w frontend                        # frontend (vitest, jsdom): 318 тестов
 (cd frontend && npx playwright install chromium)   # один раз перед первым e2e
 npm run e2e -w frontend                     # Playwright: топология, коммутация, формы (14 сценариев)
 ```

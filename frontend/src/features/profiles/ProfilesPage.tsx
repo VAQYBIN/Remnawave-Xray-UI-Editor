@@ -1,48 +1,77 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useDeleteProfile, useLogout, useProfiles, type Profile } from '../../shared/api'
+import { Link, useNavigate } from 'react-router-dom'
+import { useDeleteProfile, useLogout, useProfiles, type PanelInboundView, type Profile } from '../../shared/api'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { useDraftStore } from '../editor/draftStore'
 import { usePositionsStore } from '../topology/positionsStore'
 import { CreateProfileDialog } from './CreateProfileDialog'
 
-const MAX_CHIPS = 4
+const MAX_INBOUNDS = 3
 
-function ProfileCard({ profile, onDelete }: { profile: Profile; onDelete: () => void }) {
-  const navigate = useNavigate()
-  const shown = profile.inbounds.slice(0, MAX_CHIPS)
+// Профиль в списке — тот же приборный язык, что у узлов графа: тег, затем
+// ячейки порта, транспорта и шифрования.
+function InboundRow({ inbound }: { inbound: PanelInboundView }) {
+  return (
+    <div className="profile-inbound">
+      <span className="profile-inbound-tag">{inbound.tag}</span>
+      <span className="metrics">
+        {inbound.port != null && <span className="metric metric-accent">:{inbound.port}</span>}
+        {inbound.network && <span className="metric">{inbound.network}</span>}
+        {inbound.security && inbound.security !== 'none' && (
+          <span className="metric metric-accent">{inbound.security}</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+function ProfileCard({ profile, hasDraft, onDelete }: { profile: Profile; hasDraft: boolean; onDelete: () => void }) {
+  const shown = profile.inbounds.slice(0, MAX_INBOUNDS)
   const hidden = profile.inbounds.length - shown.length
 
   return (
-    <Card onClick={() => navigate(`/profiles/${profile.uuid}`)}>
-      <h2 style={{ marginBottom: 10 }}>{profile.name}</h2>
-      <div className="row-wrap" style={{ marginBottom: 10 }}>
-        {shown.map((inb) => (
-          <Chip key={inb.uuid} dir="in">
-            {inb.port != null ? `${inb.tag} :${inb.port}` : inb.tag}
-          </Chip>
-        ))}
-        {hidden > 0 && <Chip dir="none">+{hidden}</Chip>}
-        {profile.inbounds.length === 0 && <span className="muted">Нет inbound'ов</span>}
-      </div>
-      <p className="muted" style={{ margin: '0 0 10px' }}>
-        {profile.nodes.length > 0
-          ? profile.nodes.map((n) => `${n.countryCode} ${n.name}`).join(', ')
-          : 'Нет привязанных нод'}
-      </p>
+    <Card className="profile-card">
       <div className="row">
-        <span className="muted">обновлён {relativeTime(profile.updatedAt)}</span>
+        <h2>
+          <Link className="card-link" to={`/profiles/${profile.uuid}`}>
+            {profile.name}
+          </Link>
+        </h2>
         <span className="spacer" />
-        <Button
-          variant="danger"
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete()
-          }}
-        >
-          Удалить
-        </Button>
+        {hasDraft && <Chip dir="none">черновик</Chip>}
+        <button type="button" className="icon-btn" aria-label="Удалить" onClick={onDelete}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+            <path d="M2.5 4h11M6.5 4V2.5h3V4M4 4l.7 9.5h6.6L12 4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+
+      {profile.inbounds.length > 0 ? (
+        <div className="profile-inbounds">
+          {shown.map((inb) => (
+            <InboundRow key={inb.uuid} inbound={inb} />
+          ))}
+          {hidden > 0 && <span className="muted">и ещё {hidden}</span>}
+        </div>
+      ) : (
+        <span className="muted">Нет inbound'ов</span>
+      )}
+
+      <div className="profile-foot">
+        <span className="row-wrap">
+          {profile.nodes.length > 0 ? (
+            profile.nodes.map((n) => (
+              <Chip key={n.uuid} dir="none">
+                {n.countryCode} · {n.name}
+              </Chip>
+            ))
+          ) : (
+            <span>Нет привязанных нод</span>
+          )}
+        </span>
+        <span className="spacer" />
+        <span>обновлён {relativeTime(profile.updatedAt)}</span>
       </div>
     </Card>
   )
@@ -53,21 +82,29 @@ export function ProfilesPage() {
   const del = useDeleteProfile()
   const logout = useLogout()
   const navigate = useNavigate()
+  const drafts = useDraftStore((s) => s.drafts)
   const [createOpen, setCreateOpen] = useState(false)
   const [toDelete, setToDelete] = useState<Profile | null>(null)
 
+  const total = profiles.data?.length ?? 0
+  const draftCount = profiles.data?.filter((p) => drafts[p.uuid] !== undefined).length ?? 0
+
   return (
-    <main style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
-      <div className="row" style={{ marginBottom: 20 }}>
-        <h1>Конфиг-профили</h1>
+    <main className="page">
+      <div className="masthead">
+        <div className="masthead-mark">
+          <span className="eyebrow">remnawave · xray</span>
+          <h1>Конфиг-профили</h1>
+        </div>
         <span className="spacer" />
+        {/* Черновики лежат в localStorage и до сих пор были видны только внутри
+            редактора — на списке это единственная подсказка, что правки не сохранены */}
+        {draftCount > 0 && <Chip dir="none">незасейвленных черновиков: {draftCount}</Chip>}
+        {total > 0 && <span className="muted">профилей: {total}</span>}
         <Button variant="primary" onClick={() => setCreateOpen(true)}>
           Создать профиль
         </Button>
-        <Button
-          variant="ghost"
-          onClick={() => logout.mutate(undefined, { onSuccess: () => navigate('/login') })}
-        >
+        <Button variant="ghost" onClick={() => logout.mutate(undefined, { onSuccess: () => navigate('/login') })}>
           Выйти
         </Button>
       </div>
@@ -88,9 +125,14 @@ export function ProfilesPage() {
       )}
 
       {profiles.data && profiles.data.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+        <div className="profile-grid">
           {profiles.data.map((p) => (
-            <ProfileCard key={p.uuid} profile={p} onDelete={() => setToDelete(p)} />
+            <ProfileCard
+              key={p.uuid}
+              profile={p}
+              hasDraft={drafts[p.uuid] !== undefined}
+              onDelete={() => setToDelete(p)}
+            />
           ))}
         </div>
       )}

@@ -17,7 +17,7 @@ function frame(kind: string, selected: boolean | undefined): string {
 
 /** Ячейка приборного ряда: одна строка целиком, без разбивки на ключ/значение */
 function Metric({ children, accent }: { children: string; accent?: boolean }) {
-  return <span className={accent ? 'fnode-metric fnode-metric-accent' : 'fnode-metric'}>{children}</span>
+  return <span className={accent ? 'metric metric-accent' : 'metric'}>{children}</span>
 }
 
 function InboundNode({ data, selected }: { data: InboundNodeData; selected?: boolean }) {
@@ -30,7 +30,7 @@ function InboundNode({ data, selected }: { data: InboundNodeData; selected?: boo
         <span className="fnode-kind">{data.protocol}</span>
       </div>
       <div className="fnode-title">{data.tag}</div>
-      <div className="fnode-metrics">
+      <div className="metrics">
         {data.port != null && <Metric accent>{`:${data.port}`}</Metric>}
         {data.network && <Metric>{data.network}</Metric>}
         {data.security && data.security !== 'none' && <Metric accent>{data.security}</Metric>}
@@ -88,7 +88,7 @@ function DnsNode({ data, selected }: { data: DnsNodeData; selected?: boolean }) 
         <span className="fnode-kind">резолвер</span>
       </div>
       <div className="fnode-title">DNS</div>
-      <div className="fnode-metrics">
+      <div className="metrics">
         <Metric>{`серверов: ${data.serversCount}`}</Metric>
       </div>
     </div>
