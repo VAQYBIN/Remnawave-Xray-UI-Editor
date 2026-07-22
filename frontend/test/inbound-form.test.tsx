@@ -88,4 +88,18 @@ describe('InboundForm', () => {
     const next = onChange.mock.lastCall![0] as { sniffing: Record<string, unknown> }
     expect(next.sniffing).toEqual({ enabled: false, destOverride: ['http'] })
   })
+
+  it('flow из settings прокидывается в StreamForm: vision + ws даёт предупреждение', () => {
+    wrap(
+      <InboundForm
+        value={{
+          ...VLESS,
+          settings: { ...VLESS.settings, flow: 'xtls-rprx-vision' },
+          streamSettings: { network: 'ws', security: 'none' },
+        }}
+        onChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/работает только поверх raw/)).toBeInTheDocument()
+  })
 })

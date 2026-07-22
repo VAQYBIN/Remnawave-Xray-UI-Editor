@@ -385,3 +385,66 @@ describe('StreamForm — транспорт hysteria', () => {
     expect(next.finalmask).toBeUndefined()
   })
 })
+
+describe('StreamForm — матрица совместимости', () => {
+  it('reality: транспорт-селект не предлагает ws/httpupgrade/hysteria', () => {
+    wrap(<StreamForm value={{ network: 'tcp', security: 'reality', realitySettings: {} }} onChange={vi.fn()} />)
+    expect(screen.queryByRole('option', { name: 'WebSocket' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'HTTPUpgrade' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Hysteria 2 (QUIC)' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'gRPC' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'XHTTP' })).toBeInTheDocument()
+  })
+
+  it('ws: шифрование-селект не предлагает Reality', () => {
+    wrap(<StreamForm value={{ network: 'ws', security: 'none' }} onChange={vi.fn()} />)
+    expect(screen.queryByRole('option', { name: 'Reality' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'TLS' })).toBeInTheDocument()
+  })
+
+  it('существующая пара reality+ws не переписывается: опция с пометкой + предупреждение', () => {
+    const onChange = vi.fn()
+    wrap(<StreamForm value={{ network: 'ws', security: 'reality', realitySettings: {} }} onChange={onChange} />)
+    expect(screen.getByLabelText('Транспорт')).toHaveValue('ws')
+    expect(screen.getByRole('option', { name: 'ws (несовместимо)' })).toBeInTheDocument()
+    expect(screen.getByText(/Reality несовместим с транспортом «ws»/)).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('network raw — легитимный алиас tcp: опция «(= tcp)», предупреждения нет', () => {
+    wrap(<StreamForm value={{ network: 'raw', security: 'reality', realitySettings: {} }} onChange={vi.fn()} />)
+    expect(screen.getByLabelText('Транспорт')).toHaveValue('raw')
+    expect(screen.getByRole('option', { name: 'raw (= tcp)' })).toBeInTheDocument()
+    expect(screen.queryByText(/несовместим/)).not.toBeInTheDocument()
+  })
+
+  it('flow vision + ws: предупреждение и транспорт-селект только с TCP', () => {
+    wrap(<StreamForm value={{ network: 'ws', security: 'none' }} onChange={vi.fn()} flow="xtls-rprx-vision" />)
+    expect(screen.getByText(/работает только поверх raw/)).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'gRPC' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'TCP (raw)' })).toBeInTheDocument()
+  })
+
+  it('hysteria + none: предупреждение, шифрование-селект предлагает только TLS', () => {
+    wrap(<StreamForm value={{ network: 'hysteria', security: 'none' }} onChange={vi.fn()} />)
+    expect(screen.getByText(/hysteria требует security «tls»/)).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'TLS' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Reality' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'none (несовместимо)' })).toBeInTheDocument()
+  })
+
+  it('hysteria + tls без certificates: предупреждение про сертификат; с certificates — нет', () => {
+    const { unmount } = wrap(
+      <StreamForm value={{ network: 'hysteria', security: 'tls', tlsSettings: {} }} onChange={vi.fn()} />,
+    )
+    expect(screen.getByText(/нужен настоящий TLS-сертификат/)).toBeInTheDocument()
+    unmount()
+    wrap(
+      <StreamForm
+        value={{ network: 'hysteria', security: 'tls', tlsSettings: { certificates: [{ certificateFile: '/a' }] } }}
+        onChange={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/нужен настоящий TLS-сертификат/)).not.toBeInTheDocument()
+  })
+})

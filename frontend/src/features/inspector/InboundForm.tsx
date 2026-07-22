@@ -107,7 +107,8 @@ export function InboundForm({ value, onChange }: Props) {
       )}
 
       <StreamForm value={(value.streamSettings as Obj) ?? {}}
-        onChange={(stream) => patch((n) => { n.streamSettings = stream })} />
+        onChange={(stream) => patch((n) => { n.streamSettings = stream })}
+        flow={settings.flow as string | undefined} />
 
       <Checkbox label="Sniffing включён" checked={Boolean(sniffing.enabled)}
         onChange={(checked) =>

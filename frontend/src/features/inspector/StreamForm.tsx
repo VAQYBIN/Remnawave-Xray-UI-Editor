@@ -1,5 +1,13 @@
 import { Button, CollapsibleSection } from '../../shared/ui'
 import { randomShortId } from '../../entities/xray/generate'
+import {
+  allowedNetworks,
+  allowedSecurities,
+  flowNetworkIssue,
+  hysteriaCertificateIssue,
+  normalizeNetwork,
+  securityNetworkIssue,
+} from '../../entities/xray'
 import { useRealityKeypair, useRealityPublicKey } from '../../shared/api'
 import { KeyValueField, ListEditor } from './collections'
 import {
@@ -64,6 +72,25 @@ const CONGESTIONS: Option[] = [
   { value: 'force-brutal', label: 'force-brutal' },
 ]
 
+// Несовместимые комбинации не предлагаются, но уже существующее в конфиге значение
+// остаётся видимой опцией с пометкой — молча переписывать конфиг нельзя,
+// вместо этого под select'ами показываются предупреждения
+function networkSelectOptions(security: string, flow: string | undefined, current: string): Option[] {
+  const allowed = allowedNetworks(security).filter((n) => flowNetworkIssue(flow, n) === null)
+  const base = NETWORKS.filter((o) => allowed.includes(o.value))
+  if (base.some((o) => o.value === current)) return base
+  const compatible = allowed.includes(normalizeNetwork(current))
+  return [...base, { value: current, label: compatible ? `${current} (= tcp)` : `${current} (несовместимо)` }]
+}
+
+function securitySelectOptions(network: string, current: string): Option[] {
+  const allowed = allowedSecurities(network)
+  const base = SECURITIES.filter((o) => allowed.includes(o.value))
+  return base.some((o) => o.value === current)
+    ? base
+    : [...base, { value: current, label: `${current} (несовместимо)` }]
+}
+
 export type StreamFormMode = 'inbound' | 'outbound'
 
 interface Props {
@@ -71,9 +98,11 @@ interface Props {
   onChange: (next: Obj) => void
   /** inbound — серверные поля (дефолт, сохраняет прежнее поведение), outbound — клиентские */
   mode?: StreamFormMode
+  /** flow протокола (settings.flow у VLESS) — для матрицы «vision только поверх raw» */
+  flow?: string
 }
 
-export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
+export function StreamForm({ value, onChange, mode = 'inbound', flow }: Props) {
   const keypair = useRealityKeypair()
   const derive = useRealityPublicKey()
   const network = (value.network as string) ?? 'tcp'
@@ -133,13 +162,16 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
   // Xray ≥24.09 понимает и dest, и target — редактируем тот ключ, что уже есть
   const destKey = 'target' in reality ? 'target' : 'dest'
   const shownPublicKey = derive.data?.publicKey ?? keypair.data?.publicKey
+  const secNetIssue = securityNetworkIssue(security, network)
+  const flowIssue = flowNetworkIssue(flow, network)
+  const certIssue = hysteriaCertificateIssue(network, security, tls as { certificates?: unknown[] })
 
   return (
     <>
       <SelectField
         label="Транспорт"
         value={network}
-        options={NETWORKS}
+        options={networkSelectOptions(security, flow, network)}
         onChange={(v) =>
           patch((n) => {
             n.network = v
@@ -151,7 +183,7 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
       <SelectField
         label="Шифрование"
         value={security}
-        options={SECURITIES}
+        options={securitySelectOptions(network, security)}
         onChange={(v) =>
           patch((n) => {
             n.security = v
@@ -160,6 +192,9 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
           })
         }
       />
+      {secNetIssue && <span className="field-warning">{secNetIssue}</span>}
+      {flowIssue && <span className="field-warning">{flowIssue}</span>}
+      {certIssue && <span className="field-warning">{certIssue}</span>}
 
       {network === 'ws' && (
         <>
