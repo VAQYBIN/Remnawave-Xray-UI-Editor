@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { Button, Chip, Dialog, EmptyState } from '../src/shared/ui'
+import userEvent from '@testing-library/user-event'
+import { Button, Chip, CollapsibleSection, Dialog, EmptyState } from '../src/shared/ui'
 
 describe('UI-кит', () => {
   it('Chip с направлением in получает класс chip-in и точку направления', () => {
@@ -33,5 +34,32 @@ describe('UI-кит', () => {
       </Dialog>,
     )
     expect(document.querySelector('dialog')).toHaveClass('dialog', 'dialog-wide')
+  })
+})
+
+describe('CollapsibleSection', () => {
+  it('по умолчанию закрыт, открывается и закрывается по клику', async () => {
+    render(
+      <CollapsibleSection title="Продвинутые">
+        <span>секретное поле</span>
+      </CollapsibleSection>,
+    )
+    expect(screen.queryByText('секретное поле')).not.toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: /Продвинутые/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(toggle)
+    expect(screen.getByText('секретное поле')).toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(toggle)
+    expect(screen.queryByText('секретное поле')).not.toBeInTheDocument()
+  })
+
+  it('defaultOpen открывает сразу', () => {
+    render(
+      <CollapsibleSection title="Продвинутые" defaultOpen>
+        <span>видно</span>
+      </CollapsibleSection>,
+    )
+    expect(screen.getByText('видно')).toBeInTheDocument()
   })
 })

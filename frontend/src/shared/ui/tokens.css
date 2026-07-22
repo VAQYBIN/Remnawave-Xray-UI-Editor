@@ -242,3 +242,19 @@ h2 { font-size: 16px; }
   padding: 8px;
 }
 .list-editor-body { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+
+.collapsible { display: flex; flex-direction: column; gap: 8px; }
+.collapsible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+.collapsible-toggle:hover { color: var(--text); }
+.collapsible-body { display: flex; flex-direction: column; gap: 8px; }
