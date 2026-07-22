@@ -1,5 +1,5 @@
 import { CollapsibleSection } from '../../shared/ui'
-import { MultiSelectField, SelectField, StringListField, type Option } from './fields'
+import { MultiSelectField, PortField, SelectField, StringListField, type Option } from './fields'
 
 type Obj = Record<string, unknown>
 
@@ -12,6 +12,28 @@ const NETWORKS: Option[] = [
 
 // Протоколы, которые определяет sniffing на inbound
 const SNIFF_PROTOCOLS: Option[] = ['http', 'tls', 'quic', 'bittorrent'].map((v) => ({ value: v, label: v }))
+
+// Известные префиксы доменных матчеров Xray; строка без префикса матчится как keyword-подстрока
+export const DOMAIN_PREFIXES = ['domain:', 'full:', 'regexp:', 'geosite:', 'keyword:', 'ext:']
+
+export function keywordEntries(items: string[] | undefined): string[] {
+  return (items ?? []).filter((s) => !DOMAIN_PREFIXES.some((p) => s.startsWith(p)))
+}
+
+// Формат port/sourcePort правила: «443», «1000-2000» или их список через запятую
+export function portSpecError(value: string | number | undefined): string | null {
+  if (value === undefined) return null
+  for (const part of String(value).split(',').map((s) => s.trim())) {
+    if (part === '') return 'Пустой элемент в списке портов'
+    const m = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(part)
+    if (!m) return `Некорректный формат «${part}» — ожидается 443, 1000-2000 или их список через запятую`
+    const lo = Number(m[1])
+    const hi = m[2] === undefined ? lo : Number(m[2])
+    if (lo < 1 || hi > 65535) return `Порт вне диапазона 1–65535: «${part}»`
+    if (lo > hi) return `Начало диапазона больше конца: «${part}»`
+  }
+  return null
+}
 
 interface Props {
   value: Obj // правило целиком
@@ -31,6 +53,9 @@ function tagOptions(configTags: string[], selected: string[]): Option[] {
 export function RuleForm({ value, onChange, inboundTags, outboundTags }: Props) {
   const selectedInbounds = (value.inboundTag as string[] | undefined) ?? []
   const outboundTag = (value.outboundTag as string) ?? ''
+  const domainKeywords = keywordEntries(value.domain as string[] | undefined)
+  const portError = portSpecError(value.port as string | number | undefined)
+  const sourcePortError = portSpecError(value.sourcePort as string | number | undefined)
 
   function patch(mut: (draft: Obj) => void) {
     const next = structuredClone(value)
@@ -59,6 +84,31 @@ export function RuleForm({ value, onChange, inboundTags, outboundTags }: Props) 
         value={value.inboundTag as string[] | undefined}
         onChange={(v) => patch((n) => { if (v === undefined) delete n.inboundTag; else n.inboundTag = v })}
       />
+      <StringListField
+        label="Домены"
+        hint="Префиксы: geosite: (категория), domain: (домен и поддомены), full: (точное совпадение), regexp: (рег. выражение)"
+        placeholder={'geosite:category-ads-all\ndomain:example.com'}
+        value={value.domain as string[] | undefined}
+        onChange={(v) => patch((n) => { if (v === undefined) delete n.domain; else n.domain = v })}
+      />
+      {domainKeywords.length > 0 && (
+        <span className="field-warning">
+          Без префикса — keyword-матчинг по подстроке: {domainKeywords.join(', ')}
+        </span>
+      )}
+      <StringListField
+        label="IP назначения"
+        hint="IP, CIDR (10.0.0.0/8) или geoip:ru, geoip:private"
+        placeholder={'geoip:private\n10.0.0.0/8'}
+        value={value.ip as string[] | undefined}
+        onChange={(v) => patch((n) => { if (v === undefined) delete n.ip; else n.ip = v })}
+      />
+      <PortField
+        label="Порт назначения"
+        value={value.port as number | string | undefined}
+        onChange={(v) => patch((n) => { if (v === undefined) delete n.port; else n.port = v })}
+      />
+      {portError && <span className="field-error">{portError}</span>}
       <SelectField
         label="Сеть (network)"
         value={(value.network as string) ?? ''}
@@ -73,6 +123,12 @@ export function RuleForm({ value, onChange, inboundTags, outboundTags }: Props) 
         onChange={(v) => patch((n) => { if (v === undefined) delete n.protocol; else n.protocol = v })}
       />
       <CollapsibleSection title="Продвинутые">
+        <PortField
+          label="Порт источника (sourcePort)"
+          value={value.sourcePort as number | string | undefined}
+          onChange={(v) => patch((n) => { if (v === undefined) delete n.sourcePort; else n.sourcePort = v })}
+        />
+        {sourcePortError && <span className="field-error">{sourcePortError}</span>}
         <StringListField
           label="Пользователи (user)"
           hint="Email пользователей уровня Xray — панель Remnawave генерирует их сама"

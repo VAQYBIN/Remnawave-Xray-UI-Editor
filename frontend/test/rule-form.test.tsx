@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { RuleForm } from '../src/features/inspector/RuleForm'
+import { RuleForm, keywordEntries, portSpecError } from '../src/features/inspector/RuleForm'
 
 const TAGS = { inboundTags: ['vless-in', 'ss-in'], outboundTags: ['direct', 'warp'] }
 
@@ -70,5 +70,76 @@ describe('RuleForm — базовые поля', () => {
     render(<RuleForm value={{ type: 'field' }} onChange={vi.fn()} {...TAGS} />)
     expect(screen.getByText(/сверху вниз/)).toBeInTheDocument()
     expect(screen.getByText(/включённом sniffing/)).toBeInTheDocument()
+  })
+})
+
+describe('portSpecError', () => {
+  it('валидные форматы: одиночный порт, диапазон, список', () => {
+    expect(portSpecError(undefined)).toBeNull()
+    expect(portSpecError(443)).toBeNull()
+    expect(portSpecError('1000-2000')).toBeNull()
+    expect(portSpecError('443,1000-2000,8443')).toBeNull()
+  })
+
+  it('невалидные форматы дают русское сообщение', () => {
+    expect(portSpecError('70000')).toMatch(/вне диапазона/)
+    expect(portSpecError('2000-1000')).toMatch(/больше конца/)
+    expect(portSpecError('abc')).toMatch(/Некорректный формат/)
+    expect(portSpecError('443,,80')).toMatch(/Пустой элемент/)
+  })
+})
+
+describe('keywordEntries', () => {
+  it('отделяет строки без известного префикса', () => {
+    expect(keywordEntries(['geosite:openai', 'domain:a.com', 'example', 'full:b.com'])).toEqual(['example'])
+    expect(keywordEntries(undefined)).toEqual([])
+  })
+})
+
+describe('RuleForm — домены, IP, порты', () => {
+  it('редактирование доменов даёт массив; шпаргалка префиксов видна', async () => {
+    const onChange = vi.fn()
+    render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
+    expect(screen.getByText(/geosite: \(категория\)/)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Домены'), 'geosite:openai\ndomain:a.com')
+    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', domain: ['geosite:openai', 'domain:a.com'] })
+  })
+
+  it('домен без префикса подсвечивается предупреждением о keyword-матчинге', () => {
+    render(<RuleForm value={{ type: 'field', domain: ['geosite:openai', 'example'] }} onChange={vi.fn()} {...TAGS} />)
+    expect(screen.getByText(/keyword-матчинг по подстроке: example/)).toBeInTheDocument()
+  })
+
+  it('редактирование IP даёт массив', async () => {
+    const onChange = vi.fn()
+    render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
+    await userEvent.type(screen.getByLabelText('IP назначения'), 'geoip:private')
+    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', ip: ['geoip:private'] })
+  })
+
+  it('битый порт показывает ошибку, валидный — нет', () => {
+    const { rerender } = render(<RuleForm value={{ type: 'field', port: '2000-1000' }} onChange={vi.fn()} {...TAGS} />)
+    expect(screen.getByText(/больше конца/)).toBeInTheDocument()
+    rerender(<RuleForm value={{ type: 'field', port: '1000-2000' }} onChange={vi.fn()} {...TAGS} />)
+    expect(screen.queryByText(/больше конца/)).not.toBeInTheDocument()
+  })
+
+  it('ввод порта уходит числом, диапазон — строкой', async () => {
+    const onChange = vi.fn()
+    render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
+    const port = screen.getByLabelText('Порт назначения')
+    await userEvent.type(port, '443')
+    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', port: 443 })
+    await userEvent.type(port, '-500')
+    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', port: '443-500' })
+  })
+
+  it('sourcePort — в «Продвинутых»', async () => {
+    const onChange = vi.fn()
+    render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
+    expect(screen.queryByLabelText('Порт источника (sourcePort)')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые/ }))
+    await userEvent.type(screen.getByLabelText('Порт источника (sourcePort)'), '53')
+    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', sourcePort: 53 })
   })
 })
