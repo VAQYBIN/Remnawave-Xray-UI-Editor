@@ -258,3 +258,59 @@ describe('StreamForm — TLS целиком', () => {
     expect(next.tlsSettings).toBeUndefined()
   })
 })
+
+describe('StreamForm — Reality целиком', () => {
+  it('inbound: xver пишется числом, show — в «Продвинутых (Reality)»', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'reality', realitySettings: {} }} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('PROXY protocol к цели (xver)'), '1')
+    expect((onChange.mock.lastCall![0] as { realitySettings: Record<string, unknown> }).realitySettings.xver).toBe(1)
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(Reality\)/ }))
+    await userEvent.click(screen.getByLabelText('Отладочный вывод (show)'))
+    const next = onChange.mock.lastCall![0] as { realitySettings: Record<string, unknown> }
+    expect(next.realitySettings.show).toBe(true)
+  })
+
+  it('inbound: fingerprint-селект не показывается — это клиентское поле', () => {
+    wrap(<StreamForm value={{ network: 'tcp', security: 'reality', realitySettings: {} }} onChange={vi.fn()} />)
+    expect(screen.queryByLabelText('Отпечаток (fingerprint)')).not.toBeInTheDocument()
+  })
+
+  it('outbound: клиентские поля serverName/password/shortId/spiderX/fingerprint', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'tcp', security: 'reality', realitySettings: {} }}
+        onChange={onChange}
+        mode="outbound"
+      />,
+    )
+    await userEvent.type(screen.getByLabelText('Имя сервера (serverName)'), 'a.com')
+    await userEvent.type(screen.getByLabelText('Публичный ключ сервера (password)'), 'PBK')
+    await userEvent.type(screen.getByLabelText('Короткий ID (shortId)'), 'aa11')
+    await userEvent.type(screen.getByLabelText('spiderX'), '/')
+    await userEvent.selectOptions(screen.getByLabelText('Отпечаток (fingerprint)'), 'randomized')
+    const next = onChange.mock.lastCall![0] as { realitySettings: Record<string, unknown> }
+    expect(next.realitySettings).toEqual({
+      serverName: 'a.com',
+      password: 'PBK',
+      shortId: 'aa11',
+      spiderX: '/',
+      fingerprint: 'randomized',
+    })
+  })
+
+  it('outbound: серверных полей и кнопок генерации нет', () => {
+    wrap(
+      <StreamForm
+        value={{ network: 'tcp', security: 'reality', realitySettings: {} }}
+        onChange={vi.fn()}
+        mode="outbound"
+      />,
+    )
+    expect(screen.queryByText('Сгенерировать ключи')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Имена серверов (serverNames)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Приватный ключ')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Цель маскировки (dest)')).not.toBeInTheDocument()
+  })
+})

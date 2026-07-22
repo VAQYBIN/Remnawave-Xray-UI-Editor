@@ -365,7 +365,7 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
         </>
       )}
 
-      {security === 'reality' && (
+      {security === 'reality' && mode === 'inbound' && (
         <>
           <TextField
             label="Цель маскировки (dest)"
@@ -422,8 +422,57 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
             onAdd={() => patchReality((r) => { r.shortIds = [...((r.shortIds as string[]) ?? []), randomShortId()] })}
             onChange={(v) => patchReality((r) => { if (v === undefined) delete r.shortIds; else r.shortIds = v })}
           />
+          <NumberField
+            label="PROXY protocol к цели (xver)"
+            placeholder="0"
+            value={reality.xver as number | undefined}
+            onChange={(v) => patchReality((r) => { if (v === undefined) delete r.xver; else r.xver = v })}
+          />
+          <CollapsibleSection title="Продвинутые (Reality)">
+            <CheckboxField
+              label="Отладочный вывод (show)"
+              hint="Печатает отладку хендшейка в лог — в проде выключено"
+              value={reality.show as boolean | undefined}
+              onChange={(v) => patchReality((r) => { if (v === undefined) delete r.show; else r.show = v })}
+            />
+          </CollapsibleSection>
+        </>
+      )}
+
+      {security === 'reality' && mode === 'outbound' && (
+        <>
+          <TextField
+            label="Имя сервера (serverName)"
+            mono
+            hint="Ровно одно значение — одно из serverNames сервера"
+            value={reality.serverName as string | undefined}
+            onChange={(v) => patchReality((r) => { if (v === undefined) delete r.serverName; else r.serverName = v })}
+          />
+          <TextField
+            label="Публичный ключ сервера (password)"
+            mono
+            hint="В свежих ядрах поле называется password — это x25519 publicKey сервера (pbk)"
+            value={reality.password as string | undefined}
+            onChange={(v) => patchReality((r) => { if (v === undefined) delete r.password; else r.password = v })}
+          />
+          <TextField
+            label="Короткий ID (shortId)"
+            mono
+            hint="Один из shortIds сервера"
+            value={reality.shortId as string | undefined}
+            onChange={(v) => patchReality((r) => { if (v === undefined) delete r.shortId; else r.shortId = v })}
+          />
+          <TextField
+            label="spiderX"
+            mono
+            placeholder="/"
+            hint="Путь имитации краулера; рекомендуется свой на каждого клиента"
+            value={reality.spiderX as string | undefined}
+            onChange={(v) => patchReality((r) => { if (v === undefined) delete r.spiderX; else r.spiderX = v })}
+          />
           <SelectField
             label="Отпечаток (fingerprint)"
+            hint="uTLS-профиль; Reality работает только с uTLS"
             value={(reality.fingerprint as string) ?? 'chrome'}
             options={FINGERPRINTS}
             onChange={(v) => patchReality((r) => { r.fingerprint = v })}
