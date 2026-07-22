@@ -1,3 +1,4 @@
+export * from './compat'
 export * from './stream'
 export * from './inbounds'
 export * from './outbounds'
