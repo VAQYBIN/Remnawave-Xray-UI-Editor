@@ -20,6 +20,7 @@ import { TopologyView } from '../topology/TopologyView'
 import { NodeInspector } from '../topology/NodeInspector'
 import { useDraftStore, type Draft } from './draftStore'
 import { BackupsDialog } from './BackupsDialog'
+import { ConfigSettingsDialog } from './ConfigSettingsDialog'
 import { IssueList } from './IssueList'
 import { JsonView } from './JsonView'
 import { SaveDialog } from './SaveDialog'
@@ -104,6 +105,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [saveOpen, setSaveOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
   const [backupsOpen, setBackupsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [conflict, setConflict] = useState<Profile | null>(null)
 
   function doSave(expectedUpdatedAt: string) {
@@ -171,6 +173,9 @@ function EditorInner({ profile }: { profile: Profile }) {
         {save.isError && !(save.error instanceof ConflictError) && (
           <span className="field-error">{(save.error as Error).message}</span>
         )}
+        <Button variant="ghost" disabled={parsedConfig === undefined} onClick={() => setSettingsOpen(true)}>
+          Настройки конфига
+        </Button>
         <Button variant="ghost" onClick={() => setBackupsOpen(true)}>Бэкапы</Button>
         <Button variant="ghost" disabled={!dirty} onClick={() => setResetOpen(true)}>
           Сбросить к версии панели
@@ -291,6 +296,15 @@ function EditorInner({ profile }: { profile: Profile }) {
           </Button>
         </div>
       </Dialog>
+
+      {parsedConfig !== undefined && (
+        <ConfigSettingsDialog
+          open={settingsOpen}
+          config={parsedConfig}
+          onChange={changeConfig}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
       <BackupsDialog
         open={backupsOpen}
