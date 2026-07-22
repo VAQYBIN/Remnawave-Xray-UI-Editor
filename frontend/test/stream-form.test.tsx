@@ -182,3 +182,79 @@ describe('StreamForm — транспорты полностью', () => {
     expect(screen.queryByText(/Продвинутые \(транспорт\)/)).not.toBeInTheDocument()
   })
 })
+
+describe('StreamForm — TLS целиком', () => {
+  it('inbound: alpn чипами, rejectUnknownSni в «Продвинутых (TLS)»', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'tls', tlsSettings: {} }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: 'h2' }))
+    expect((onChange.mock.lastCall![0] as { tlsSettings: Record<string, unknown> }).tlsSettings).toEqual({ alpn: ['h2'] })
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(TLS\)/ }))
+    await userEvent.click(screen.getByLabelText('Отклонять неизвестный SNI (rejectUnknownSni)'))
+    const next = onChange.mock.lastCall![0] as { tlsSettings: Record<string, unknown> }
+    expect(next.tlsSettings).toEqual({ alpn: ['h2'], rejectUnknownSni: true })
+  })
+
+  it('inbound: минимальная версия TLS выбирается в «Продвинутых (TLS)»', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'tls', tlsSettings: {} }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(TLS\)/ }))
+    await userEvent.selectOptions(screen.getByLabelText('Мин. версия TLS'), '1.3')
+    const next = onChange.mock.lastCall![0] as { tlsSettings: Record<string, unknown> }
+    expect(next.tlsSettings).toEqual({ minVersion: '1.3' })
+  })
+
+  it('inbound: сертификаты через ListEditor — файловые пути', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'tls', tlsSettings: {} }} onChange={onChange} />)
+    await userEvent.click(screen.getByText('+ Сертификат'))
+    await userEvent.type(screen.getByLabelText('Файл сертификата (certificateFile)'), '/etc/ssl/cert.pem')
+    await userEvent.type(screen.getByLabelText('Файл ключа (keyFile)'), '/etc/ssl/key.pem')
+    const next = onChange.mock.lastCall![0] as { tlsSettings: { certificates: Record<string, unknown>[] } }
+    expect(next.tlsSettings.certificates).toHaveLength(1)
+    expect(next.tlsSettings.certificates[0]!.certificateFile).toBe('/etc/ssl/cert.pem')
+    expect(next.tlsSettings.certificates[0]!.keyFile).toBe('/etc/ssl/key.pem')
+  })
+
+  it('inbound: inline-PEM пишется массивом строк', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'tcp', security: 'tls', tlsSettings: { certificates: [{}] } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.type(screen.getByLabelText('Сертификат (PEM, построчно)'), '-----BEGIN CERTIFICATE-----\nAAA')
+    const next = onChange.mock.lastCall![0] as { tlsSettings: { certificates: Record<string, unknown>[] } }
+    expect(next.tlsSettings.certificates[0]!.certificate).toEqual(['-----BEGIN CERTIFICATE-----', 'AAA'])
+  })
+
+  it('outbound: fingerprint есть, сертификаты и серверные поля отсутствуют', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'tcp', security: 'tls', tlsSettings: {} }}
+        onChange={onChange}
+        mode="outbound"
+      />,
+    )
+    await userEvent.selectOptions(screen.getByLabelText('Отпечаток (fingerprint)'), 'chrome')
+    const next = onChange.mock.lastCall![0] as { tlsSettings: Record<string, unknown> }
+    expect(next.tlsSettings).toEqual({ fingerprint: 'chrome' })
+    expect(screen.queryByText('+ Сертификат')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Продвинутые \(TLS\)/)).not.toBeInTheDocument()
+  })
+
+  it('очистка SNI удаляет ключ, опустевший tlsSettings удаляется целиком', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'tcp', security: 'tls', tlsSettings: { serverName: 'a.com' } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.clear(screen.getByLabelText('Имя сервера (SNI)'))
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.tlsSettings).toBeUndefined()
+  })
+})

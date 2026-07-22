@@ -1,9 +1,10 @@
 import { Button, CollapsibleSection } from '../../shared/ui'
 import { randomShortId } from '../../entities/xray/generate'
 import { useRealityKeypair, useRealityPublicKey } from '../../shared/api'
-import { KeyValueField } from './collections'
+import { KeyValueField, ListEditor } from './collections'
 import {
   CheckboxField,
+  MultiSelectField,
   NumberField,
   SelectField,
   StringListField,
@@ -37,6 +38,16 @@ const XHTTP_MODES: Option[] = [
   { value: 'packet-up', label: 'packet-up' },
   { value: 'stream-up', label: 'stream-up' },
   { value: 'stream-one', label: 'stream-one' },
+]
+
+const ALPN_OPTIONS: Option[] = ['h2', 'http/1.1', 'h3'].map((v) => ({ value: v, label: v }))
+
+const TLS_VERSIONS: Option[] = [
+  { value: '', label: 'не задана' },
+  { value: '1.0', label: '1.0' },
+  { value: '1.1', label: '1.1' },
+  { value: '1.2', label: '1.2' },
+  { value: '1.3', label: '1.3' },
 ]
 
 export type StreamFormMode = 'inbound' | 'outbound'
@@ -249,9 +260,108 @@ export function StreamForm({ value, onChange, mode = 'inbound' }: Props) {
             label="Имя сервера (SNI)"
             mono
             value={tls.serverName as string | undefined}
-            onChange={(v) => patch((n) => { n.tlsSettings = { ...((n.tlsSettings as Obj) ?? {}), serverName: v } })}
+            onChange={(v) =>
+              patchSection('tlsSettings', (s) => { if (v === undefined) delete s.serverName; else s.serverName = v })
+            }
           />
-          <p className="muted" style={{ margin: 0 }}>Сертификаты настраиваются на вкладке «JSON узла».</p>
+          <MultiSelectField
+            label="ALPN"
+            hint="Пусто — дефолт ядра (h2, http/1.1)"
+            options={ALPN_OPTIONS}
+            value={tls.alpn as string[] | undefined}
+            onChange={(v) => patchSection('tlsSettings', (s) => { if (v === undefined) delete s.alpn; else s.alpn = v })}
+          />
+          {mode === 'outbound' && (
+            <SelectField
+              label="Отпечаток (fingerprint)"
+              hint="uTLS-профиль клиентского ClientHello"
+              value={(tls.fingerprint as string) ?? ''}
+              options={[{ value: '', label: 'не задан' }, ...FINGERPRINTS]}
+              onChange={(v) =>
+                patchSection('tlsSettings', (s) => { if (v === '') delete s.fingerprint; else s.fingerprint = v })
+              }
+            />
+          )}
+          {mode === 'inbound' && (
+            <>
+              <ListEditor<Obj>
+                label="Сертификаты"
+                hint="Файловые пути ИЛИ inline-PEM построчно"
+                value={tls.certificates as Obj[] | undefined}
+                onChange={(v) =>
+                  patchSection('tlsSettings', (s) => { if (v === undefined) delete s.certificates; else s.certificates = v })
+                }
+                createItem={() => ({})}
+                addLabel="+ Сертификат"
+                renderItem={(item, update, i) => {
+                  const total = (tls.certificates as Obj[] | undefined)?.length ?? 0
+                  return (
+                    <>
+                      <TextField
+                        label="Файл сертификата (certificateFile)"
+                        mono
+                        placeholder="/etc/ssl/cert.pem"
+                        value={item.certificateFile as string | undefined}
+                        onChange={(v) => update({ certificateFile: v })}
+                      />
+                      <TextField
+                        label="Файл ключа (keyFile)"
+                        mono
+                        placeholder="/etc/ssl/key.pem"
+                        value={item.keyFile as string | undefined}
+                        onChange={(v) => update({ keyFile: v })}
+                      />
+                      {/* Mount-only буфер StringListField: удаление карточки сдвигает индексы,
+                          key с длиной списка remount'ит поля, чтобы буферы перечитали значения */}
+                      <StringListField
+                        key={`cert:${i}:${total}`}
+                        label="Сертификат (PEM, построчно)"
+                        placeholder="-----BEGIN CERTIFICATE-----"
+                        value={item.certificate as string[] | undefined}
+                        onChange={(v) => update({ certificate: v })}
+                      />
+                      <StringListField
+                        key={`key:${i}:${total}`}
+                        label="Ключ (PEM, построчно)"
+                        placeholder="-----BEGIN PRIVATE KEY-----"
+                        value={item.key as string[] | undefined}
+                        onChange={(v) => update({ key: v })}
+                      />
+                    </>
+                  )
+                }}
+              />
+              <CollapsibleSection title="Продвинутые (TLS)">
+                <SelectField
+                  label="Мин. версия TLS"
+                  value={(tls.minVersion as string) ?? ''}
+                  options={TLS_VERSIONS}
+                  onChange={(v) =>
+                    patchSection('tlsSettings', (s) => { if (v === '') delete s.minVersion; else s.minVersion = v })
+                  }
+                />
+                <SelectField
+                  label="Макс. версия TLS"
+                  value={(tls.maxVersion as string) ?? ''}
+                  options={TLS_VERSIONS}
+                  onChange={(v) =>
+                    patchSection('tlsSettings', (s) => { if (v === '') delete s.maxVersion; else s.maxVersion = v })
+                  }
+                />
+                <CheckboxField
+                  label="Отклонять неизвестный SNI (rejectUnknownSni)"
+                  hint="Соединения с SNI вне certificates разрываются"
+                  value={tls.rejectUnknownSni as boolean | undefined}
+                  onChange={(v) =>
+                    patchSection('tlsSettings', (s) => {
+                      if (v === undefined) delete s.rejectUnknownSni
+                      else s.rejectUnknownSni = v
+                    })
+                  }
+                />
+              </CollapsibleSection>
+            </>
+          )}
         </>
       )}
 
