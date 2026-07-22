@@ -9,7 +9,7 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Remnawave](https://img.shields.io/badge/Remnawave-2.8.0-6E56CF)
-![tests](https://img.shields.io/badge/tests-349_passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-384_passing-brightgreen)
 
 </div>
 
@@ -32,7 +32,9 @@ Xray-конфиг — это большой вложенный JSON: inbound'ы,
 
 - **Топология графом.** Конфиг рисуется колоночным графом (React Flow): видно, какой inbound
   куда маршрутизируется, какие правила и outbound'ы задействованы. Узлы перетаскиваются,
-  рёбра создаются и удаляются мышью.
+  кабели создаются и удаляются мышью. Коммутируется всё: inbound → правило, правило →
+  outbound, а inbound → outbound создаёт правило сам. Кабель окрашен градиентом от цвета
+  источника к цвету приёмника, выбранный узел подсвечивает весь свой путь трафика.
 - **Формы вместо JSON — полное покрытие:**
   - **Inbound:** VLESS (fallbacks, decryption, flow), Trojan (fallbacks), Shadowsocks
     (method/network), **Hysteria 2**; полный sniffing (destOverride / routeOnly / metadataOnly).
@@ -112,9 +114,9 @@ npm run dev:frontend   # Vite на http://localhost:5173, проксирует /
 ```bash
 npm test                                    # тесты обоих workspace
 npm test -w backend                         # backend (vitest): 55 тестов
-npm test -w frontend                        # frontend (vitest, jsdom): 284 теста
+npm test -w frontend                        # frontend (vitest, jsdom): 315 тестов
 (cd frontend && npx playwright install chromium)   # один раз перед первым e2e
-npm run e2e -w frontend                     # Playwright: топология, инспектор, формы (10 сценариев)
+npm run e2e -w frontend                     # Playwright: топология, коммутация, формы (14 сценариев)
 ```
 
 Три контура тестов не пересекаются:

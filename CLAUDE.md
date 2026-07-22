@@ -53,6 +53,27 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - `shared/api` — fetch-клиент; `AuthError` перехватывается в `App.tsx` на уровне QueryCache/MutationCache и редиректит на `/login`.
 - `shared/ui` — свой мини-UI-kit (Button, Dialog, Select…), сторонних компонентных библиотек нет.
 
+### Дизайн-система
+
+`shared/ui/tokens.css` — единственный стилевой файл, метафора «патчбей»: ingress индиго
+(`--flux`), egress янтарь (`--ember`), правило без своего hue (сталь). Прежние имена
+(`--bg`, `--in`, `--out`…) сохранены алиасами. Шрифты: Golos Text + JetBrains Mono.
+
+- **Select — кастомный listbox, не нативный `<select>`.** API: `value` + `options: SelectOption[]`
+  + `onChange(value)`. Список рендерится порталом; если триггер внутри модального `<dialog>`,
+  порталом служит сам диалог (top layer не пробивается z-index'ом). В тестах вместо
+  `userEvent.selectOptions` — `selectOption()`/`optionLabels()`/`selectedValue()` из
+  `test/helpers.ts`, в e2e — `pickOption()` из `e2e/helpers.ts`.
+- **`Field` с `controlId`** связывает лейбл с контролом через `htmlFor` вместо обёртки. Нужно
+  всему, чей текст значения лежит в содержимом (Select): внутри `<label>` он приклеился бы
+  к accessible-имени.
+- **Раскладка редактора** — `.workbench`: топбар / сцена / статус-бар. Инспектор
+  (`.wb-inspector`) выезжает оверлеем поверх канваса, поэтому вьюпорт графа сдвигается ровно
+  на его ширину (`inspectorWidth()` в TopologyView ↔ `--inspector-w` в tokens.css) — иначе
+  правая колонка узлов уходит под панель и становится некликабельной.
+- **Коммутация** описана в `isValidConnection`/`applyConnection` (TopologyView): inbound →
+  правило либо outbound, правило → outbound. Гнёзда сквадов закрыты — привязку задаёт панель.
+
 ### Особенности домена
 
 - Trojan-inbound'ы не имеют редактора клиентов — панель сама инжектит пользователей в конфиг.
