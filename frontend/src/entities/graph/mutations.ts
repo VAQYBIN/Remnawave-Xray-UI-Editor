@@ -117,6 +117,23 @@ export function addRule(config: XrayConfig): XrayConfig {
   return next
 }
 
+// Переставляет правило index на index+dir (-1 — выше/раньше, +1 — ниже/позже).
+// Правила срабатывают сверху вниз, поэтому порядок значим.
+// На границах списка и при отсутствии правила возвращает ТОТ ЖЕ объект config —
+// вызывающий код проверяет `=== config`, чтобы не делать пустых правок черновика.
+export function moveRule(config: XrayConfig, index: number, dir: -1 | 1): XrayConfig {
+  const rules = config.routing?.rules
+  const target = index + dir
+  if (!rules || index < 0 || index >= rules.length || target < 0 || target >= rules.length) {
+    return config
+  }
+  const next = clone(config)
+  const list = next.routing!.rules!
+  const [moved] = list.splice(index, 1)
+  list.splice(target, 0, moved!)
+  return next
+}
+
 export function connectRule(config: XrayConfig, inboundTag: string, outboundTag: string): XrayConfig {
   const next = clone(config)
   next.routing = next.routing ?? {}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addInbound, addOutbound, addRule, applyNodeJson, connectRule,
+  addInbound, addOutbound, addRule, applyNodeJson, connectRule, moveRule,
   disconnectEdge, getNodeJson, removeNode,
 } from '../src/entities/graph/mutations'
 
@@ -80,6 +80,45 @@ describe('graph mutations', () => {
     addRule(cfg)
     connectRule(cfg, 'vless-in', 'direct')
     disconnectEdge(cfg, 'e:rule:0->out:direct')
+    expect(cfg).toEqual(snapshot)
+  })
+})
+
+describe('moveRule', () => {
+  const rulesCfg = () => ({
+    routing: {
+      rules: [
+        { type: 'field', outboundTag: 'a' },
+        { type: 'field', outboundTag: 'b' },
+        { type: 'field', outboundTag: 'c' },
+      ],
+    },
+  })
+
+  it('переставляет правило вниз и вверх', () => {
+    const down = moveRule(rulesCfg(), 0, 1)
+    expect(down.routing!.rules!.map((r) => r.outboundTag)).toEqual(['b', 'a', 'c'])
+    const up = moveRule(rulesCfg(), 2, -1)
+    expect(up.routing!.rules!.map((r) => r.outboundTag)).toEqual(['a', 'c', 'b'])
+  })
+
+  it('на границах возвращает исходный config (тот же объект)', () => {
+    const cfg = rulesCfg()
+    expect(moveRule(cfg, 0, -1)).toBe(cfg)
+    expect(moveRule(cfg, 2, 1)).toBe(cfg)
+  })
+
+  it('без routing/rules и с несуществующим индексом возвращает исходный config', () => {
+    const empty = {}
+    expect(moveRule(empty, 0, 1)).toBe(empty)
+    const cfg = rulesCfg()
+    expect(moveRule(cfg, 5, -1)).toBe(cfg)
+  })
+
+  it('не мутирует входной конфиг', () => {
+    const cfg = rulesCfg()
+    const snapshot = structuredClone(cfg)
+    moveRule(cfg, 0, 1)
     expect(cfg).toEqual(snapshot)
   })
 })
