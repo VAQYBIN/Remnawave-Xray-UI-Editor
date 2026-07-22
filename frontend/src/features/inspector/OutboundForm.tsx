@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button } from '../../shared/ui'
+import { Button, CollapsibleSection } from '../../shared/ui'
 import { NumberField, SelectField, StringListField, TextField, type Option } from './fields'
 import { StreamForm } from './StreamForm'
 import { ListEditor } from './collections'
@@ -25,6 +25,20 @@ const DOMAIN_STRATEGIES: Option[] = [
 const OUTBOUND_FLOWS: Option[] = [
   { value: '', label: 'нет' },
   { value: 'xtls-rprx-vision', label: 'xtls-rprx-vision' },
+]
+
+const WG_DOMAIN_STRATEGIES: Option[] = [
+  { value: '', label: 'не задана (ForceIP)' },
+  { value: 'ForceIP', label: 'ForceIP' },
+  { value: 'ForceIPv4', label: 'ForceIPv4' },
+  { value: 'ForceIPv6', label: 'ForceIPv6' },
+  { value: 'ForceIPv6v4', label: 'ForceIPv6v4' },
+]
+
+const BLACKHOLE_RESPONSES: Option[] = [
+  { value: '', label: 'не задан (none — молча разорвать)' },
+  { value: 'none', label: 'none — молча разорвать' },
+  { value: 'http', label: 'http — пустой HTTP-ответ (мягкий отказ)' },
 ]
 
 // Публичный ключ WARP-пира Cloudflare и endpoint одинаковы для всех аккаунтов;
@@ -62,9 +76,10 @@ interface Props {
 export function OutboundForm({ value, onChange, outboundTags }: Props) {
   const protocol = (value.protocol as string) ?? 'freedom'
   const settings = (value.settings as Obj) ?? {}
-  const peer = ((settings.peers as Obj[]) ?? [])[0] ?? {}
   const vnext = settings.vnext as Obj[] | undefined
   const servers = settings.servers as Obj[] | undefined
+  const peers = settings.peers as Obj[] | undefined
+  const fragment = (settings.fragment as Obj) ?? {}
   // StringListField хранит текст в локальном state и читает value только при монтировании,
   // поэтому массовая замена settings кнопкой WARP не обновит поле само по себе — нужен remount по key
   const [warpFillCount, setWarpFillCount] = useState(0)
@@ -83,12 +98,13 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
     })
   }
 
-  function patchPeer(mut: (p: Obj) => void) {
+  // Правка settings.fragment; опустевшая секция удаляется целиком
+  function patchFragment(mut: (f: Obj) => void) {
     patchSettings((s) => {
-      const list = ((s.peers as Obj[]) ?? []).map((p) => ({ ...p }))
-      if (list.length === 0) list.push({})
-      mut(list[0]!)
-      s.peers = list
+      const f = (s.fragment as Obj) ?? {}
+      mut(f)
+      if (Object.keys(f).length === 0) delete s.fragment
+      else s.fragment = f
     })
   }
 
@@ -106,16 +122,61 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
         } />
 
       {protocol === 'freedom' && (
-        <SelectField
-          label="Стратегия доменов"
-          value={(settings.domainStrategy as string) ?? ''}
-          options={DOMAIN_STRATEGIES}
-          onChange={(v) => patchSettings((s) => { if (v === '') delete s.domainStrategy; else s.domainStrategy = v })}
-        />
+        <>
+          <SelectField
+            label="Стратегия доменов"
+            value={(settings.domainStrategy as string) ?? ''}
+            options={DOMAIN_STRATEGIES}
+            onChange={(v) => patchSettings((s) => { if (v === '') delete s.domainStrategy; else s.domainStrategy = v })}
+          />
+          <TextField
+            label="Redirect"
+            mono
+            placeholder="127.0.0.1:3366"
+            hint="Весь трафик принудительно уходит на этот адрес (адрес:порт)"
+            value={settings.redirect as string | undefined}
+            onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.redirect; else s.redirect = v })}
+          />
+          <CollapsibleSection title="Fragment (анти-DPI)">
+            <Button
+              variant="ghost"
+              onClick={() =>
+                patchSettings((s) => { s.fragment = { packets: 'tlshello', length: '100-200', interval: '10-20' } })
+              }
+            >
+              Пресет tlshello
+            </Button>
+            <p className="muted" style={{ margin: 0 }}>
+              Фрагментация ClientHello ломает DPI-детект; работает только для исходящего TLS.
+            </p>
+            <TextField label="Пакеты (packets)" mono placeholder="tlshello"
+              value={fragment.packets as string | undefined}
+              onChange={(v) => patchFragment((f) => { if (v === undefined) delete f.packets; else f.packets = v })} />
+            <TextField label="Длина (length)" mono placeholder="100-200"
+              value={fragment.length as string | undefined}
+              onChange={(v) => patchFragment((f) => { if (v === undefined) delete f.length; else f.length = v })} />
+            <TextField label="Интервал (interval)" mono placeholder="10-20"
+              value={fragment.interval as string | undefined}
+              onChange={(v) => patchFragment((f) => { if (v === undefined) delete f.interval; else f.interval = v })} />
+          </CollapsibleSection>
+        </>
       )}
 
       {protocol === 'blackhole' && (
-        <p className="muted" style={{ margin: 0 }}>Блокирует весь трафик, направленный в этот outbound.</p>
+        <>
+          <p className="muted" style={{ margin: 0 }}>Блокирует весь трафик, направленный в этот outbound.</p>
+          <SelectField
+            label="Ответ (response.type)"
+            value={((settings.response as Obj | undefined)?.type as string) ?? ''}
+            options={BLACKHOLE_RESPONSES}
+            onChange={(v) =>
+              patchSettings((s) => {
+                if (v === '') delete s.response
+                else s.response = { ...((s.response as Obj) ?? {}), type: v }
+              })
+            }
+          />
+        </>
       )}
 
       {protocol === 'wireguard' && (
@@ -131,16 +192,52 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
           </p>
           <TextField label="Приватный ключ (secretKey)" mono value={settings.secretKey as string | undefined}
             onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.secretKey; else s.secretKey = v })} />
-          <StringListField key={`address:${warpFillCount}`} label="Адреса интерфейса" placeholder="172.16.0.2/32" value={settings.address as string[] | undefined}
+          <StringListField key={`address:${warpFillCount}`} label="Адреса интерфейса" placeholder="172.16.0.2/32"
+            value={settings.address as string[] | undefined}
             onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.address; else s.address = v })} />
-          <TextField label="Публичный ключ пира" mono value={peer.publicKey as string | undefined}
-            onChange={(v) => patchPeer((p) => { if (v === undefined) delete p.publicKey; else p.publicKey = v })} />
-          <TextField label="Endpoint пира" mono placeholder="engage.cloudflareclient.com:2408" value={peer.endpoint as string | undefined}
-            onChange={(v) => patchPeer((p) => { if (v === undefined) delete p.endpoint; else p.endpoint = v })} />
-          <StringListField key={`allowedIPs:${warpFillCount}`} label="AllowedIPs пира" placeholder={'0.0.0.0/0\n::/0'} value={peer.allowedIPs as string[] | undefined}
-            onChange={(v) => patchPeer((p) => { if (v === undefined) delete p.allowedIPs; else p.allowedIPs = v })} />
+          <ListEditor<Obj>
+            label="Пиры (peers)"
+            value={peers}
+            onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.peers; else s.peers = v })}
+            createItem={() => ({})}
+            addLabel="+ Пир"
+            renderItem={(item, update, i) => {
+              const total = peers?.length ?? 0
+              return (
+                <>
+                  <TextField label="Публичный ключ пира" mono value={item.publicKey as string | undefined}
+                    onChange={(v) => update({ publicKey: v })} />
+                  <TextField label="Endpoint пира" mono placeholder="engage.cloudflareclient.com:2408"
+                    value={item.endpoint as string | undefined}
+                    onChange={(v) => update({ endpoint: v })} />
+                  {/* Mount-only буфер: remount при смене числа карточек и заливке WARP-шаблона */}
+                  <StringListField key={`allowedIPs:${warpFillCount}:${i}:${total}`} label="AllowedIPs пира"
+                    placeholder={'0.0.0.0/0\n::/0'}
+                    value={item.allowedIPs as string[] | undefined}
+                    onChange={(v) => update({ allowedIPs: v })} />
+                  <TextField label="preSharedKey" mono value={item.preSharedKey as string | undefined}
+                    onChange={(v) => update({ preSharedKey: v })} />
+                  <NumberField label="keepAlive (сек)" placeholder="25" value={item.keepAlive as number | undefined}
+                    onChange={(v) => update({ keepAlive: v })} />
+                </>
+              )
+            }}
+          />
           <NumberField label="MTU" placeholder="1280" value={settings.mtu as number | undefined}
             onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.mtu; else s.mtu = v })} />
+          <StringListField key={`reserved:${warpFillCount}`} label="Reserved (по числу на строку)"
+            hint="3 байта client id WARP; нечисловые строки игнорируются" placeholder={'51\n77\n99'}
+            value={(settings.reserved as number[] | undefined)?.map(String)}
+            onChange={(v) =>
+              patchSettings((s) => {
+                const nums = (v ?? []).map(Number).filter((n) => Number.isInteger(n))
+                if (nums.length === 0) delete s.reserved
+                else s.reserved = nums
+              })
+            } />
+          <SelectField label="Стратегия доменов" value={(settings.domainStrategy as string) ?? ''}
+            options={WG_DOMAIN_STRATEGIES}
+            onChange={(v) => patchSettings((s) => { if (v === '') delete s.domainStrategy; else s.domainStrategy = v })} />
         </>
       )}
 

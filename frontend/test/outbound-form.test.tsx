@@ -216,3 +216,66 @@ describe('OutboundForm — http servers', () => {
     expect(next.settings.servers[0]).toEqual({ address: 'p', port: 3128 })
   })
 })
+
+describe('OutboundForm — freedom fragment, blackhole response, wireguard полный', () => {
+  it('freedom: redirect пишется, пресет tlshello заполняет fragment', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulOutboundForm initial={{ tag: 'direct', protocol: 'freedom', settings: {} }} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('Redirect'), ':3366')
+    expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.redirect).toBe(':3366')
+    await userEvent.click(screen.getByRole('button', { name: /Fragment \(анти-DPI\)/ }))
+    await userEvent.click(screen.getByText('Пресет tlshello'))
+    const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect(next.settings.fragment).toEqual({ packets: 'tlshello', length: '100-200', interval: '10-20' })
+  })
+
+  it('freedom: очистка последнего поля fragment удаляет секцию', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulOutboundForm
+        initial={{ tag: 'direct', protocol: 'freedom', settings: { fragment: { packets: 'tlshello' } } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /Fragment \(анти-DPI\)/ }))
+    await userEvent.clear(screen.getByLabelText('Пакеты (packets)'))
+    const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect(next.settings.fragment).toBeUndefined()
+  })
+
+  it('blackhole: response.type пишется и удаляется', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulOutboundForm initial={{ tag: 'block', protocol: 'blackhole', settings: {} }} onChange={onChange} />)
+    await userEvent.selectOptions(screen.getByLabelText('Ответ (response.type)'), 'http')
+    expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.response).toEqual({ type: 'http' })
+    await userEvent.selectOptions(screen.getByLabelText('Ответ (response.type)'), '')
+    expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.response).toBeUndefined()
+  })
+
+  it('wireguard: второй пир добавляется, preSharedKey и keepAlive пишутся', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulOutboundForm
+        initial={{ tag: 'warp', protocol: 'wireguard', settings: { peers: [{ publicKey: 'pk1' }] } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.click(screen.getByText('+ Пир'))
+    await userEvent.type(screen.getAllByLabelText('preSharedKey')[1]!, 'psk')
+    await userEvent.type(screen.getAllByLabelText('keepAlive (сек)')[1]!, '25')
+    const next = onChange.mock.lastCall![0] as { settings: { peers: Record<string, unknown>[] } }
+    expect(next.settings.peers).toHaveLength(2)
+    expect(next.settings.peers[0]).toEqual({ publicKey: 'pk1' })
+    expect(next.settings.peers[1]).toEqual({ preSharedKey: 'psk', keepAlive: 25 })
+  })
+
+  it('wireguard: reserved парсится в числа построчно, domainStrategy пишется', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulOutboundForm initial={{ tag: 'warp', protocol: 'wireguard', settings: {} }} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('Reserved (по числу на строку)'), '51{enter}77')
+    expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.reserved).toEqual([51, 77])
+    await userEvent.selectOptions(screen.getByLabelText('Стратегия доменов'), 'ForceIPv4')
+    const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect(next.settings.domainStrategy).toBe('ForceIPv4')
+  })
+})
