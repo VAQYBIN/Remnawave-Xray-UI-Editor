@@ -64,6 +64,7 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
   const settings = (value.settings as Obj) ?? {}
   const peer = ((settings.peers as Obj[]) ?? [])[0] ?? {}
   const vnext = settings.vnext as Obj[] | undefined
+  const servers = settings.servers as Obj[] | undefined
   // StringListField хранит текст в локальном state и читает value только при монтировании,
   // поэтому массовая замена settings кнопкой WARP не обновит поле само по себе — нужен remount по key
   const [warpFillCount, setWarpFillCount] = useState(0)
@@ -144,9 +145,33 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
       )}
 
       {(protocol === 'socks' || protocol === 'http') && (
-        <p className="muted" style={{ margin: 0 }}>
-          Настройки протокола «{protocol}» редактируются на вкладке JSON узла.
-        </p>
+        <ListEditor<Obj>
+          label="Серверы"
+          hint="Внешний прокси-сервер, на который уходит трафик"
+          value={servers}
+          onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.servers; else s.servers = v })}
+          createItem={() => ({})}
+          addLabel="+ Сервер"
+          renderItem={(item, update) => {
+            const user = ((item.users as Obj[]) ?? [])[0] ?? {}
+            return (
+              <>
+                <TextField label="Адрес" mono placeholder="10.0.0.1"
+                  value={item.address as string | undefined}
+                  onChange={(v) => update({ address: v })} />
+                <NumberField label="Порт" placeholder={protocol === 'socks' ? '1080' : '3128'}
+                  value={item.port as number | undefined}
+                  onChange={(v) => update({ port: v })} />
+                <TextField label="Логин (users[0].user)" mono hint="Пусто — прокси без авторизации"
+                  value={user.user as string | undefined}
+                  onChange={(v) => patchFirstUser(item, update, (u) => { if (v === undefined) delete u.user; else u.user = v })} />
+                <TextField label="Пароль (users[0].pass)" mono
+                  value={user.pass as string | undefined}
+                  onChange={(v) => patchFirstUser(item, update, (u) => { if (v === undefined) delete u.pass; else u.pass = v })} />
+              </>
+            )
+          }}
+        />
       )}
 
       {protocol === 'vless' && (

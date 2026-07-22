@@ -75,9 +75,17 @@ describe('OutboundForm', () => {
     expect(screen.getByLabelText('AllowedIPs пира')).toHaveValue('0.0.0.0/0\n::/0')
   })
 
-  it('для socks показывает подсказку про JSON', () => {
-    wrap(<OutboundForm value={{ tag: 's', protocol: 'socks' }} onChange={vi.fn()} />)
-    expect(screen.getByText(/редактируются на вкладке JSON/)).toBeInTheDocument()
+  it('socks: серверы редактируются формой, подсказки про JSON нет', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulOutboundForm initial={{ tag: 's', protocol: 'socks', settings: {} }} onChange={onChange} />)
+    expect(screen.queryByText(/редактируются на вкладке JSON/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByText('+ Сервер'))
+    await userEvent.type(screen.getByLabelText('Адрес'), '10.0.0.1')
+    await userEvent.type(screen.getByLabelText('Порт'), '1080')
+    await userEvent.type(screen.getByLabelText('Логин (users[0].user)'), 'admin')
+    await userEvent.type(screen.getByLabelText('Пароль (users[0].pass)'), 'pw')
+    const next = onChange.mock.lastCall![0] as { settings: { servers: Record<string, unknown>[] } }
+    expect(next.settings.servers[0]).toEqual({ address: '10.0.0.1', port: 1080, users: [{ user: 'admin', pass: 'pw' }] })
   })
 
   it('смена протокола заменяет settings пустым объектом', async () => {
@@ -191,5 +199,20 @@ describe('OutboundForm — vless vnext', () => {
   it('подсказки «редактируются на вкладке JSON» для vless больше нет', () => {
     wrap(<OutboundForm value={{ tag: 'c', protocol: 'vless' }} onChange={vi.fn()} />)
     expect(screen.queryByText(/редактируются на вкладке JSON/)).not.toBeInTheDocument()
+  })
+})
+
+describe('OutboundForm — http servers', () => {
+  it('http: очистка логина и пароля удаляет users целиком', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulOutboundForm
+        initial={{ tag: 'h', protocol: 'http', settings: { servers: [{ address: 'p', port: 3128, users: [{ user: 'a' }] }] } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.clear(screen.getByLabelText('Логин (users[0].user)'))
+    const next = onChange.mock.lastCall![0] as { settings: { servers: Record<string, unknown>[] } }
+    expect(next.settings.servers[0]).toEqual({ address: 'p', port: 3128 })
   })
 })
