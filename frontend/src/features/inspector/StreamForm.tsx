@@ -72,6 +72,14 @@ const CONGESTIONS: Option[] = [
   { value: 'force-brutal', label: 'force-brutal' },
 ]
 
+const SOCKOPT_DOMAIN_STRATEGIES: Option[] = [
+  { value: '', label: 'не задана (AsIs)' },
+  { value: 'AsIs', label: 'AsIs' },
+  { value: 'UseIP', label: 'UseIP' },
+  { value: 'UseIPv4', label: 'UseIPv4' },
+  { value: 'UseIPv6', label: 'UseIPv6' },
+]
+
 // Несовместимые комбинации не предлагаются, но уже существующее в конфиге значение
 // остаётся видимой опцией с пометкой — молча переписывать конфиг нельзя,
 // вместо этого под select'ами показываются предупреждения
@@ -100,9 +108,11 @@ interface Props {
   mode?: StreamFormMode
   /** flow протокола (settings.flow у VLESS) — для матрицы «vision только поверх raw» */
   flow?: string
+  /** Теги outbound конфига — для select'а sockopt.dialerProxy (outbound-режим) */
+  outboundTags?: string[]
 }
 
-export function StreamForm({ value, onChange, mode = 'inbound', flow }: Props) {
+export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTags }: Props) {
   const keypair = useRealityKeypair()
   const derive = useRealityPublicKey()
   const network = (value.network as string) ?? 'tcp'
@@ -119,6 +129,17 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow }: Props) {
   const hysteria = (value.hysteriaSettings as Obj) ?? {}
   const masquerade = (hysteria.masquerade as Obj) ?? {}
   const quic = ((value.finalmask as Obj | undefined)?.quicParams as Obj | undefined) ?? {}
+  const sockopt = (value.sockopt as Obj) ?? {}
+  const dialerProxy = (sockopt.dialerProxy as string) ?? ''
+  // Значение, которого нет среди тегов конфига, остаётся видимым с пометкой —
+  // битая ссылка снимается из формы, а не пропадает молча
+  const dialerOptions: Option[] = [
+    { value: '', label: '— нет —' },
+    ...(outboundTags ?? []).map((t) => ({ value: t, label: t })),
+    ...(dialerProxy !== '' && !(outboundTags ?? []).includes(dialerProxy)
+      ? [{ value: dialerProxy, label: `${dialerProxy} (нет в конфиге)` }]
+      : []),
+  ]
 
   function patch(mut: (draft: Obj) => void) {
     const next = structuredClone(value)
@@ -625,6 +646,67 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow }: Props) {
           />
         </>
       )}
+
+      <CollapsibleSection title="Сетевые опции (sockopt)">
+        {mode === 'outbound' && (
+          <SelectField
+            label="Проксировать через outbound (dialerProxy)"
+            hint="Цепочка: исходящие соединения этого outbound пойдут через указанный тег (например, нода → WARP)"
+            value={dialerProxy}
+            options={dialerOptions}
+            onChange={(v) =>
+              patchSection('sockopt', (s) => { if (v === '') delete s.dialerProxy; else s.dialerProxy = v })
+            }
+          />
+        )}
+        {mode === 'inbound' && (
+          <CheckboxField
+            label="Принимать PROXY protocol (sockopt)"
+            hint="acceptProxyProtocol на уровне сокета"
+            value={sockopt.acceptProxyProtocol as boolean | undefined}
+            onChange={(v) =>
+              patchSection('sockopt', (s) => {
+                if (v === undefined) delete s.acceptProxyProtocol
+                else s.acceptProxyProtocol = v
+              })
+            }
+          />
+        )}
+        <NumberField
+          label="Метка пакетов (mark)"
+          placeholder="0"
+          value={sockopt.mark as number | undefined}
+          onChange={(v) => patchSection('sockopt', (s) => { if (v === undefined) delete s.mark; else s.mark = v })}
+        />
+        <CheckboxField
+          label="TCP Fast Open"
+          hint="Числовое значение (длина очереди) редактируется в JSON — чекбокс отражает только true"
+          value={sockopt.tcpFastOpen === true ? true : undefined}
+          onChange={(v) =>
+            patchSection('sockopt', (s) => { if (v === undefined) delete s.tcpFastOpen; else s.tcpFastOpen = v })
+          }
+        />
+        <TextField
+          label="Сетевой интерфейс (interface)"
+          mono
+          placeholder="eth0"
+          value={sockopt.interface as string | undefined}
+          onChange={(v) =>
+            patchSection('sockopt', (s) => { if (v === undefined) delete s.interface; else s.interface = v })
+          }
+        />
+        {mode === 'outbound' && (
+          <SelectField
+            label="Стратегия доменов (sockopt)"
+            hint="Как резолвить домены при исходящем соединении на уровне сокета"
+            value={(sockopt.domainStrategy as string) ?? ''}
+            options={SOCKOPT_DOMAIN_STRATEGIES}
+            onChange={(v) =>
+              patchSection('sockopt', (s) => { if (v === '') delete s.domainStrategy; else s.domainStrategy = v })
+            }
+          />
+        )}
+      </CollapsibleSection>
     </>
   )
 }

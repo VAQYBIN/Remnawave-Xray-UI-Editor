@@ -17,17 +17,19 @@ function StatefulStreamForm({
   initial,
   onChange,
   mode,
+  outboundTags,
 }: {
   initial: Record<string, unknown>
   onChange?: (next: Record<string, unknown>) => void
   mode?: 'inbound' | 'outbound'
+  outboundTags?: string[]
 }) {
   const [value, setValue] = useState(initial)
   const handleChange = (next: Record<string, unknown>) => {
     setValue(next)
     onChange?.(next)
   }
-  return <StreamForm value={value} onChange={handleChange} mode={mode} />
+  return <StreamForm value={value} onChange={handleChange} mode={mode} outboundTags={outboundTags} />
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -446,5 +448,64 @@ describe('StreamForm — матрица совместимости', () => {
       />,
     )
     expect(screen.queryByText(/нужен настоящий TLS-сертификат/)).not.toBeInTheDocument()
+  })
+})
+
+describe('StreamForm — sockopt', () => {
+  it('outbound: dialerProxy выбирается из тегов outbound', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'tcp', security: 'none' }}
+        onChange={onChange}
+        mode="outbound"
+        outboundTags={['direct', 'warp']}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
+    await userEvent.selectOptions(screen.getByLabelText('Проксировать через outbound (dialerProxy)'), 'warp')
+    const next = onChange.mock.lastCall![0] as { sockopt: Record<string, unknown> }
+    expect(next.sockopt).toEqual({ dialerProxy: 'warp' })
+  })
+
+  it('outbound: битый dialerProxy виден с пометкой «нет в конфиге»', async () => {
+    wrap(
+      <StreamForm
+        value={{ network: 'tcp', security: 'none', sockopt: { dialerProxy: 'ghost' } }}
+        onChange={vi.fn()}
+        mode="outbound"
+        outboundTags={['warp']}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
+    expect(screen.getByLabelText('Проксировать через outbound (dialerProxy)')).toHaveValue('ghost')
+    expect(screen.getByRole('option', { name: 'ghost (нет в конфиге)' })).toBeInTheDocument()
+  })
+
+  it('outbound: сброс единственного ключа удаляет sockopt целиком', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'tcp', security: 'none', sockopt: { dialerProxy: 'warp' } }}
+        onChange={onChange}
+        mode="outbound"
+        outboundTags={['warp']}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
+    await userEvent.selectOptions(screen.getByLabelText('Проксировать через outbound (dialerProxy)'), '')
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.sockopt).toBeUndefined()
+  })
+
+  it('inbound: dialerProxy отсутствует, acceptProxyProtocol и mark пишутся', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'ws', security: 'none' }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /Сетевые опции \(sockopt\)/ }))
+    expect(screen.queryByLabelText('Проксировать через outbound (dialerProxy)')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Принимать PROXY protocol (sockopt)'))
+    await userEvent.type(screen.getByLabelText('Метка пакетов (mark)'), '255')
+    const next = onChange.mock.lastCall![0] as { sockopt: Record<string, unknown> }
+    expect(next.sockopt).toEqual({ acceptProxyProtocol: true, mark: 255 })
   })
 })
