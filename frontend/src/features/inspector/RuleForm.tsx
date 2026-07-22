@@ -44,6 +44,9 @@ export function RuleForm({ value, onChange, inboundTags, outboundTags }: Props) 
   function patch(mut: (draft: Obj) => void) {
     const next = structuredClone(value)
     mut(next)
+    // type: 'field' — легаси-поле (единственный тип правила), свежий Xray его не требует;
+    // не пишем его в JSON — снимаем при любой правке правила
+    delete next.type
     onChange(next)
   }
 

@@ -17,14 +17,14 @@ describe('RuleForm — базовые поля', () => {
     const onChange = vi.fn()
     render(<RuleForm value={{ type: 'field', custom: 1 }} onChange={onChange} {...TAGS} />)
     await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), 'warp')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', custom: 1, outboundTag: 'warp' })
+    expect(onChange).toHaveBeenLastCalledWith({ custom: 1, outboundTag: 'warp' })
   })
 
   it('сброс outboundTag в «— не задан —» удаляет ключ', async () => {
     const onChange = vi.fn()
     render(<RuleForm value={{ type: 'field', outboundTag: 'direct' }} onChange={onChange} {...TAGS} />)
     await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), '')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field' })
+    expect(onChange).toHaveBeenLastCalledWith({})
   })
 
   it('битая ссылка outboundTag видна как выбранная опция', () => {
@@ -36,17 +36,17 @@ describe('RuleForm — базовые поля', () => {
     const onChange = vi.fn()
     const { rerender } = render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
     await userEvent.click(screen.getByRole('button', { name: 'ss-in' }))
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', inboundTag: ['ss-in'] })
+    expect(onChange).toHaveBeenLastCalledWith({ inboundTag: ['ss-in'] })
     rerender(<RuleForm value={{ type: 'field', inboundTag: ['ss-in'] }} onChange={onChange} {...TAGS} />)
     await userEvent.click(screen.getByRole('button', { name: 'ss-in' }))
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field' })
+    expect(onChange).toHaveBeenLastCalledWith({})
   })
 
   it('битый inboundTag из правила присутствует чипом и снимается', async () => {
     const onChange = vi.fn()
     render(<RuleForm value={{ type: 'field', inboundTag: ['ghost-in'] }} onChange={onChange} {...TAGS} />)
     await userEvent.click(screen.getByRole('button', { name: 'ghost-in' }))
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field' })
+    expect(onChange).toHaveBeenLastCalledWith({})
   })
 
   it('network выбирается, protocol переключается чипами', async () => {
@@ -63,7 +63,7 @@ describe('RuleForm — базовые поля', () => {
     expect(screen.queryByLabelText('IP источника (source)')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /Продвинутые/ }))
     await userEvent.type(screen.getByLabelText('IP источника (source)'), '10.0.0.1')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', source: ['10.0.0.1'] })
+    expect(onChange).toHaveBeenLastCalledWith({ source: ['10.0.0.1'] })
   })
 
   it('подсказки про порядок правил и sniffing на месте', () => {
@@ -102,7 +102,7 @@ describe('RuleForm — домены, IP, порты', () => {
     render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
     expect(screen.getByText(/geosite: \(категория\)/)).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText('Домены'), 'geosite:openai\ndomain:a.com')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', domain: ['geosite:openai', 'domain:a.com'] })
+    expect(onChange).toHaveBeenLastCalledWith({ domain: ['geosite:openai', 'domain:a.com'] })
   })
 
   it('домен без префикса подсвечивается предупреждением о keyword-матчинге', () => {
@@ -114,7 +114,7 @@ describe('RuleForm — домены, IP, порты', () => {
     const onChange = vi.fn()
     render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
     await userEvent.type(screen.getByLabelText('IP назначения'), 'geoip:private')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', ip: ['geoip:private'] })
+    expect(onChange).toHaveBeenLastCalledWith({ ip: ['geoip:private'] })
   })
 
   it('битый порт показывает ошибку, валидный — нет', () => {
@@ -129,9 +129,9 @@ describe('RuleForm — домены, IP, порты', () => {
     render(<RuleForm value={{ type: 'field' }} onChange={onChange} {...TAGS} />)
     const port = screen.getByLabelText('Порт назначения')
     await userEvent.type(port, '443')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', port: 443 })
+    expect(onChange).toHaveBeenLastCalledWith({ port: 443 })
     await userEvent.type(port, '-500')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', port: '443-500' })
+    expect(onChange).toHaveBeenLastCalledWith({ port: '443-500' })
   })
 
   it('sourcePort — в «Продвинутых»', async () => {
@@ -140,6 +140,6 @@ describe('RuleForm — домены, IP, порты', () => {
     expect(screen.queryByLabelText('Порт источника (sourcePort)')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /Продвинутые/ }))
     await userEvent.type(screen.getByLabelText('Порт источника (sourcePort)'), '53')
-    expect(onChange).toHaveBeenLastCalledWith({ type: 'field', sourcePort: 53 })
+    expect(onChange).toHaveBeenLastCalledWith({ sourcePort: 53 })
   })
 })

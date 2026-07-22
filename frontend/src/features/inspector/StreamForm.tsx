@@ -180,8 +180,9 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTa
     })
   }
 
-  // Xray ≥24.09 понимает и dest, и target — редактируем тот ключ, что уже есть
-  const destKey = 'target' in reality ? 'target' : 'dest'
+  // Xray ≥24.09 понимает и dest, и target; по умолчанию пишем target,
+  // существующий устаревший ключ dest уважаем, чтобы не плодить дубли
+  const destKey = 'dest' in reality ? 'dest' : 'target'
   const shownPublicKey = derive.data?.publicKey ?? keypair.data?.publicKey
   const secNetIssue = securityNetworkIssue(security, network)
   const flowIssue = flowNetworkIssue(flow, network)
@@ -535,7 +536,7 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTa
       {security === 'reality' && mode === 'inbound' && (
         <>
           <TextField
-            label="Цель маскировки (dest)"
+            label="Цель маскировки (target)"
             mono
             placeholder="yahoo.com:443"
             value={reality[destKey] === undefined ? undefined : String(reality[destKey])}

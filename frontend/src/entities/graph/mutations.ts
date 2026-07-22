@@ -113,7 +113,7 @@ export function addRule(config: XrayConfig): XrayConfig {
   const next = clone(config)
   next.routing = next.routing ?? {}
   next.routing.rules = next.routing.rules ?? []
-  next.routing.rules.push({ type: 'field' })
+  next.routing.rules.push({})
   return next
 }
 
@@ -138,7 +138,7 @@ export function connectRule(config: XrayConfig, inboundTag: string, outboundTag:
   const next = clone(config)
   next.routing = next.routing ?? {}
   next.routing.rules = next.routing.rules ?? []
-  next.routing.rules.push({ type: 'field', inboundTag: [inboundTag], outboundTag })
+  next.routing.rules.push({ inboundTag: [inboundTag], outboundTag })
   return next
 }
 

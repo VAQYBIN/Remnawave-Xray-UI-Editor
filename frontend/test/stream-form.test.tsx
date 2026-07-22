@@ -55,7 +55,7 @@ describe('StreamForm', () => {
         onChange={onChange}
       />,
     )
-    const input = screen.getByLabelText('Цель маскировки (dest)')
+    const input = screen.getByLabelText('Цель маскировки (target)')
     expect(input).toHaveValue('a.com:443')
     await userEvent.type(input, 'x')
     const next = onChange.mock.lastCall![0] as { realitySettings: Record<string, unknown> }
@@ -313,7 +313,7 @@ describe('StreamForm — Reality целиком', () => {
     expect(screen.queryByText('Сгенерировать ключи')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Имена серверов (serverNames)')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Приватный ключ')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Цель маскировки (dest)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Цель маскировки (target)')).not.toBeInTheDocument()
   })
 })
 

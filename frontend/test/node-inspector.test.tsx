@@ -157,7 +157,7 @@ describe('NodeInspector — rule-узлы', () => {
     )
     await userEvent.selectOptions(screen.getByLabelText('Outbound (куда отправить)'), 'warp')
     await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
-    expect(onApply).toHaveBeenCalledWith({ type: 'field', inboundTag: ['vless-in'], outboundTag: 'warp' })
+    expect(onApply).toHaveBeenCalledWith({ inboundTag: ['vless-in'], outboundTag: 'warp' })
   })
 
   it('вкладка «JSON узла» доступна для правила', async () => {

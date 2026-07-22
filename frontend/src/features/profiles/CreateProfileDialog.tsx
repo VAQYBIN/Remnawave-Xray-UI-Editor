@@ -39,7 +39,7 @@ export function realityTemplate(privateKey: string, shortId: string) {
           security: 'reality',
           realitySettings: {
             show: false,
-            dest: 'yahoo.com:443',
+            target: 'yahoo.com:443',
             xver: 0,
             serverNames: ['yahoo.com', 'www.yahoo.com'],
             privateKey,

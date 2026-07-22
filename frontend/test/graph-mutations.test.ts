@@ -48,7 +48,7 @@ describe('graph mutations', () => {
     const next = connectRule(base(), 'vless-in', 'direct')
     const rules = next.routing!.rules!
     expect(rules).toHaveLength(2)
-    expect(rules[1]).toEqual({ type: 'field', inboundTag: ['vless-in'], outboundTag: 'direct' })
+    expect(rules[1]).toEqual({ inboundTag: ['vless-in'], outboundTag: 'direct' })
   })
 
   it('connectRule создаёт routing, если его нет', () => {
@@ -64,11 +64,11 @@ describe('graph mutations', () => {
     expect(afterOut.routing!.rules).toHaveLength(0)
   })
 
-  it('addRule добавляет пустое правило type:field', () => {
+  it('addRule добавляет пустое правило без поля type', () => {
     const next = addRule(base())
     const rules = next.routing!.rules!
     expect(rules).toHaveLength(2)
-    expect(rules[1]).toEqual({ type: 'field' })
+    expect(rules[1]).toEqual({})
   })
 
   it('мутации не изменяют входной конфиг', () => {
