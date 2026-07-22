@@ -1,11 +1,22 @@
 import { z } from 'zod'
+import { flowNetworkIssue, hysteriaCertificateIssue, securityNetworkIssue } from './compat'
 import { DnsSchema } from './dns'
 import { InboundSchema } from './inbounds'
 import { LogSchema } from './log'
 import { OutboundSchema } from './outbounds'
+import { keywordEntries, portSpecError } from './rules'
 import { RoutingSchema } from './routing'
 
 const obj = () => z.object({}).passthrough()
+
+// Поднабор streamSettings, который читают проверки матрицы (схема — passthrough,
+// поэтому типизируем только нужные ключи)
+interface StreamSubset {
+  network?: string
+  security?: string
+  tlsSettings?: { certificates?: unknown[] }
+  sockopt?: { dialerProxy?: string }
+}
 
 export const XrayConfigSchema = z
   .object({
@@ -73,6 +84,11 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   const inboundTags = new Set(inbounds.map((x) => x.tag))
   const outboundTags = new Set(outbounds.map((x) => x.tag))
   const rules = config.routing?.rules ?? []
+  const balancerTags = new Set(
+    (config.routing?.balancers ?? [])
+      .map((b) => (b as { tag?: unknown }).tag)
+      .filter((t): t is string => typeof t === 'string'),
+  )
   rules.forEach((rule, i) => {
     if (rule.outboundTag && !outboundTags.has(rule.outboundTag)) {
       issues.push({
@@ -89,6 +105,77 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
           level: 'warning',
         })
       }
+    }
+    // Балансеры редактируются только в JSON, но висячая ссылка должна быть видна
+    if (rule.balancerTag && !balancerTags.has(rule.balancerTag)) {
+      issues.push({
+        path: `routing.rules.${i}.balancerTag`,
+        message: `Правило ссылается на несуществующий балансер «${rule.balancerTag}»`,
+        level: 'warning',
+      })
+    }
+    const keywords = keywordEntries(rule.domain)
+    if (keywords.length > 0) {
+      issues.push({
+        path: `routing.rules.${i}.domain`,
+        message: `Домены без префикса матчатся как подстрока (keyword): ${keywords.join(', ')}`,
+        level: 'warning',
+      })
+    }
+    const portErr = portSpecError(rule.port)
+    if (portErr) issues.push({ path: `routing.rules.${i}.port`, message: portErr, level: 'error' })
+    const sourcePortErr = portSpecError(rule.sourcePort)
+    if (sourcePortErr) {
+      issues.push({ path: `routing.rules.${i}.sourcePort`, message: sourcePortErr, level: 'error' })
+    }
+  })
+
+  // Матрица совместимости streamSettings: такие конфиги ядро Xray не запустит,
+  // поэтому level 'error' — сознательно блокирует «Сохранить в панель»
+  inbounds.forEach((inb, i) => {
+    const stream = inb.streamSettings as StreamSubset | undefined
+    if (stream) {
+      const secNet = securityNetworkIssue(stream.security, stream.network)
+      if (secNet) issues.push({ path: `inbounds.${i}.streamSettings`, message: secNet, level: 'error' })
+      const cert = hysteriaCertificateIssue(stream.network, stream.security, stream.tlsSettings)
+      if (cert) issues.push({ path: `inbounds.${i}.streamSettings`, message: cert, level: 'error' })
+    }
+    if (inb.protocol === 'vless') {
+      // Панель Remnawave применяет flow из settings ко всем пользователям inbound'а
+      const flow = (inb.settings as { flow?: string } | undefined)?.flow
+      const flowIssue = flowNetworkIssue(flow, stream?.network)
+      if (flowIssue) issues.push({ path: `inbounds.${i}.settings.flow`, message: flowIssue, level: 'error' })
+    }
+  })
+
+  outbounds.forEach((out, i) => {
+    const stream = out.streamSettings as StreamSubset | undefined
+    if (stream) {
+      const secNet = securityNetworkIssue(stream.security, stream.network)
+      if (secNet) issues.push({ path: `outbounds.${i}.streamSettings`, message: secNet, level: 'error' })
+      const dialer = stream.sockopt?.dialerProxy
+      if (dialer !== undefined && dialer !== '' && !outboundTags.has(dialer)) {
+        issues.push({
+          path: `outbounds.${i}.streamSettings.sockopt.dialerProxy`,
+          message: `dialerProxy ссылается на несуществующий outbound «${dialer}»`,
+          level: 'warning',
+        })
+      }
+    }
+    if (out.protocol === 'vless') {
+      const vnext = (out.settings as { vnext?: { users?: { flow?: string }[] }[] } | undefined)?.vnext ?? []
+      vnext.forEach((server, si) => {
+        for (const [ui, user] of (server.users ?? []).entries()) {
+          const flowIssue = flowNetworkIssue(user.flow, stream?.network)
+          if (flowIssue) {
+            issues.push({
+              path: `outbounds.${i}.settings.vnext.${si}.users.${ui}.flow`,
+              message: flowIssue,
+              level: 'error',
+            })
+          }
+        }
+      })
     }
   })
 

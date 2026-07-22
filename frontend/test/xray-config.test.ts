@@ -149,3 +149,166 @@ describe('XrayConfigSchema — dns и log типизированы', () => {
     }
   })
 })
+
+describe('analyzeIntegrity — матрица совместимости (план 4)', () => {
+  it('reality поверх ws у inbound — ошибка', () => {
+    const cfg = {
+      inbounds: [
+        { tag: 'a', port: 443, protocol: 'vless', streamSettings: { network: 'ws', security: 'reality' } },
+      ],
+      outbounds: [],
+    }
+    const res = validateXrayConfig(JSON.stringify(cfg))
+    expect(
+      res.issues.some(
+        (i) => i.level === 'error' && i.path === 'inbounds.0.streamSettings' && i.message.includes('Reality несовместим'),
+      ),
+    ).toBe(true)
+  })
+
+  it('reality поверх ws у outbound — ошибка', () => {
+    const cfg = {
+      inbounds: [],
+      outbounds: [
+        { tag: 'chain', protocol: 'vless', streamSettings: { network: 'ws', security: 'reality' } },
+      ],
+    }
+    const res = validateXrayConfig(JSON.stringify(cfg))
+    expect(res.issues.some((i) => i.level === 'error' && i.path === 'outbounds.0.streamSettings')).toBe(true)
+  })
+
+  it('flow vision поверх ws (settings.flow) — ошибка', () => {
+    const cfg = {
+      inbounds: [
+        {
+          tag: 'a',
+          port: 443,
+          protocol: 'vless',
+          settings: { clients: [], decryption: 'none', flow: 'xtls-rprx-vision' },
+          streamSettings: { network: 'ws', security: 'tls' },
+        },
+      ],
+      outbounds: [],
+    }
+    const res = validateXrayConfig(JSON.stringify(cfg))
+    expect(res.issues.some((i) => i.level === 'error' && i.path === 'inbounds.0.settings.flow')).toBe(true)
+  })
+
+  it('flow у outbound vless (vnext) поверх grpc — ошибка', () => {
+    const cfg = {
+      inbounds: [],
+      outbounds: [
+        {
+          tag: 'chain',
+          protocol: 'vless',
+          settings: { vnext: [{ address: 'a', port: 443, users: [{ id: 'u', flow: 'xtls-rprx-vision' }] }] },
+          streamSettings: { network: 'grpc', security: 'reality' },
+        },
+      ],
+    }
+    const res = validateXrayConfig(JSON.stringify(cfg))
+    expect(
+      res.issues.some((i) => i.level === 'error' && i.path === 'outbounds.0.settings.vnext.0.users.0.flow'),
+    ).toBe(true)
+  })
+
+  it('hysteria с tls без сертификатов — ошибка; с сертификатом — нет', () => {
+    const mk = (tlsSettings: unknown) => ({
+      inbounds: [
+        { tag: 'h', port: 443, protocol: 'hysteria', streamSettings: { network: 'hysteria', security: 'tls', tlsSettings } },
+      ],
+      outbounds: [],
+    })
+    const bad = validateXrayConfig(JSON.stringify(mk({})))
+    expect(bad.issues.some((i) => i.level === 'error' && i.message.includes('сертификат'))).toBe(true)
+    const good = validateXrayConfig(JSON.stringify(mk({ certificates: [{ certificateFile: '/c', keyFile: '/k' }] })))
+    expect(good.issues.filter((i) => i.level === 'error')).toHaveLength(0)
+  })
+
+  it('совместимые комбинации не дают ошибок (reality+grpc, vision+tcp)', () => {
+    const cfg = {
+      inbounds: [
+        {
+          tag: 'a',
+          port: 443,
+          protocol: 'vless',
+          settings: { clients: [], decryption: 'none', flow: 'xtls-rprx-vision' },
+          streamSettings: { network: 'tcp', security: 'reality', realitySettings: {} },
+        },
+        { tag: 'b', port: 444, protocol: 'trojan', streamSettings: { network: 'grpc', security: 'reality' } },
+      ],
+      outbounds: [],
+    }
+    const res = validateXrayConfig(JSON.stringify(cfg))
+    expect(res.issues.filter((i) => i.level === 'error')).toHaveLength(0)
+  })
+})
+
+describe('analyzeIntegrity — ссылки и правила (план 4)', () => {
+  it('dialerProxy на несуществующий тег — предупреждение; на существующий — нет', () => {
+    const mk = (dialerProxy: string) => ({
+      inbounds: [],
+      outbounds: [
+        { tag: 'proxy', protocol: 'vless', streamSettings: { network: 'tcp', sockopt: { dialerProxy } } },
+        { tag: 'warp', protocol: 'wireguard' },
+      ],
+    })
+    const bad = validateXrayConfig(JSON.stringify(mk('ghost')))
+    expect(
+      bad.issues.some(
+        (i) =>
+          i.level === 'warning' &&
+          i.path === 'outbounds.0.streamSettings.sockopt.dialerProxy' &&
+          i.message.includes('ghost'),
+      ),
+    ).toBe(true)
+    const good = validateXrayConfig(JSON.stringify(mk('warp')))
+    expect(good.issues).toHaveLength(0)
+  })
+
+  it('balancerTag: на несуществующий — предупреждение, на существующий — нет', () => {
+    const mk = (balancers: unknown[]) => ({
+      inbounds: [],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      routing: { balancers, rules: [{ type: 'field', balancerTag: 'lb' }] },
+    })
+    const bad = validateXrayConfig(JSON.stringify(mk([])))
+    expect(bad.issues.some((i) => i.level === 'warning' && i.path === 'routing.rules.0.balancerTag')).toBe(true)
+    const good = validateXrayConfig(JSON.stringify(mk([{ tag: 'lb', selector: ['direct'] }])))
+    expect(good.issues).toHaveLength(0)
+  })
+
+  it('домен без префикса — предупреждение с перечислением', () => {
+    const cfg = {
+      inbounds: [],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      routing: { rules: [{ type: 'field', domain: ['geosite:openai', 'example', 'raw-sub'], outboundTag: 'direct' }] },
+    }
+    const res = validateXrayConfig(JSON.stringify(cfg))
+    const w = res.issues.find((i) => i.path === 'routing.rules.0.domain')
+    expect(w?.level).toBe('warning')
+    expect(w?.message).toContain('example')
+    expect(w?.message).toContain('raw-sub')
+    expect(w?.message).not.toContain('geosite:openai')
+  })
+
+  it('битый порт правила — ошибка; корректный список — нет', () => {
+    const mk = (port: string) => ({
+      inbounds: [],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      routing: { rules: [{ type: 'field', port, outboundTag: 'direct' }] },
+    })
+    const bad = validateXrayConfig(JSON.stringify(mk('70000')))
+    expect(bad.issues.some((i) => i.level === 'error' && i.path === 'routing.rules.0.port')).toBe(true)
+    const src = validateXrayConfig(
+      JSON.stringify({
+        inbounds: [],
+        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+        routing: { rules: [{ type: 'field', sourcePort: 'abc', outboundTag: 'direct' }] },
+      }),
+    )
+    expect(src.issues.some((i) => i.level === 'error' && i.path === 'routing.rules.0.sourcePort')).toBe(true)
+    const good = validateXrayConfig(JSON.stringify(mk('443,1000-2000')))
+    expect(good.issues.filter((i) => i.level === 'error')).toHaveLength(0)
+  })
+})
