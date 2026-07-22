@@ -7,6 +7,7 @@ import { Button, Dialog } from '../../shared/ui'
 import { InboundForm } from '../inspector/InboundForm'
 import { OutboundForm } from '../inspector/OutboundForm'
 import { RuleForm } from '../inspector/RuleForm'
+import { DnsForm } from '../inspector/DnsForm'
 
 const inspectorTheme = EditorView.theme({
   '&': { backgroundColor: 'var(--bg)', fontSize: '12px' },
@@ -49,7 +50,9 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
       ? 'outbound'
       : nodeId.startsWith('rule:')
         ? 'rule'
-        : 'other'
+        : nodeId === 'dns'
+          ? 'dns'
+          : 'other'
   const [tab, setTab] = useState<'form' | 'json'>(kind === 'other' ? 'json' : 'form')
   const parsedNode = useMemo(() => parseNode(text), [text])
   const oldTag = kind === 'inbound' ? nodeId.slice(3) : ''
@@ -144,6 +147,9 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
               inboundTags={(config.inbounds ?? []).map((i) => i.tag)}
               outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
             />
+          )}
+          {parsedNode !== null && kind === 'dns' && (
+            <DnsForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
           )}
         </div>
       )}

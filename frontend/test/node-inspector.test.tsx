@@ -73,14 +73,17 @@ describe('NodeInspector', () => {
     expect(screen.queryByText('JSON узла')).toBeInTheDocument()
   })
 
-  it('для dns узла вкладок нет — сразу JSON', () => {
+  it('dns-узел: вкладка «Форма» с DnsForm, правка применяется', async () => {
+    const onApply = vi.fn()
     const dnsConfig = { ...config, dns: { servers: ['8.8.8.8'] } }
     wrap(
-      <NodeInspector config={dnsConfig} nodeId="dns" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+      <NodeInspector config={dnsConfig} nodeId="dns" onApply={onApply} onRemove={() => {}} onClose={() => {}} />,
     )
-    expect(screen.queryByText('Форма')).not.toBeInTheDocument()
-    expect(screen.queryByText('JSON узла')).not.toBeInTheDocument()
-    expect(document.querySelector('.cm-content')).toBeInTheDocument()
+    expect(screen.getByText('Форма')).toBeInTheDocument()
+    expect(screen.getByText('JSON узла')).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByLabelText('Стратегия запросов (queryStrategy)'), 'UseIPv4')
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
+    expect(onApply).toHaveBeenCalledWith({ servers: ['8.8.8.8'], queryStrategy: 'UseIPv4' })
   })
 
   it('отклоняет не-объект: «Применить» показывает ошибку и не вызывает onApply', async () => {
