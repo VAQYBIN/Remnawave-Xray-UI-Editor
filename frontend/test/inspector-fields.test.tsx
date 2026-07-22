@@ -5,6 +5,7 @@ import {
   CheckboxField,
   MultiSelectField,
   PortField,
+  SelectField,
   StringListField,
   TagListField,
   TextField,
@@ -94,5 +95,20 @@ describe('MultiSelectField', () => {
     render(<MultiSelectField label="destOverride" options={options} value={['tls']} onChange={() => {}} />)
     expect(screen.getByRole('button', { name: 'tls' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'http' })).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+describe('hint у полей на базе Field', () => {
+  it('TextField, SelectField и StringListField показывают подсказку', () => {
+    render(
+      <>
+        <TextField label="A" hint="подсказка-текст" value={undefined} onChange={() => {}} />
+        <SelectField label="B" hint="подсказка-селект" value="" options={[{ value: '', label: '—' }]} onChange={() => {}} />
+        <StringListField label="C" hint="подсказка-список" value={undefined} onChange={() => {}} />
+      </>,
+    )
+    expect(screen.getByText('подсказка-текст')).toBeInTheDocument()
+    expect(screen.getByText('подсказка-селект')).toBeInTheDocument()
+    expect(screen.getByText('подсказка-список')).toBeInTheDocument()
   })
 })

@@ -28,19 +28,21 @@ export function Field({
 
 export function TextField({
   label,
+  hint,
   value,
   onChange,
   placeholder,
   mono,
 }: {
   label: string
+  hint?: string
   value: string | undefined
   onChange: (v: string | undefined) => void
   placeholder?: string
   mono?: boolean
 }) {
   return (
-    <Field label={label} mono={mono}>
+    <Field label={label} hint={hint} mono={mono}>
       <TextInput
         value={value ?? ''}
         placeholder={placeholder}
@@ -107,17 +109,19 @@ export function NumberField({
 
 export function SelectField({
   label,
+  hint,
   value,
   options,
   onChange,
 }: {
   label: string
+  hint?: string
   value: string
   options: Option[]
   onChange: (v: string) => void
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <Select value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -133,18 +137,20 @@ export function SelectField({
 // Значение из пропсов читается только при монтировании — внешние изменения требуют remount (key).
 export function StringListField({
   label,
+  hint,
   value,
   onChange,
   placeholder,
 }: {
   label: string
+  hint?: string
   value: string[] | undefined
   onChange: (v: string[] | undefined) => void
   placeholder?: string
 }) {
   const [text, setText] = useState((value ?? []).join('\n'))
   return (
-    <Field label={label} mono>
+    <Field label={label} hint={hint} mono>
       <textarea
         className="textarea"
         rows={3}
