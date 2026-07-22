@@ -16,16 +16,18 @@ function wrap(ui: React.ReactElement) {
 function StatefulStreamForm({
   initial,
   onChange,
+  mode,
 }: {
   initial: Record<string, unknown>
-  onChange: (next: Record<string, unknown>) => void
+  onChange?: (next: Record<string, unknown>) => void
+  mode?: 'inbound' | 'outbound'
 }) {
   const [value, setValue] = useState(initial)
   const handleChange = (next: Record<string, unknown>) => {
     setValue(next)
-    onChange(next)
+    onChange?.(next)
   }
-  return <StreamForm value={value} onChange={handleChange} />
+  return <StreamForm value={value} onChange={handleChange} mode={mode} />
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -92,5 +94,91 @@ describe('StreamForm', () => {
     await userEvent.type(screen.getByLabelText('Путь WebSocket'), '/ws')
     const next = onChange.mock.lastCall![0] as { wsSettings: Record<string, unknown> }
     expect(next.wsSettings.path).toBe('/ws')
+  })
+})
+
+describe('StreamForm — транспорты полностью', () => {
+  it('ws: host, heartbeat и headers пишутся в wsSettings', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'ws', security: 'none' }} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('Host'), 'cdn.example.com')
+    await userEvent.type(screen.getByLabelText('Heartbeat (сек)'), '30')
+    await userEvent.click(screen.getByText('+ Пара'))
+    await userEvent.type(screen.getByPlaceholderText('Ключ'), 'X-Token')
+    await userEvent.type(screen.getByPlaceholderText('Значение'), 'abc')
+    const next = onChange.mock.lastCall![0] as { wsSettings: Record<string, unknown> }
+    expect(next.wsSettings.host).toBe('cdn.example.com')
+    expect(next.wsSettings.heartbeatPeriod).toBe(30)
+    expect(next.wsSettings.headers).toEqual({ 'X-Token': 'abc' })
+  })
+
+  it('ws: очистка последнего поля удаляет wsSettings целиком', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'ws', security: 'none', wsSettings: { path: '/a' } }} onChange={onChange} />)
+    await userEvent.clear(screen.getByLabelText('Путь WebSocket'))
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.wsSettings).toBeUndefined()
+  })
+
+  it('grpc: authority и multiMode', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'grpc', security: 'none' }} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('Authority'), 'cdn.example.com')
+    await userEvent.click(screen.getByLabelText('multiMode'))
+    const next = onChange.mock.lastCall![0] as { grpcSettings: Record<string, unknown> }
+    expect(next.grpcSettings.authority).toBe('cdn.example.com')
+    expect(next.grpcSettings.multiMode).toBe(true)
+  })
+
+  it('httpupgrade: host и headers', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'httpupgrade', security: 'none' }} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('Host'), 'front.example.com')
+    await userEvent.click(screen.getByText('+ Пара'))
+    await userEvent.type(screen.getByPlaceholderText('Ключ'), 'X-A')
+    await userEvent.type(screen.getByPlaceholderText('Значение'), '1')
+    const next = onChange.mock.lastCall![0] as { httpupgradeSettings: Record<string, unknown> }
+    expect(next.httpupgradeSettings.host).toBe('front.example.com')
+    expect(next.httpupgradeSettings.headers).toEqual({ 'X-A': '1' })
+  })
+
+  it('xhttp: путь и режим; extra остаётся в JSON с пометкой', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'xhttp', security: 'none' }} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('Путь XHTTP'), '/api/data')
+    await userEvent.selectOptions(screen.getByLabelText('Режим (mode)'), 'packet-up')
+    const next = onChange.mock.lastCall![0] as { xhttpSettings: Record<string, unknown> }
+    expect(next.xhttpSettings.path).toBe('/api/data')
+    expect(next.xhttpSettings.mode).toBe('packet-up')
+    expect(screen.getByText(/спека XHTTP нестабильна/)).toBeInTheDocument()
+  })
+
+  it('tcp inbound: acceptProxyProtocol в «Продвинутых»; пишет в tcpSettings', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulStreamForm initial={{ network: 'tcp', security: 'none' }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(транспорт\)/ }))
+    await userEvent.click(screen.getByLabelText('Принимать PROXY protocol'))
+    const next = onChange.mock.lastCall![0] as { tcpSettings: Record<string, unknown> }
+    expect(next.tcpSettings).toEqual({ acceptProxyProtocol: true })
+  })
+
+  it('tcp: rawSettings-алиас — правка пишет в существующий ключ, tcpSettings не создаётся', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulStreamForm
+        initial={{ network: 'tcp', security: 'none', rawSettings: { header: { type: 'none' } } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /Продвинутые \(транспорт\)/ }))
+    await userEvent.click(screen.getByLabelText('Принимать PROXY protocol'))
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.rawSettings).toEqual({ header: { type: 'none' }, acceptProxyProtocol: true })
+    expect(next.tcpSettings).toBeUndefined()
+  })
+
+  it('tcp в outbound-режиме: блока «Продвинутые (транспорт)» нет', () => {
+    wrap(<StreamForm value={{ network: 'tcp', security: 'none' }} onChange={vi.fn()} mode="outbound" />)
+    expect(screen.queryByText(/Продвинутые \(транспорт\)/)).not.toBeInTheDocument()
   })
 })
