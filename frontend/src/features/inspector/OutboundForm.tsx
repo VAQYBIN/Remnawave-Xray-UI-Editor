@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '../../shared/ui'
 import { NumberField, SelectField, StringListField, TextField, type Option } from './fields'
 import { StreamForm } from './StreamForm'
+import { ListEditor } from './collections'
 
 type Obj = Record<string, unknown>
 
@@ -21,6 +22,11 @@ const DOMAIN_STRATEGIES: Option[] = [
   { value: 'UseIPv6', label: 'UseIPv6' },
 ]
 
+const OUTBOUND_FLOWS: Option[] = [
+  { value: '', label: 'нет' },
+  { value: 'xtls-rprx-vision', label: 'xtls-rprx-vision' },
+]
+
 // Публичный ключ WARP-пира Cloudflare и endpoint одинаковы для всех аккаунтов;
 // secretKey и address выдаются при регистрации устройства (wgcf / приложение WARP)
 export const WARP_TEMPLATE: Obj = {
@@ -36,6 +42,16 @@ export const WARP_TEMPLATE: Obj = {
   ],
 }
 
+// Правка первого пользователя карточки (vnext/servers): единственный опустевший
+// пользователь удаляется целиком — UUID может инжектить панель Remnawave
+function patchFirstUser(item: Obj, update: (patch: Partial<Obj>) => void, mut: (u: Obj) => void) {
+  const users = ((item.users as Obj[]) ?? []).map((u) => ({ ...u }))
+  if (users.length === 0) users.push({})
+  mut(users[0]!)
+  if (users.length === 1 && Object.keys(users[0]!).length === 0) update({ users: undefined })
+  else update({ users })
+}
+
 interface Props {
   value: Obj // outbound целиком
   onChange: (next: Obj) => void
@@ -47,6 +63,7 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
   const protocol = (value.protocol as string) ?? 'freedom'
   const settings = (value.settings as Obj) ?? {}
   const peer = ((settings.peers as Obj[]) ?? [])[0] ?? {}
+  const vnext = settings.vnext as Obj[] | undefined
   // StringListField хранит текст в локальном state и читает value только при монтировании,
   // поэтому массовая замена settings кнопкой WARP не обновит поле само по себе — нужен remount по key
   const [warpFillCount, setWarpFillCount] = useState(0)
@@ -126,10 +143,49 @@ export function OutboundForm({ value, onChange, outboundTags }: Props) {
         </>
       )}
 
-      {(protocol === 'socks' || protocol === 'http' || protocol === 'vless') && (
+      {(protocol === 'socks' || protocol === 'http') && (
         <p className="muted" style={{ margin: 0 }}>
           Настройки протокола «{protocol}» редактируются на вкладке JSON узла.
         </p>
+      )}
+
+      {protocol === 'vless' && (
+        <>
+          <p className="muted" style={{ margin: 0 }}>
+            Цепочка нод: трафик уходит на следующий VLESS-сервер. UUID может инжектить панель — тогда
+            оставьте поле пустым.
+          </p>
+          <ListEditor<Obj>
+            label="Серверы (vnext)"
+            value={vnext}
+            onChange={(v) => patchSettings((s) => { if (v === undefined) delete s.vnext; else s.vnext = v })}
+            createItem={() => ({ users: [{ encryption: 'none' }] })}
+            addLabel="+ Сервер"
+            renderItem={(item, update) => {
+              const user = ((item.users as Obj[]) ?? [])[0] ?? {}
+              return (
+                <>
+                  <TextField label="Адрес" mono placeholder="node2.example.com"
+                    value={item.address as string | undefined}
+                    onChange={(v) => update({ address: v })} />
+                  <NumberField label="Порт" placeholder="443"
+                    value={item.port as number | undefined}
+                    onChange={(v) => update({ port: v })} />
+                  <TextField label="UUID (users[0].id)" mono hint="Пусто — пользователя инжектит панель"
+                    value={user.id as string | undefined}
+                    onChange={(v) => patchFirstUser(item, update, (u) => { if (v === undefined) delete u.id; else u.id = v })} />
+                  <SelectField label="Flow" value={(user.flow as string) ?? ''} options={OUTBOUND_FLOWS}
+                    onChange={(v) => patchFirstUser(item, update, (u) => { if (v === '') delete u.flow; else u.flow = v })} />
+                  <TextField label="Encryption" mono placeholder="none" hint="Для классического VLESS — «none»"
+                    value={user.encryption as string | undefined}
+                    onChange={(v) =>
+                      patchFirstUser(item, update, (u) => { if (v === undefined) delete u.encryption; else u.encryption = v })
+                    } />
+                </>
+              )
+            }}
+          />
+        </>
       )}
 
       {protocol !== 'wireguard' && protocol !== 'blackhole' && (

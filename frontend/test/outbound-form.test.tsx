@@ -12,9 +12,21 @@ function wrap(ui: React.ReactElement) {
 }
 
 // Обёртка-родитель как в реальном приложении: эхо-ит onChange обратно в value через useState
-function StatefulOutboundForm({ initial, outboundTags }: { initial: Record<string, unknown>; outboundTags?: string[] }) {
+function StatefulOutboundForm({
+  initial,
+  outboundTags,
+  onChange,
+}: {
+  initial: Record<string, unknown>
+  outboundTags?: string[]
+  onChange?: (next: Record<string, unknown>) => void
+}) {
   const [value, setValue] = useState(initial)
-  return <OutboundForm value={value} onChange={setValue} outboundTags={outboundTags} />
+  const handle = (next: Record<string, unknown>) => {
+    setValue(next)
+    onChange?.(next)
+  }
+  return <OutboundForm value={value} onChange={handle} outboundTags={outboundTags} />
 }
 
 describe('OutboundForm', () => {
@@ -137,5 +149,47 @@ describe('OutboundForm — streamSettings', () => {
     expect(select).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'warp' })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'proxy' })).not.toBeInTheDocument()
+  })
+})
+
+describe('OutboundForm — vless vnext', () => {
+  it('добавление сервера: encryption none по умолчанию, адрес и порт пишутся', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulOutboundForm initial={{ tag: 'chain', protocol: 'vless', settings: {} }} onChange={onChange} />)
+    await userEvent.click(screen.getByText('+ Сервер'))
+    await userEvent.type(screen.getByLabelText('Адрес'), 'node2.example.com')
+    await userEvent.type(screen.getByLabelText('Порт'), '443')
+    const next = onChange.mock.lastCall![0] as { settings: { vnext: Record<string, unknown>[] } }
+    expect(next.settings.vnext).toHaveLength(1)
+    expect(next.settings.vnext[0]!.address).toBe('node2.example.com')
+    expect(next.settings.vnext[0]!.port).toBe(443)
+    expect(next.settings.vnext[0]!.users).toEqual([{ encryption: 'none' }])
+  })
+
+  it('uuid и flow пишутся в users[0]; очистка uuid оставляет encryption', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StatefulOutboundForm
+        initial={{
+          tag: 'chain',
+          protocol: 'vless',
+          settings: { vnext: [{ address: 'a', users: [{ encryption: 'none' }] }] },
+        }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.type(screen.getByLabelText('UUID (users[0].id)'), 'uuid-1')
+    await userEvent.selectOptions(screen.getByLabelText('Flow'), 'xtls-rprx-vision')
+    let next = onChange.mock.lastCall![0] as { settings: { vnext: { users: Record<string, unknown>[] }[] } }
+    expect(next.settings.vnext[0]!.users[0]).toEqual({ encryption: 'none', id: 'uuid-1', flow: 'xtls-rprx-vision' })
+
+    await userEvent.clear(screen.getByLabelText('UUID (users[0].id)'))
+    next = onChange.mock.lastCall![0] as { settings: { vnext: { users: Record<string, unknown>[] }[] } }
+    expect(next.settings.vnext[0]!.users[0]).toEqual({ encryption: 'none', flow: 'xtls-rprx-vision' })
+  })
+
+  it('подсказки «редактируются на вкладке JSON» для vless больше нет', () => {
+    wrap(<OutboundForm value={{ tag: 'c', protocol: 'vless' }} onChange={vi.fn()} />)
+    expect(screen.queryByText(/редактируются на вкладке JSON/)).not.toBeInTheDocument()
   })
 })
