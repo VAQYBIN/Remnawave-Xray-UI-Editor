@@ -2,7 +2,7 @@ import { Button, Checkbox, CollapsibleSection } from '../../shared/ui'
 import { ssPassword } from '../../entities/xray/generate'
 import { StreamForm } from './StreamForm'
 import { ListEditor } from './collections'
-import { NumberField, PortField, SelectField, TextField, type Option } from './fields'
+import { CheckboxField, MultiSelectField, NumberField, PortField, SelectField, TextField, type Option } from './fields'
 
 type Obj = Record<string, unknown>
 
@@ -10,6 +10,7 @@ const PROTOCOLS: Option[] = [
   { value: 'vless', label: 'VLESS' },
   { value: 'trojan', label: 'Trojan' },
   { value: 'shadowsocks', label: 'Shadowsocks' },
+  { value: 'hysteria', label: 'Hysteria 2' },
 ]
 
 const SS_METHODS: Option[] = [
@@ -26,12 +27,24 @@ const FLOWS: Option[] = [
   { value: 'xtls-rprx-vision', label: 'xtls-rprx-vision' },
 ]
 
+const SS_NETWORKS: Option[] = [
+  { value: '', label: 'tcp (по умолчанию)' },
+  { value: 'tcp', label: 'tcp' },
+  { value: 'udp', label: 'udp' },
+  { value: 'tcp,udp', label: 'tcp,udp' },
+]
+
+// Протоколы, которые sniffing умеет определять и подменять адрес назначения
+const DEST_OVERRIDES: Option[] = ['http', 'tls', 'quic', 'fakedns'].map((v) => ({ value: v, label: v }))
+
 // settings протоколо-специфичны: при смене протокола заменяются чистым шаблоном,
 // иначе в JSON остаются висеть поля прежнего протокола (например method от Shadowsocks)
 const SETTINGS_TEMPLATES: Record<string, Obj> = {
   vless: { clients: [], decryption: 'none' },
   trojan: { clients: [] },
   shadowsocks: {},
+  // version: 2 фиксирован — Hysteria 2 в Xray-core иначе не стартует
+  hysteria: { version: 2 },
 }
 
 interface Props {
@@ -56,6 +69,14 @@ export function InboundForm({ value, onChange }: Props) {
       const s = (next.settings as Obj) ?? {}
       mut(s)
       next.settings = s
+    })
+  }
+
+  function patchSniffing(mut: (s: Obj) => void) {
+    patch((next) => {
+      const s = (next.sniffing as Obj) ?? {}
+      mut(s)
+      next.sniffing = s
     })
   }
 
@@ -163,6 +184,13 @@ export function InboundForm({ value, onChange }: Props) {
         </>
       )}
 
+      {protocol === 'hysteria' && (
+        <p className="muted" style={{ margin: 0 }}>
+          Hysteria 2 (settings.version = 2 фиксирован): нужен настоящий TLS-сертификат, Reality не используется.
+          Ниже переключите транспорт на «Hysteria 2 (QUIC)». Пользователей добавляет панель Remnawave.
+        </p>
+      )}
+
       {protocol === 'shadowsocks' && (
         <>
           <SelectField label="Метод шифрования" value={(settings.method as string) ?? '2022-blake3-aes-128-gcm'}
@@ -174,6 +202,13 @@ export function InboundForm({ value, onChange }: Props) {
             onClick={() => patchSettings((s) => { s.password = ssPassword((s.method as string) ?? '2022-blake3-aes-128-gcm') })}>
             Сгенерировать пароль
           </Button>
+          <SelectField
+            label="Сеть (network)"
+            hint="Какие соединения принимает inbound"
+            value={(settings.network as string) ?? ''}
+            options={SS_NETWORKS}
+            onChange={(v) => patchSettings((s) => { if (v === '') delete s.network; else s.network = v })}
+          />
         </>
       )}
 
@@ -188,6 +223,29 @@ export function InboundForm({ value, onChange }: Props) {
           })
         }
       />
+      {Boolean(sniffing.enabled) && (
+        <>
+          <MultiSelectField
+            label="Определяемые протоколы (destOverride)"
+            hint="Адрес назначения подменяется доменом из перехваченного запроса"
+            options={DEST_OVERRIDES}
+            value={sniffing.destOverride as string[] | undefined}
+            onChange={(v) => patchSniffing((s) => { if (v === undefined) delete s.destOverride; else s.destOverride = v })}
+          />
+          <CheckboxField
+            label="Только для маршрутизации (routeOnly)"
+            hint="Домен используется в правилах, но адрес назначения не подменяется"
+            value={sniffing.routeOnly as boolean | undefined}
+            onChange={(v) => patchSniffing((s) => { if (v === undefined) delete s.routeOnly; else s.routeOnly = v })}
+          />
+          <CheckboxField
+            label="Только метаданные (metadataOnly)"
+            hint="Сниффинг без чтения содержимого соединения"
+            value={sniffing.metadataOnly as boolean | undefined}
+            onChange={(v) => patchSniffing((s) => { if (v === undefined) delete s.metadataOnly; else s.metadataOnly = v })}
+          />
+        </>
+      )}
     </>
   )
 }

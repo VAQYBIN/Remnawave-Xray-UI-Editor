@@ -163,3 +163,40 @@ describe('InboundForm — fallbacks и decryption', () => {
     expect(next.settings.decryption).toBe('none1')
   })
 })
+
+describe('InboundForm — hysteria2, shadowsocks network, sniffing', () => {
+  it('переключение на hysteria: settings = { version: 2 }, подсказка про TLS, клиентов нет', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulInboundForm initial={VLESS} onChange={onChange} />)
+    await userEvent.selectOptions(screen.getByLabelText('Протокол'), 'hysteria')
+    const next = onChange.mock.lastCall![0] as { settings: Record<string, unknown> }
+    expect(next.settings).toEqual({ version: 2 })
+    expect(screen.getByText(/настоящий TLS-сертификат/)).toBeInTheDocument()
+    expect(screen.queryByText('+ Клиент')).not.toBeInTheDocument()
+  })
+
+  it('shadowsocks: network пишется и удаляется', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulInboundForm initial={{ tag: 's', protocol: 'shadowsocks', settings: {} }} onChange={onChange} />)
+    await userEvent.selectOptions(screen.getByLabelText('Сеть (network)'), 'tcp,udp')
+    expect((onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings.network).toBe('tcp,udp')
+    await userEvent.selectOptions(screen.getByLabelText('Сеть (network)'), '')
+    expect('network' in (onChange.mock.lastCall![0] as { settings: Record<string, unknown> }).settings).toBe(false)
+  })
+
+  it('sniffing: destOverride чипами, routeOnly чекбоксом', async () => {
+    const onChange = vi.fn()
+    wrap(<StatefulInboundForm initial={VLESS} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: 'fakedns' }))
+    await userEvent.click(screen.getByLabelText('Только для маршрутизации (routeOnly)'))
+    const next = onChange.mock.lastCall![0] as { sniffing: Record<string, unknown> }
+    expect(next.sniffing.destOverride).toEqual(['http', 'fakedns'])
+    expect(next.sniffing.routeOnly).toBe(true)
+  })
+
+  it('при выключенном sniffing доп-поля скрыты', () => {
+    wrap(<InboundForm value={{ ...VLESS, sniffing: { enabled: false } }} onChange={vi.fn()} />)
+    expect(screen.queryByLabelText('Только для маршрутизации (routeOnly)')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'fakedns' })).not.toBeInTheDocument()
+  })
+})
