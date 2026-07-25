@@ -135,7 +135,9 @@ export function parseCidrs(entry: Uint8Array): { cidrs: GeoCidr[]; reverseMatch:
     if (field === 2 && wire === 2) {
       const raw = readBytes(r)
       const cr: Reader = { buf: raw, pos: 0 }
-      let ip = new Uint8Array()
+      // Явная аннотация: без неё выводится Uint8Array<ArrayBuffer>, куда не лечь
+      // результату subarray (Uint8Array<ArrayBufferLike>)
+      let ip: Uint8Array = new Uint8Array()
       let prefix = 0
       while (cr.pos < raw.length) {
         const ckey = readVarint(cr)

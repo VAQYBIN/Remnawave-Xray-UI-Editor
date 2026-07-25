@@ -14,17 +14,21 @@ import { panelRoutes } from './routes/panel.js'
 import { BackupService } from './backups/service.js'
 import { backupRoutes } from './routes/backups.js'
 import { toolsRoutes } from './routes/tools.js'
+import { GeoService } from './geo/service.js'
+import { geoRoutes } from './routes/geo.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
     remnawave: RemnawavePort
     backups: BackupService
+    geo: GeoService
   }
 }
 
 export interface ServerDeps {
   remnawave?: RemnawavePort
   backups?: BackupService
+  geo?: GeoService
 }
 
 export async function buildServer(
@@ -48,6 +52,7 @@ export async function buildServer(
       new RemnawaveClient({ baseUrl: config.remnawaveUrl, token: config.remnawaveToken }),
   )
   app.decorate('backups', deps.backups ?? new BackupService(config.dataDir))
+  app.decorate('geo', deps.geo ?? new GeoService(config.dataDir))
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err instanceof RemnawaveError) {
@@ -71,6 +76,7 @@ export async function buildServer(
   await app.register(panelRoutes)
   await app.register(backupRoutes)
   await app.register(toolsRoutes)
+  await app.register(geoRoutes)
 
   await app.register(fastifyStatic, { root: resolve(config.staticDir) })
 
