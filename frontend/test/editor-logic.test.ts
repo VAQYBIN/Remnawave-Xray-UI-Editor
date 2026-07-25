@@ -80,19 +80,37 @@ describe('moveSelectedRule', () => {
 describe('traceOf', () => {
   const config = {
     outbounds: [{ tag: 'direct', protocol: 'freedom' }],
-    routing: { rules: [{ domain: ['domain:openai.com'], outboundTag: 'direct' }] },
+    routing: {
+      rules: [
+        { domain: ['geosite:google'], outboundTag: 'direct' },
+        { domain: ['domain:openai.com'], outboundTag: 'direct' },
+      ],
+    },
   } as unknown as XrayConfig
 
   it('без цели трассировки нет', () => {
-    expect(traceOf(config, null)).toBeUndefined()
+    expect(traceOf(config, null, undefined)).toBeUndefined()
   })
 
   it('без валидного конфига трассировки нет', () => {
-    expect(traceOf(undefined, { address: 'openai.com', port: 443, network: 'tcp' })).toBeUndefined()
+    expect(
+      traceOf(undefined, { address: 'openai.com', port: 443, network: 'tcp' }, undefined),
+    ).toBeUndefined()
   })
 
-  it('цель и конфиг есть — считается маршрут, geo помечены как незагруженные', () => {
-    const res = traceOf(config, { address: 'api.openai.com', port: 443, network: 'tcp' })
-    expect(res?.winner).toEqual({ ruleIndex: 0, outboundTag: 'direct', balancerTag: undefined })
+  it('без geo-ответов geo-правила неизвестны', () => {
+    const res = traceOf(config, { address: 'api.openai.com', port: 443, network: 'tcp' }, undefined)
+    expect(res?.verdicts[0].state).toBe('unknown')
+    expect(res?.winner?.ruleIndex).toBe(1)
+  })
+
+  it('с geo-ответами geo-правило получает точный вердикт', () => {
+    const res = traceOf(
+      config,
+      { address: 'www.google.com', port: 443, network: 'tcp' },
+      { loaded: true, answers: { 'geosite:google': true }, missing: [] },
+    )
+    expect(res?.verdicts[0].state).toBe('yes')
+    expect(res?.winner?.ruleIndex).toBe(0)
   })
 })

@@ -5,6 +5,7 @@ import {
   ConflictError,
   useProfile,
   useProfileInbounds,
+  useGeoMatch,
   useSaveProfile,
   useSquads,
   type Profile,
@@ -12,8 +13,10 @@ import {
   type SquadInfo,
 } from '../../shared/api'
 import {
+  geoKeysOf,
   traceRoute,
   validateXrayConfig,
+  type GeoAnswers,
   type TraceResult,
   type TraceTarget,
   type XrayConfig,
@@ -26,6 +29,7 @@ import { TopologyView } from '../topology/TopologyView'
 import { NodeInspector } from '../topology/NodeInspector'
 import { TraceBar } from '../diagnostics/TraceBar'
 import { TracePanel } from '../diagnostics/TracePanel'
+import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
 import { useDraftStore, type Draft } from './draftStore'
 import { BackupsDialog } from './BackupsDialog'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
@@ -67,16 +71,17 @@ export function nextSelection(
   return selected
 }
 
-// Geo-базы появятся на следующем этапе; сейчас трассировщик честно считает
+// Пока ответ базы не пришёл (или базы нет), трассировщик честно считает
 // geosite:/geoip: неизвестными и говорит об этом в caveats.
-const NO_GEO = { loaded: false, answers: {}, missing: [] }
+const NO_GEO: GeoAnswers = { loaded: false, answers: {}, missing: [] }
 
 export function traceOf(
   config: XrayConfig | undefined,
   target: TraceTarget | null,
+  geo: GeoAnswers | undefined,
 ): TraceResult | undefined {
   if (!config || !target) return undefined
-  return traceRoute(config, target, NO_GEO)
+  return traceRoute(config, target, geo ?? NO_GEO)
 }
 
 // Перестановка выбранного правила: конфиг меняется, а позиционный id выбора
@@ -108,7 +113,9 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [tab, setTab] = useState<'topology' | 'json'>('topology')
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   // Цель трассировки — инструмент, а не документ: в localStorage ей делать нечего
+  const [traceOpen, setTraceOpen] = useState(false)
   const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null)
+  const [geoOpen, setGeoOpen] = useState(false)
   const squads = useSquads()
   const panelInbounds = useProfileInbounds(profile.uuid)
   const ctx = useMemo(
@@ -117,7 +124,15 @@ function EditorInner({ profile }: { profile: Profile }) {
   )
   // топология строится только по валидному (по схеме) документу
   const parsedConfig = validation.ok ? (validation.config as XrayConfig) : undefined
-  const trace = useMemo(() => traceOf(parsedConfig, traceTarget), [parsedConfig, traceTarget])
+  // Спрашиваем базу только по тем ключам, что реально есть в правилах
+  const geoKeys = useMemo(() => (parsedConfig ? geoKeysOf(parsedConfig) : []), [parsedConfig])
+  const geoQuery = useGeoMatch(
+    traceTarget ? { domain: traceTarget.address, ip: traceTarget.ip, keys: geoKeys } : null,
+  )
+  const trace = useMemo(
+    () => traceOf(parsedConfig, traceTarget, geoQuery.data),
+    [parsedConfig, traceTarget, geoQuery.data],
+  )
 
   function changeConfig(next: XrayConfig) {
     setDraft(profile.uuid, formatConfig(next), draft?.baseUpdatedAt ?? profile.updatedAt)
@@ -177,6 +192,7 @@ function EditorInner({ profile }: { profile: Profile }) {
               setSelectedNode(null)
               // Панель разбора живёт над канвасом — над JSON-редактором ей не место
               setTraceTarget(null)
+              setTraceOpen(false)
             }}
           >
             JSON
@@ -187,6 +203,9 @@ function EditorInner({ profile }: { profile: Profile }) {
         {dirty && <Chip dir="none">черновик</Chip>}
         <Button variant="ghost" disabled={parsedConfig === undefined} onClick={() => setSettingsOpen(true)}>
           Настройки конфига
+        </Button>
+        <Button variant="ghost" onClick={() => setGeoOpen(true)}>
+          Geo-базы
         </Button>
         <Button variant="ghost" onClick={() => setBackupsOpen(true)}>
           Бэкапы
@@ -227,7 +246,21 @@ function EditorInner({ profile }: { profile: Profile }) {
                 onSelect={setSelectedNode}
                 onChangeConfig={changeConfig}
                 trace={trace}
-                dockExtra={<TraceBar value={traceTarget} onChange={setTraceTarget} />}
+                dockExtra={
+                  <>
+                    <Button
+                      aria-pressed={traceOpen}
+                      onClick={() => {
+                        setTraceOpen((v) => !v)
+                        // Закрыли инструмент — снимаем и цель, иначе панель разбора висит
+                        if (traceOpen) setTraceTarget(null)
+                      }}
+                    >
+                      Трасса
+                    </Button>
+                    {traceOpen && <TraceBar value={traceTarget} onChange={setTraceTarget} />}
+                  </>
+                }
               />
             </div>
             {trace && (
@@ -235,6 +268,7 @@ function EditorInner({ profile }: { profile: Profile }) {
                 result={trace}
                 onClose={() => setTraceTarget(null)}
                 onSelectRule={(index) => setSelectedNode(`rule:${index}`)}
+                onOpenGeo={() => setGeoOpen(true)}
               />
             )}
             {selectedNode && (
@@ -364,6 +398,8 @@ function EditorInner({ profile }: { profile: Profile }) {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      <GeoDataDialog open={geoOpen} onClose={() => setGeoOpen(false)} />
 
       <BackupsDialog
         open={backupsOpen}
