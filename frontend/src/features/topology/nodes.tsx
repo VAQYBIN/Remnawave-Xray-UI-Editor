@@ -15,6 +15,13 @@ function frame(kind: string, selected: boolean | undefined): string {
     .join(' ')
 }
 
+// Узлы появляются волной слева направо — в порядке движения сигнала по патчбею.
+// Задержку отдаём CSS-переменной, саму анимацию держит .fnode в tokens.css.
+const ENTER_DELAY: Record<string, number> = { squad: 0, inbound: 70, dns: 70, rule: 140, outbound: 210 }
+function enter(kind: string): React.CSSProperties {
+  return { '--enter-delay': `${ENTER_DELAY[kind] ?? 0}ms` } as React.CSSProperties
+}
+
 /** Ячейка приборного ряда: одна строка целиком, без разбивки на ключ/значение */
 function Metric({ children, accent }: { children: string; accent?: boolean }) {
   return <span className={accent ? 'metric metric-accent' : 'metric'}>{children}</span>
@@ -23,7 +30,7 @@ function Metric({ children, accent }: { children: string; accent?: boolean }) {
 function InboundNode({ data, selected }: { data: InboundNodeData; selected?: boolean }) {
   const squads = data.squadsCount ?? 0
   return (
-    <div className={frame('inbound', selected)}>
+    <div className={frame('inbound', selected)} style={enter('inbound')}>
       {/* Рёбра «сквад → inbound» приходят из панели: гнездо нужно только как якорь */}
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <div className="fnode-head">
@@ -43,7 +50,7 @@ function InboundNode({ data, selected }: { data: InboundNodeData; selected?: boo
 
 function OutboundNode({ data, selected }: { data: OutboundNodeData; selected?: boolean }) {
   return (
-    <div className={frame('outbound', selected)}>
+    <div className={frame('outbound', selected)} style={enter('outbound')}>
       <Handle type="target" position={Position.Left} />
       <div className="fnode-head">
         <span className="fnode-kind">{data.protocol}</span>
@@ -58,7 +65,7 @@ function OutboundNode({ data, selected }: { data: OutboundNodeData; selected?: b
 function RuleNode({ data, selected }: { data: RuleNodeData; selected?: boolean }) {
   const empty = data.summary.length === 0 && !data.allInbounds
   return (
-    <div className={frame('rule', selected)}>
+    <div className={frame('rule', selected)} style={enter('rule')}>
       <Handle type="target" position={Position.Left} />
       {/* Правила срабатывают сверху вниз — номер несёт порядок, а не украшает */}
       <span className="fnode-priority" aria-hidden="true">
@@ -83,7 +90,7 @@ function RuleNode({ data, selected }: { data: RuleNodeData; selected?: boolean }
 
 function DnsNode({ data, selected }: { data: DnsNodeData; selected?: boolean }) {
   return (
-    <div className={frame('dns', selected)}>
+    <div className={frame('dns', selected)} style={enter('dns')}>
       <div className="fnode-head">
         <span className="fnode-kind">резолвер</span>
       </div>
@@ -97,7 +104,7 @@ function DnsNode({ data, selected }: { data: DnsNodeData; selected?: boolean }) 
 
 function SquadNode({ data, selected }: { data: SquadNodeData; selected?: boolean }) {
   return (
-    <div className={frame('squad', selected)}>
+    <div className={frame('squad', selected)} style={enter('squad')}>
       <div className="fnode-head">
         <span className="fnode-kind">сквад</span>
       </div>

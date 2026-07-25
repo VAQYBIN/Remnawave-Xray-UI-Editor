@@ -42,16 +42,25 @@ describe('StringListField', () => {
 })
 
 describe('TagListField', () => {
-  it('удаляет элемент по крестику и добавляет по кнопке', async () => {
+  it('удаляет элемент по крестику', async () => {
     const onChange = vi.fn()
-    const onAdd = vi.fn()
-    render(
-      <TagListField label="shortIds" value={['ab12', 'cd34']} onChange={onChange} onAdd={onAdd} addLabel="+ ID" />,
-    )
+    render(<TagListField label="shortIds" value={['ab12', 'cd34']} onChange={onChange} actions={<span>x</span>} />)
     await userEvent.click(screen.getByLabelText('Удалить ab12'))
     expect(onChange).toHaveBeenCalledWith(['cd34'])
-    await userEvent.click(screen.getByText('+ ID'))
-    expect(onAdd).toHaveBeenCalled()
+  })
+
+  it('пустая строка показывается плейсхолдером; опустошение даёт undefined', async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <TagListField label="shortIds" value={['ab12', '']} onChange={onChange} actions={<span>x</span>} />,
+    )
+    // пустой shortId виден как «(пусто)», а не пустой чип
+    expect(screen.getByText('(пусто)')).toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Удалить ab12'))
+    expect(onChange).toHaveBeenLastCalledWith([''])
+    rerender(<TagListField label="shortIds" value={['']} onChange={onChange} actions={<span>x</span>} />)
+    await userEvent.click(screen.getByLabelText('Удалить (пусто)'))
+    expect(onChange).toHaveBeenLastCalledWith(undefined)
   })
 })
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Button, CollapsibleSection } from '../../shared/ui'
 import { randomShortId } from '../../entities/xray/generate'
 import {
@@ -115,6 +116,8 @@ interface Props {
 export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTags }: Props) {
   const keypair = useRealityKeypair()
   const derive = useRealityPublicKey()
+  // Сколько shortId генерировать за раз (Reality); пустой shortId добавляется отдельно
+  const [genCount, setGenCount] = useState(4)
   const network = (value.network as string) ?? 'tcp'
   const security = (value.security as string) ?? 'none'
   const reality = (value.realitySettings as Obj) ?? {}
@@ -164,6 +167,12 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTa
       mut(r)
       next.realitySettings = r
     })
+  }
+
+  // Дописать shortId'ы к существующим (сгенерированные или пустой «»)
+  function appendShortIds(add: string[]) {
+    const current = (reality.shortIds as string[] | undefined) ?? []
+    patchReality((r) => { r.shortIds = [...current, ...add] })
   }
 
   // QUIC-параметры (congestion/brutal*) унифицированы в finalmask.quicParams (Xray v26.3.27+),
@@ -585,10 +594,28 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTa
           )}
           <TagListField
             label="Короткие ID (shortIds)"
-            addLabel="+ ID"
+            hint="Пустой shortId пускает клиентов без него. Обычно добавляют несколько разом."
             value={reality.shortIds as string[] | undefined}
-            onAdd={() => patchReality((r) => { r.shortIds = [...((r.shortIds as string[]) ?? []), randomShortId()] })}
             onChange={(v) => patchReality((r) => { if (v === undefined) delete r.shortIds; else r.shortIds = v })}
+            actions={
+              <>
+                <input
+                  className="input taglist-count"
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={genCount}
+                  aria-label="Сколько shortId сгенерировать"
+                  onChange={(e) => setGenCount(Math.max(1, Math.min(16, Number(e.target.value) || 1)))}
+                />
+                <Button onClick={() => appendShortIds(Array.from({ length: genCount }, () => randomShortId()))}>
+                  Сгенерировать
+                </Button>
+                <Button variant="ghost" onClick={() => appendShortIds([''])}>
+                  + пустой
+                </Button>
+              </>
+            }
           />
           <NumberField
             label="PROXY protocol к цели (xver)"

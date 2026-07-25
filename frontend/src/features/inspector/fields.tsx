@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from 'react'
-import { Button, Checkbox, Select, TextInput, type SelectOption } from '../../shared/ui'
+import { Checkbox, Select, TextInput, type SelectOption } from '../../shared/ui'
 
 export type Option = SelectOption
 
@@ -179,19 +179,23 @@ export function StringListField({
   )
 }
 
-// Список коротких значений чипами: добавление только генерацией (onAdd), удаление крестиком
+// Список коротких значений чипами: удаление крестиком, кнопки добавления/генерации
+// передаются через actions. Пустая строка — валидное значение (например пустой
+// shortId у Reality) и показывается плейсхолдером emptyLabel, а не пустым чипом.
 export function TagListField({
   label,
+  hint,
   value,
   onChange,
-  onAdd,
-  addLabel,
+  actions,
+  emptyLabel = '(пусто)',
 }: {
   label: string
+  hint?: string
   value: string[] | undefined
   onChange: (v: string[] | undefined) => void
-  onAdd: () => void
-  addLabel: string
+  actions: ReactNode
+  emptyLabel?: string
 }) {
   const items = value ?? []
   return (
@@ -200,11 +204,11 @@ export function TagListField({
       <div className="row-wrap">
         {items.map((s, i) => (
           <span key={`${s}:${i}`} className="taglist-item">
-            {s}
+            {s === '' ? <span className="muted">{emptyLabel}</span> : s}
             <button
               type="button"
               className="chip-x"
-              aria-label={`Удалить ${s}`}
+              aria-label={`Удалить ${s || emptyLabel}`}
               onClick={() => {
                 const next = items.filter((_, idx) => idx !== i)
                 onChange(next.length > 0 ? next : undefined)
@@ -214,8 +218,9 @@ export function TagListField({
             </button>
           </span>
         ))}
-        <Button onClick={onAdd}>{addLabel}</Button>
+        {actions}
       </div>
+      {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   )
 }
