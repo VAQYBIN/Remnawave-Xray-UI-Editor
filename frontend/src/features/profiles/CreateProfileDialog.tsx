@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useCreateProfile, useRealityKeypair } from '../../shared/api'
 import { randomShortId } from '../../entities/xray/generate'
-import { Button, Dialog, Select, TextInput } from '../../shared/ui'
+import { DEFAULT_PARAMS, XrayConfigSchema, planFor, type RecipeId } from '../../entities/xray'
+import { Button, Checkbox, Dialog, Select, TextInput } from '../../shared/ui'
 
 const NAME_RE = /^[A-Za-z0-9_\s-]{2,30}$/
 // Панель Remnawave отклоняет конфиг без единого inbound (500, errorCode A112),
@@ -57,11 +58,27 @@ export function realityTemplate(privateKey: string, shortId: string) {
   }
 }
 
+// Рецепты без обязательных параметров — их можно применить прямо при создании.
+// WARP и цепочка требуют ввода, поэтому живут только в редакторе.
+const CREATE_RECIPES: { id: RecipeId; label: string }[] = [
+  { id: 'torrent', label: 'Блокировать торренты' },
+  { id: 'ads', label: 'Блокировать рекламу' },
+  { id: 'private', label: 'Блокировать локальные сети' },
+]
+
+function withRecipes(base: unknown, picks: RecipeId[]): unknown {
+  if (picks.length === 0) return base
+  let config = XrayConfigSchema.parse(base)
+  for (const id of picks) config = planFor(config, id, DEFAULT_PARAMS).config
+  return config
+}
+
 type Preset = 'minimal' | 'reality'
 
 export function CreateProfileDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')
   const [preset, setPreset] = useState<Preset>('minimal')
+  const [picks, setPicks] = useState<RecipeId[]>([])
   const create = useCreateProfile()
   const keypair = useRealityKeypair()
   const navigate = useNavigate()
@@ -79,7 +96,10 @@ export function CreateProfileDialog({ open, onClose }: { open: boolean; onClose:
       }
       config = realityTemplate(keys.privateKey, randomShortId())
     }
-    create.mutate({ name, config }, { onSuccess: (profile) => navigate(`/profiles/${profile.uuid}`) })
+    create.mutate(
+      { name, config: withRecipes(config, picks) },
+      { onSuccess: (profile) => navigate(`/profiles/${profile.uuid}`) },
+    )
   }
 
   return (
@@ -115,6 +135,22 @@ export function CreateProfileDialog({ open, onClose }: { open: boolean; onClose:
       {preset === 'reality' && (
         <p className="muted">Reality-ключи и короткий ID будут сгенерированы автоматически при создании.</p>
       )}
+      <div className="field">
+        <span className="field-label">Готовые рецепты</span>
+        {CREATE_RECIPES.map((r) => (
+          <Checkbox
+            key={r.id}
+            label={r.label}
+            checked={picks.includes(r.id)}
+            onChange={(on) =>
+              setPicks((prev) => (on ? [...prev, r.id] : prev.filter((id) => id !== r.id)))
+            }
+          />
+        ))}
+        <span className="field-hint">
+          Остальные рецепты — WARP и цепочку — можно добавить в редакторе кнопкой «+ Рецепт».
+        </span>
+      </div>
       {keypair.isError && <span className="field-error">{(keypair.error as Error).message}</span>}
       <div className="row">
         <span className="spacer" />
