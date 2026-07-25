@@ -63,10 +63,12 @@ export function TracePanel({
   result,
   onClose,
   onSelectRule,
+  onOpenGeo,
 }: {
   result: TraceResult
   onClose: () => void
   onSelectRule: (index: number) => void
+  onOpenGeo?: () => void
 }) {
   const { winner } = result
   const shown = result.ipVerdicts ?? result.verdicts
@@ -103,6 +105,12 @@ export function TracePanel({
           {result.caveats.map((text, i) => (
             <li key={i} className="field-warning">
               {text}
+              {/* Сообщение о незагруженных базах без пути к решению — тупик */}
+              {onOpenGeo && text.includes('Geo-базы не загружены') && (
+                <Button variant="ghost" onClick={onOpenGeo}>
+                  Geo-базы
+                </Button>
+              )}
             </li>
           ))}
         </ul>

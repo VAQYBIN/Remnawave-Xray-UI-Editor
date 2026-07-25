@@ -79,4 +79,22 @@ describe('TracePanel', () => {
     render(<TracePanel result={twoPass} onClose={() => {}} onSelectRule={() => {}} />)
     expect(screen.getByText(/по разрешённому адресу/i)).toBeInTheDocument()
   })
+
+  it('caveat про незагруженные базы предлагает открыть диалог geo', async () => {
+    const onOpenGeo = vi.fn()
+    const withGeoCaveat: TraceResult = {
+      ...result,
+      caveats: ['Geo-базы не загружены: вердикты по geosite:/geoip: неизвестны.'],
+    }
+    render(
+      <TracePanel result={withGeoCaveat} onClose={() => {}} onSelectRule={() => {}} onOpenGeo={onOpenGeo} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /geo-базы/i }))
+    expect(onOpenGeo).toHaveBeenCalled()
+  })
+
+  it('без caveat про geo кнопки нет', () => {
+    render(<TracePanel result={result} onClose={() => {}} onSelectRule={() => {}} onOpenGeo={() => {}} />)
+    expect(screen.queryByRole('button', { name: /geo-базы/i })).not.toBeInTheDocument()
+  })
 })

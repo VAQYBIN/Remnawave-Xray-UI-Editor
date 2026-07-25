@@ -1256,3 +1256,5 @@ p { margin: 0 0 10px; }
 /* Состояние geo-базы в диалоге */
 .geo-state { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .geo-state-name { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-dim); min-width: 4.5rem; }
+.trace-bar-title { font-size: var(--t-sm); color: var(--ink); white-space: nowrap; }
+.trace-caveats .btn { margin-left: 6px; padding: 0 6px; }

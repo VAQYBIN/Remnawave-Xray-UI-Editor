@@ -64,3 +64,10 @@ describe('TraceBar', () => {
     expect(onChange).toHaveBeenLastCalledWith(null)
   })
 })
+
+describe('TraceBar: подпись назначения', () => {
+  it('строка подписана — понятно, что это трассировка', () => {
+    render(<Harness onChange={() => {}} />)
+    expect(screen.getByText(/куда пойдёт трафик/i)).toBeInTheDocument()
+  })
+})
