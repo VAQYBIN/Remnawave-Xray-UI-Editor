@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type {
   BackupEntry,
+  GeoCategory,
+  GeoCategoryPage,
+  GeoKind,
   GeoMatchAnswer,
   GeoStatus,
   Profile,
@@ -152,6 +155,42 @@ export function useGeoStatus() {
     queryKey: ['geo'],
     queryFn: () => apiFetch<GeoStatus>('/api/geo'),
     staleTime: 60_000,
+  })
+}
+
+export function useGeoCategories(kind: GeoKind, enabled = true) {
+  return useQuery({
+    queryKey: ['geo', kind, 'categories'],
+    queryFn: () =>
+      apiFetch<{ categories: GeoCategory[] }>(`/api/geo/${kind}/categories`).then(
+        (r) => r.categories,
+      ),
+    enabled,
+    // База на диске сама не меняется — перезапрашивать её при каждом открытии незачем
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+export function useGeoCategory(
+  kind: GeoKind,
+  code: string | null,
+  params: { q: string; offset: number },
+) {
+  return useQuery({
+    queryKey: ['geo', kind, 'category', code, params.q, params.offset],
+    queryFn: () => {
+      const query = new URLSearchParams({
+        q: params.q,
+        offset: String(params.offset),
+        limit: '200',
+      })
+      return apiFetch<GeoCategoryPage>(
+        `/api/geo/${kind}/categories/${encodeURIComponent(code!)}?${query.toString()}`,
+      )
+    },
+    enabled: code !== null,
+    retry: false,
   })
 }
 

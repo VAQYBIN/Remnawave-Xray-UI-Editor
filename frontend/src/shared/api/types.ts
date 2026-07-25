@@ -63,6 +63,30 @@ export interface GeoStatus {
   geoip: GeoSourceStatus
 }
 
+export type GeoKind = 'geosite' | 'geoip'
+
+export interface GeoCategory {
+  code: string
+  count: number
+}
+
+export interface GeoDomainItem {
+  type: 'keyword' | 'regexp' | 'domain' | 'full'
+  value: string
+  attributes: string[]
+}
+
+export interface GeoCategoryPage {
+  code: string
+  total: number
+  offset: number
+  /** geosite */
+  domains?: GeoDomainItem[]
+  /** geoip */
+  cidrs?: string[]
+  reverseMatch?: boolean
+}
+
 export interface GeoMatchAnswer {
   loaded: boolean
   answers: Record<string, boolean>
