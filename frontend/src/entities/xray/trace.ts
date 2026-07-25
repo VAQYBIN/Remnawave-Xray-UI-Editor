@@ -126,16 +126,99 @@ function pickWinner(verdicts: RuleVerdict[], config: XrayConfig): TraceWinner | 
   return { ruleIndex: null, outboundTag: fallback, balancerTag: undefined }
 }
 
-export function traceRoute(config: XrayConfig, target: TraceTarget, geo: GeoAnswers): TraceResult {
-  // Цель-IP не требует резолва; для доменной цели ip-условия при AsIs не применяются
-  const ipAvailability: IpAvailability = isIpAddress(target.address)
-    ? 'known'
-    : target.ip !== undefined
-      ? 'known'
-      : 'never'
-  const effectiveTarget: TraceTarget =
-    isIpAddress(target.address) && target.ip === undefined ? { ...target, ip: target.address } : target
+/** Все geo-ключи, встречающиеся в правилах. Экспортируется: этап 2 спросит по ним бэкенд. */
+export function geoKeysOf(config: XrayConfig): string[] {
+  const rules = (config.routing?.rules ?? []) as Rule[]
+  const keys: string[] = []
+  for (const rule of rules) {
+    for (const value of rule.domain ?? []) if (value.startsWith('geosite:')) keys.push(value)
+    for (const value of [...(rule.ip ?? []), ...(rule.source ?? [])]) {
+      if (value.startsWith('geoip:')) keys.push(value)
+    }
+  }
+  return keys
+}
 
-  const verdicts = judgeAll(config, effectiveTarget, geo, ipAvailability)
-  return { verdicts, winner: pickWinner(verdicts, config), caveats: [] }
+/** Снифер выключен или ничего не переопределяет — домена и протокола ядро не увидит */
+function sniffingBlind(config: XrayConfig, inboundTag: string | undefined): boolean {
+  if (inboundTag === undefined) return false
+  const inbound = (config.inbounds ?? []).find((i) => i.tag === inboundTag)
+  if (!inbound) return false
+  const sniffing = inbound.sniffing as { enabled?: boolean; destOverride?: string[] } | undefined
+  return sniffing?.enabled !== true || (sniffing.destOverride?.length ?? 0) === 0
+}
+
+function collectCaveats(
+  config: XrayConfig,
+  target: TraceTarget,
+  geo: GeoAnswers,
+  verdicts: RuleVerdict[],
+  winner: TraceWinner | undefined,
+  strategy: string,
+): string[] {
+  const caveats: string[] = []
+
+  const winnerIndex = winner?.ruleIndex ?? verdicts.length
+  const unknownAbove = verdicts.filter((v) => v.state === 'unknown' && v.index < winnerIndex)
+  if (unknownAbove.length > 0) {
+    const numbers = unknownAbove.map((v) => `#${v.index + 1}`).join(', ')
+    caveats.push(
+      `Правила ${numbers} зависят от данных, которых нет, и стоят выше победителя — реальный маршрут может отличаться.`,
+    )
+  }
+
+  const geoKeys = geoKeysOf(config)
+  if (geoKeys.length > 0 && !geo.loaded) {
+    caveats.push('Geo-базы не загружены: вердикты по geosite:/geoip: неизвестны.')
+  }
+  for (const key of geo.missing) {
+    caveats.push(`Категории «${key}» нет в загруженной базе — ядро отвергнет такой конфиг.`)
+  }
+
+  const needsSniffing = verdicts.some((v) =>
+    v.fields.some((f) => f.field === 'domain' || f.field === 'protocol'),
+  )
+  if (needsSniffing && sniffingBlind(config, target.inboundTag)) {
+    caveats.push(
+      `На inbound «${target.inboundTag}» выключен sniffing — ядро не увидит домен и протокол, условия по ним не сработают.`,
+    )
+  }
+
+  if (strategy === 'IPIfNonMatch' && target.ip === undefined && !isIpAddress(target.address)) {
+    caveats.push(
+      'Стратегия IPIfNonMatch делает второй проход по разрешённому адресу — укажите IP назначения, чтобы увидеть его.',
+    )
+  }
+
+  return caveats
+}
+
+export function traceRoute(config: XrayConfig, target: TraceTarget, geo: GeoAnswers): TraceResult {
+  const strategy = config.routing?.domainStrategy ?? 'AsIs'
+  const targetIsIp = isIpAddress(target.address)
+  const effectiveTarget: TraceTarget =
+    targetIsIp && target.ip === undefined ? { ...target, ip: target.address } : target
+
+  // AsIs: ядро не резолвит домен, ip-условия по доменной цели не применяются.
+  // IPOnDemand: резолв происходит на первом же ip-условии, поэтому адрес доступен сразу.
+  const firstPassIp: IpAvailability =
+    targetIsIp || strategy === 'IPOnDemand'
+      ? effectiveTarget.ip === undefined
+        ? 'unspecified'
+        : 'known'
+      : 'never'
+
+  const verdicts = judgeAll(config, effectiveTarget, geo, firstPassIp)
+  let winner = pickWinner(verdicts, config)
+  let ipVerdicts: RuleVerdict[] | undefined
+
+  // IPIfNonMatch: если по домену никто не совпал — повторяем проход по адресу
+  const noRuleMatched = !verdicts.some((v) => v.state === 'yes')
+  if (strategy === 'IPIfNonMatch' && noRuleMatched && effectiveTarget.ip !== undefined) {
+    ipVerdicts = judgeAll(config, effectiveTarget, geo, 'known')
+    winner = pickWinner(ipVerdicts, config)
+  }
+
+  const caveats = collectCaveats(config, effectiveTarget, geo, ipVerdicts ?? verdicts, winner, strategy)
+  return { verdicts, ipVerdicts, winner, caveats }
 }
