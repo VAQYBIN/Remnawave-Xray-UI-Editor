@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { useDeleteProfile, useLogout, useProfiles, type PanelInboundView, type Profile } from '../../shared/api'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'

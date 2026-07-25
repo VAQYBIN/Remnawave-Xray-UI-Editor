@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useCreateProfile, useRealityKeypair } from '../../shared/api'
 import { randomShortId } from '../../entities/xray/generate'
 import { Button, Dialog, Select, TextInput } from '../../shared/ui'

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useLogin } from '../../shared/api'
 import { Button, TextInput } from '../../shared/ui'
 
