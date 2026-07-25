@@ -48,3 +48,25 @@ describe('узлы топологии', () => {
     expect(screen.getByText('все inbound')).toBeInTheDocument()
   })
 })
+
+describe('узел правила: вердикт трассировки', () => {
+  it('rule показывает вердикт трассировки', () => {
+    wrap(
+      <RuleNode
+        data={{ kind: 'rule' as const, index: 0, summary: [], allInbounds: true, traceState: 'winner' }}
+        selected={false}
+      />,
+    )
+    expect(screen.getByText('маршрут')).toBeInTheDocument()
+  })
+
+  it('rule без трассировки вердикт не показывает', () => {
+    wrap(
+      <RuleNode
+        data={{ kind: 'rule' as const, index: 0, summary: [], allInbounds: true }}
+        selected={false}
+      />,
+    )
+    expect(screen.queryByText('маршрут')).not.toBeInTheDocument()
+  })
+})

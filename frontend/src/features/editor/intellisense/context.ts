@@ -14,12 +14,12 @@ import { descend, type Props } from '../../../entities/xray/docSchema'
 
 export type XrayRootKind = 'config' | 'inbound' | 'outbound' | 'rule' | 'dns'
 
-function stripQuotes(text: string): string {
+export function stripQuotes(text: string): string {
   return text.replace(/^"|"$/g, '')
 }
 
 /** Имя ключа Property (без кавычек) */
-function propertyKey(state: EditorState, prop: SyntaxNode): string | null {
+export function propertyKey(state: EditorState, prop: SyntaxNode): string | null {
   const name = prop.getChild('PropertyName')
   if (!name) return null
   return stripQuotes(state.doc.sliceString(name.from, name.to))

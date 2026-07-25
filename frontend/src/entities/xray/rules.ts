@@ -23,3 +23,16 @@ export function portSpecError(value: string | number | undefined): string | null
   }
   return null
 }
+
+/** Совпадает ли порт со спецификацией правила. Формат тот же, что проверяет portSpecError. */
+export function portMatches(spec: string | number | undefined, port: number): boolean {
+  if (spec === undefined) return true
+  for (const part of String(spec).split(',').map((s) => s.trim())) {
+    const m = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(part)
+    if (!m) continue
+    const lo = Number(m[1])
+    const hi = m[2] === undefined ? lo : Number(m[2])
+    if (port >= lo && port <= hi) return true
+  }
+  return false
+}

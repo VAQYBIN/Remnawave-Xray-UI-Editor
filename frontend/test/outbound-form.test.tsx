@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { optionLabels, selectOption, selectedValue } from './helpers'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { OutboundForm, WARP_TEMPLATE } from '../src/features/inspector/OutboundForm'
+import { OutboundForm } from '../src/features/inspector/OutboundForm'
+import { WARP_TEMPLATE } from '../src/entities/xray/recipes/warp'
 
 // OutboundForm теперь рендерит StreamForm → react-query-хуки требуют провайдер
 function wrap(ui: React.ReactElement) {

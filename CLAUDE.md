@@ -39,6 +39,29 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - `remnawave/client.ts` — `RemnawaveClient` (реализация `RemnawavePort`), все ошибки панели заворачиваются в `RemnawaveError` и превращаются глобальным error handler'ом в JSON-ответы с исходным статусом.
 - `routes/profiles.ts` — ключевой флоу сохранения: `PATCH /api/profiles/:uuid` требует `expectedUpdatedAt`; при расхождении — `409` с актуальным профилем (оптимистическая блокировка). Перед каждым обновлением текущая версия пишется в бэкап (`backups/service.ts`, каталог `DATA_DIR/backups/<uuid>/`).
 - `auth/*` — вход по паролю (`APP_PASSWORD` — plaintext или bcrypt-хэш), подписанная httpOnly-cookie, rate-limit на логин, guard закрывает все `/api/*` кроме auth/health.
+- `xray/*` — проверка конфига ядром: `dummyClient.ts` подставляет фиктивного пользователя
+  (профили панели хранятся с `clients: []`), `service.ts` запускает `xray run -test` с
+  `XRAY_LOCATION_ASSET` на geo-базы из `DATA_DIR`, `parseOutput.ts` переводит цепочки ошибок ядра
+  в русские подсказки. Нет бинаря (`XRAY_BIN`) — `available: false`, а не ошибка.
+- `tools/realityProbe.ts` — TLS-проба Reality-цели (TLS 1.3, ALPN h2, X25519, покрытие
+  `serverNames` сертификатом, проверка цепочки, подозрение на CDN). Исходящие соединения обоих
+  инструментов проходят через `net/guard.ts` (`assertPublicHost`/`fetchExternal`) — приватные,
+  loopback, link-local и CGNAT-адреса отклоняются, у geo есть опт-ин `GEO_ALLOW_PRIVATE_URLS`.
+- `tools/warp.ts` — регистрация бесплатного аккаунта Cloudflare WARP (то же, что делает `wgcf`):
+  POST `/reg` + PATCH `warp_enabled`, ответ приводится к настройкам wireguard-outbound. Оба
+  запроса идут через `fetchExternal` с параметром `init` (метод/заголовки/тело) — обходить guard
+  нельзя. API неофициальный, поэтому ручка отвечает 502 с русским текстом, а не 500: в форме
+  рецепта остаётся ручной ввод ключей. Ключ здесь в обычном base64 с padding, у Reality —
+  base64url без padding; общая генерация сырых байт — `generateX25519Raw` в `tools/reality.ts`.
+- `geo/*` — разбор `geosite.dat`/`geoip.dat` (свой декодер protobuf), настраиваемые источники в
+  `DATA_DIR/settings.json`, ответы на вопрос «входит ли домен/IP в категорию». Коды категорий в
+  `.dat` лежат в ВЕРХНЕМ регистре — поиск по исходной строке из конфига всегда промахнётся.
+  Просмотр баз: `categories(kind)` считает размеры категорий через `countEntries` (проход по
+  байтам без разбора — полный разбор всей базы стоил бы сотни мегабайт), `categoryPage` режет
+  содержимое по `offset`/`limit` и фильтрует по `q`, пересчитывая `total`. Кэш разобранных
+  категорий ограничен восемью на вид (`MAX_PARSED`): вьюер листает категории подряд, а `US` в
+  geoip — 336 502 подсети. UI — `features/diagnostics/GeoBrowser.tsx` во вкладке диалога
+  «Geo-базы»; кнопка «В правило» идёт через `appendGeoKey` в `entities/graph/mutations.ts`.
 - `config.ts` — env валидируется zod'ом при старте; отдельная проверка ловит bcrypt-хэш, испорченный интерполяцией `$` в Docker Compose (см. README).
 - Статика фронтенда отдаётся из `STATIC_DIR` с SPA-fallback на `index.html`; неизвестные `/api/*` — JSON 404.
 
@@ -48,8 +71,42 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 
 - `entities/xray` — типы и чистая логика Xray-конфига: схемы inbound/outbound/stream/routing, генерация (`generate.ts`). Всё реэкспортируется через `entities/xray/index.ts`.
 - `entities/graph` — `buildGraph.ts` строит из конфига колоночный граф (squad → inbound → rule → outbound); `mutations.ts` — обратные правки конфига из графа. Дубликаты тегов пропускаются (иначе ломаются id узлов React Flow).
-- `features/editor` — `EditorPage` (вкладки: топология / JSON узла), `draftStore.ts` — zustand-persist черновики в localStorage по uuid профиля, хранят `baseUpdatedAt` для проверки конфликта при сохранении; `BackupsDialog`, `SaveDialog`, `IssueList`.
+- `features/editor` — `EditorPage` (вкладки: топология / JSON узла), `draftStore.ts` — zustand-persist черновики в localStorage по uuid профиля, хранят `baseUpdatedAt` для проверки конфликта при сохранении; `VersionsDialog`, `SaveDialog`, `IssueList`.
+- Все записи черновика в `EditorPage` идут через одну функцию `writeDraft(text, {history})`;
+  `historyStore.ts` — стеки `past`/`future` в памяти (без persist: 50 снимков конфига вытеснили бы
+  черновики из localStorage). Набор текста в JSON в историю не пишется — это забота CodeMirror,
+  вместо этого при уходе с вкладки записывается один снимок «как было до входа». После undo/redo,
+  импорта и восстановления бэкапа обязателен `setSelectedNode(null)`.
+- `shared/lib/useHotkeys.ts` — хоткеи с guard'ом `isEditableTarget` (проверяет и атрибут
+  `contenteditable` по цепочке предков — так покрывается `.cm-content`, а в jsdom свойства
+  `isContentEditable` вообще нет); `Escape` не отменяет действие браузера и молчит при открытом
+  `<dialog>`. Компонент, потребивший клавишу, обязан гасить всплытие — так `Select` не даёт
+  глобальному `Escape` закрыть инспектор вместе со своим списком.
+- `DiffView.tsx` — общий `MergeView` для `SaveDialog` и `VersionsDialog` (бывший `BackupsDialog`:
+  вкладки «Бэкапы панели» / «Файл», сравнение бэкапа с черновиком в том же диалоге, без вложенного
+  `<dialog>`). Разбор и именование файлов — `configFile.ts` (разворачивает `{profile:{config}}`).
 - `features/topology` + `features/inspector` — граф и формы редактирования выбранного узла (InboundForm/OutboundForm/StreamForm; генератор ключей Reality дергает `/api/tools`).
+- Диагностики несут путь массивом (`ValidationIssue.parts`), а строковый `path` — производный
+  (`formatPath`). На `parts` завязаны три резолвера: `features/editor/jsonLocate.ts` (путь →
+  диапазон в документе, спуск по дереву CodeMirror — обратная задача к `intellisense/context.ts`;
+  используется `ensureSyntaxTree`, иначе хвост большого конфига не разобран),
+  `entities/graph/locate.ts` (путь → id узла и счётчики проблем), `entities/graph/search.ts`
+  (поиск узлов). Клик по проблеме зависит от вкладки: на топологии ведёт к узлу, в JSON —
+  прокручивает к месту; вкладку не переключаем, потому что у `log`/`policy` узла нет.
+- `features/diagnostics` — трассировщик (`TraceBar` в доке + `TracePanel` оверлеем), `GeoDataDialog`
+  и `CheckReportDialog` (проверка ядром и Reality-целями). Логика трассировки живёт в
+  `entities/xray/trace.ts`, бэкенд отвечает только на вопрос «входит ли домен/IP в geo-категорию».
+  Цель трассировки в state `EditorPage` без персиста: это инструмент, а не документ; ввод
+  проходит через `useDebounced` (600 мс), иначе каждый символ дергал бы бэкенд.
+- `entities/xray/recipes` — библиотека рецептов чистыми функциями `plan(config, params) →
+  { config, changes, notes }`: вход не мутируется, идемпотентность держится на трёх примитивах
+  (`ensureOutbound`/`ensureRule`/`ensureSniffing`) из `apply.ts`. Правила вставляются в начало
+  `routing.rules` (в Xray выигрывает первое совпавшее), маршрутные — сразу за ведущей серией
+  блокирующих. Реестр в `recipes/index.ts`: `planFor`/`validateFor` разводят рецепты switch'ем по
+  `RecipeId`, параметры всех рецептов лежат одной картой `AllParams` — так `RecipesDialog` не
+  теряет введённое при переключении списка. UI — `features/recipes` (диалог + формы параметров),
+  вход через кнопку «+ Рецепт» в доке топологии, применение идёт через `changeConfig`, то есть
+  одним снимком истории. Ключи WARP: ручной ввод либо `POST /api/tools/warp-account`.
 - `shared/api` — fetch-клиент; `AuthError` перехватывается в `App.tsx` на уровне QueryCache/MutationCache и редиректит на `/login`.
 - `shared/ui` — свой мини-UI-kit (Button, Dialog, Select…), сторонних компонентных библиотек нет.
 

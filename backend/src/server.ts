@@ -14,17 +14,30 @@ import { panelRoutes } from './routes/panel.js'
 import { BackupService } from './backups/service.js'
 import { backupRoutes } from './routes/backups.js'
 import { toolsRoutes } from './routes/tools.js'
+import { GeoService } from './geo/service.js'
+import { geoRoutes } from './routes/geo.js'
+import { XrayService } from './xray/service.js'
+import type { RealityProbe } from './tools/realityProbe.js'
+import type { WarpRegister } from './tools/warp.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
     remnawave: RemnawavePort
     backups: BackupService
+    geo: GeoService
+    xray: XrayService
   }
 }
 
 export interface ServerDeps {
   remnawave?: RemnawavePort
   backups?: BackupService
+  geo?: GeoService
+  xray?: XrayService
+  /** Подменяется в тестах: настоящая проба открывает TLS-соединение наружу */
+  probeReality?: RealityProbe
+  /** Подменяется в тестах: настоящая регистрация ходит в Cloudflare */
+  registerWarp?: WarpRegister
 }
 
 export async function buildServer(
@@ -48,6 +61,11 @@ export async function buildServer(
       new RemnawaveClient({ baseUrl: config.remnawaveUrl, token: config.remnawaveToken }),
   )
   app.decorate('backups', deps.backups ?? new BackupService(config.dataDir))
+  app.decorate(
+    'geo',
+    deps.geo ?? new GeoService(config.dataDir, { allowPrivate: config.geoAllowPrivateUrls }),
+  )
+  app.decorate('xray', deps.xray ?? new XrayService(config.xrayBin, config.dataDir))
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err instanceof RemnawaveError) {
@@ -70,7 +88,11 @@ export async function buildServer(
   await app.register(profileRoutes)
   await app.register(panelRoutes)
   await app.register(backupRoutes)
-  await app.register(toolsRoutes)
+  await app.register(toolsRoutes, {
+    probeReality: deps.probeReality,
+    registerWarp: deps.registerWarp,
+  })
+  await app.register(geoRoutes)
 
   await app.register(fastifyStatic, { root: resolve(config.staticDir) })
 

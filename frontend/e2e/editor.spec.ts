@@ -50,7 +50,8 @@ test('восстановление бэкапа закрывает инспек�
   const inspector = page.locator('aside')
   await page.locator('.react-flow__node[data-id="in:vless-in"]').click()
   await expect(inspector.getByText('in:vless-in', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Бэкапы' }).click()
+  // exact: true — иначе подстрока задевает «Сбросить к версии панели»
+  await page.getByRole('button', { name: 'Версии', exact: true }).click()
   await page.getByRole('button', { name: 'В черновик' }).click()
   await expect(page.locator('aside')).toHaveCount(0)
 })

@@ -148,6 +148,9 @@ export function Select({
     }
     if (e.key === 'Escape') {
       e.preventDefault()
+      // Клавишу потребил список: без этого глобальный Escape закрыл бы заодно
+      // инспектор, в котором список и открыт
+      e.stopPropagation()
       closeList()
       return
     }

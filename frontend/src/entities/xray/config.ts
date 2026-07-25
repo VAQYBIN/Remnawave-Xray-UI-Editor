@@ -38,10 +38,24 @@ export const XrayConfigSchema = z
 
 export type XrayConfig = z.infer<typeof XrayConfigSchema>
 
+/** Путь до места проблемы: строки — ключи, числа — индексы массивов */
+export type PathParts = (string | number)[]
+
+export function formatPath(parts: PathParts): string {
+  return parts.join('.')
+}
+
 export interface ValidationIssue {
+  parts: PathParts
+  /** Производное от parts представление: показ в статус-баре и сортировка */
   path: string
   message: string
   level: 'error' | 'warning'
+}
+
+// Единственное место сборки: path обязан оставаться согласованным с parts
+function issue(parts: PathParts, message: string, level: 'error' | 'warning'): ValidationIssue {
+  return { parts, path: formatPath(parts), message, level }
 }
 
 export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
@@ -53,14 +67,14 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   inbounds.forEach((inb, i) => {
     const key = `inbound:${inb.tag}`
     if (seenTags.has(key)) {
-      issues.push({ path: `inbounds.${i}.tag`, message: `Дубликат тега inbound «${inb.tag}»`, level: 'warning' })
+      issues.push(issue(['inbounds', i, 'tag'], `Дубликат тега inbound «${inb.tag}»`, 'warning'))
     }
     seenTags.set(key, inb.tag)
   })
   outbounds.forEach((out, i) => {
     const key = `outbound:${out.tag}`
     if (seenTags.has(key)) {
-      issues.push({ path: `outbounds.${i}.tag`, message: `Дубликат тега outbound «${out.tag}»`, level: 'warning' })
+      issues.push(issue(['outbounds', i, 'tag'], `Дубликат тега outbound «${out.tag}»`, 'warning'))
     }
     seenTags.set(key, out.tag)
   })
@@ -71,11 +85,9 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
     const port = String(inb.port)
     const prev = seenPorts.get(port)
     if (prev) {
-      issues.push({
-        path: `inbounds.${i}.port`,
-        message: `Порт ${port} уже занят inbound «${prev}»`,
-        level: 'warning',
-      })
+      issues.push(
+        issue(['inbounds', i, 'port'], `Порт ${port} уже занят inbound «${prev}»`, 'warning'),
+      )
     } else {
       seenPorts.set(port, inb.tag)
     }
@@ -91,42 +103,50 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   )
   rules.forEach((rule, i) => {
     if (rule.outboundTag && !outboundTags.has(rule.outboundTag)) {
-      issues.push({
-        path: `routing.rules.${i}.outboundTag`,
-        message: `Правило ссылается на несуществующий outbound «${rule.outboundTag}»`,
-        level: 'warning',
-      })
+      issues.push(
+        issue(
+          ['routing', 'rules', i, 'outboundTag'],
+          `Правило ссылается на несуществующий outbound «${rule.outboundTag}»`,
+          'warning',
+        ),
+      )
     }
     for (const tag of rule.inboundTag ?? []) {
       if (!inboundTags.has(tag)) {
-        issues.push({
-          path: `routing.rules.${i}.inboundTag`,
-          message: `Правило ссылается на несуществующий inbound «${tag}»`,
-          level: 'warning',
-        })
+        issues.push(
+          issue(
+            ['routing', 'rules', i, 'inboundTag'],
+            `Правило ссылается на несуществующий inbound «${tag}»`,
+            'warning',
+          ),
+        )
       }
     }
     // Балансеры редактируются только в JSON, но висячая ссылка должна быть видна
     if (rule.balancerTag && !balancerTags.has(rule.balancerTag)) {
-      issues.push({
-        path: `routing.rules.${i}.balancerTag`,
-        message: `Правило ссылается на несуществующий балансер «${rule.balancerTag}»`,
-        level: 'warning',
-      })
+      issues.push(
+        issue(
+          ['routing', 'rules', i, 'balancerTag'],
+          `Правило ссылается на несуществующий балансер «${rule.balancerTag}»`,
+          'warning',
+        ),
+      )
     }
     const keywords = keywordEntries(rule.domain)
     if (keywords.length > 0) {
-      issues.push({
-        path: `routing.rules.${i}.domain`,
-        message: `Домены без префикса матчатся как подстрока (keyword): ${keywords.join(', ')}`,
-        level: 'warning',
-      })
+      issues.push(
+        issue(
+          ['routing', 'rules', i, 'domain'],
+          `Домены без префикса матчатся как подстрока (keyword): ${keywords.join(', ')}`,
+          'warning',
+        ),
+      )
     }
     const portErr = portSpecError(rule.port)
-    if (portErr) issues.push({ path: `routing.rules.${i}.port`, message: portErr, level: 'error' })
+    if (portErr) issues.push(issue(['routing', 'rules', i, 'port'], portErr, 'error'))
     const sourcePortErr = portSpecError(rule.sourcePort)
     if (sourcePortErr) {
-      issues.push({ path: `routing.rules.${i}.sourcePort`, message: sourcePortErr, level: 'error' })
+      issues.push(issue(['routing', 'rules', i, 'sourcePort'], sourcePortErr, 'error'))
     }
   })
 
@@ -136,15 +156,15 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
     const stream = inb.streamSettings as StreamSubset | undefined
     if (stream) {
       const secNet = securityNetworkIssue(stream.security, stream.network)
-      if (secNet) issues.push({ path: `inbounds.${i}.streamSettings`, message: secNet, level: 'error' })
+      if (secNet) issues.push(issue(['inbounds', i, 'streamSettings'], secNet, 'error'))
       const cert = hysteriaCertificateIssue(stream.network, stream.security, stream.tlsSettings)
-      if (cert) issues.push({ path: `inbounds.${i}.streamSettings`, message: cert, level: 'error' })
+      if (cert) issues.push(issue(['inbounds', i, 'streamSettings'], cert, 'error'))
     }
     if (inb.protocol === 'vless') {
       // Панель Remnawave применяет flow из settings ко всем пользователям inbound'а
       const flow = (inb.settings as { flow?: string } | undefined)?.flow
       const flowIssue = flowNetworkIssue(flow, stream?.network)
-      if (flowIssue) issues.push({ path: `inbounds.${i}.settings.flow`, message: flowIssue, level: 'error' })
+      if (flowIssue) issues.push(issue(['inbounds', i, 'settings', 'flow'], flowIssue, 'error'))
     }
   })
 
@@ -152,14 +172,16 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
     const stream = out.streamSettings as StreamSubset | undefined
     if (stream) {
       const secNet = securityNetworkIssue(stream.security, stream.network)
-      if (secNet) issues.push({ path: `outbounds.${i}.streamSettings`, message: secNet, level: 'error' })
+      if (secNet) issues.push(issue(['outbounds', i, 'streamSettings'], secNet, 'error'))
       const dialer = stream.sockopt?.dialerProxy
       if (dialer !== undefined && dialer !== '' && !outboundTags.has(dialer)) {
-        issues.push({
-          path: `outbounds.${i}.streamSettings.sockopt.dialerProxy`,
-          message: `dialerProxy ссылается на несуществующий outbound «${dialer}»`,
-          level: 'warning',
-        })
+        issues.push(
+          issue(
+            ['outbounds', i, 'streamSettings', 'sockopt', 'dialerProxy'],
+            `dialerProxy ссылается на несуществующий outbound «${dialer}»`,
+            'warning',
+          ),
+        )
       }
     }
     if (out.protocol === 'vless') {
@@ -168,16 +190,55 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
         for (const [ui, user] of (server.users ?? []).entries()) {
           const flowIssue = flowNetworkIssue(user.flow, stream?.network)
           if (flowIssue) {
-            issues.push({
-              path: `outbounds.${i}.settings.vnext.${si}.users.${ui}.flow`,
-              message: flowIssue,
-              level: 'error',
-            })
+            issues.push(
+              issue(
+                ['outbounds', i, 'settings', 'vnext', si, 'users', ui, 'flow'],
+                flowIssue,
+                'error',
+              ),
+            )
           }
         }
       })
     }
   })
+
+  // Правило по домену или протоколу не сработает, если inbound не снифает трафик:
+  // ядро просто не узнает ни домена, ни протокола
+  const blindTags = inbounds
+    .filter((inb) => {
+      const sniffing = inb.sniffing as { enabled?: boolean; destOverride?: string[] } | undefined
+      return sniffing?.enabled !== true || (sniffing.destOverride?.length ?? 0) === 0
+    })
+    .map((inb) => inb.tag)
+
+  if (blindTags.length > 0) {
+    rules.forEach((rule, i) => {
+      // Пустой inboundTag означает «все inbound-ы»
+      const scope = rule.inboundTag?.length ? rule.inboundTag : [...inboundTags]
+      const blind = scope.filter((tag) => blindTags.includes(tag))
+      if (blind.length === 0) return
+      const list = blind.map((t) => `«${t}»`).join(', ')
+      if (rule.domain?.length) {
+        issues.push(
+          issue(
+            ['routing', 'rules', i, 'domain'],
+            `Правило матчит по домену, но на ${list} выключен sniffing — ядро не увидит домен`,
+            'warning',
+          ),
+        )
+      }
+      if (rule.protocol?.length) {
+        issues.push(
+          issue(
+            ['routing', 'rules', i, 'protocol'],
+            `Правило матчит по протоколу, но на ${list} выключен sniffing — ядро не определит протокол`,
+            'warning',
+          ),
+        )
+      }
+    })
+  }
 
   return issues
 }
@@ -194,11 +255,7 @@ export function validateXrayConfig(text: string): {
     return {
       ok: false,
       issues: [
-        {
-          path: '',
-          message: `Некорректный JSON: ${err instanceof Error ? err.message : String(err)}`,
-          level: 'error',
-        },
+        issue([], `Некорректный JSON: ${err instanceof Error ? err.message : String(err)}`, 'error'),
       ],
     }
   }
@@ -208,11 +265,7 @@ export function validateXrayConfig(text: string): {
     return {
       ok: false,
       config: raw,
-      issues: parsed.error.issues.map((i) => ({
-        path: i.path.join('.'),
-        message: i.message,
-        level: 'error' as const,
-      })),
+      issues: parsed.error.issues.map((i) => issue(i.path as PathParts, i.message, 'error')),
     }
   }
 

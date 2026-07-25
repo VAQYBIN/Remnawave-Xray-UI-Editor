@@ -50,3 +50,16 @@ test('гнездо сквада не коммутируется, обратно�
   // У outbound нет исходящего гнезда — тянуть назад не с чего
   await expect(page.locator('.react-flow__node[data-id="out:direct"] .react-flow__handle-right')).toHaveCount(0)
 })
+
+test('переименование outbound не рвёт связь с правилом', async ({ page }) => {
+  const inspector = page.locator('aside')
+  await page.locator('.react-flow__node[data-id="out:direct"]').click()
+  await inspector.getByLabel('Тег', { exact: true }).fill('exit')
+  await inspector.getByRole('button', { name: 'Применить' }).click()
+
+  // Правило поехало за новым тегом, старого ребра не осталось
+  await expect(page.locator('.react-flow__edge[data-id="e:rule:0->out:exit"]')).toBeVisible()
+  await expect(page.locator('.react-flow__edge[data-id="e:rule:0->out:direct"]')).toHaveCount(0)
+  // Инспектор остался открытым на переименованном узле
+  await expect(inspector.getByLabel('Тег', { exact: true })).toHaveValue('exit')
+})

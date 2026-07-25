@@ -14,6 +14,18 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver
 }
 
+// jsdom не реализует Blob.text() — читаем через FileReader, он там есть
+if (typeof Blob.prototype.text !== 'function') {
+  Blob.prototype.text = function (this: Blob) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(this)
+    })
+  }
+}
+
 // jsdom не реализует HTMLDialogElement.showModal/close
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {

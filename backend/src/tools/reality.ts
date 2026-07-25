@@ -8,12 +8,22 @@ export interface RealityKeypair {
   publicKey: string
 }
 
+/**
+ * Сырые 32 байта пары x25519. Кодировку выбирает вызывающий: Reality — base64url
+ * без padding, WARP — обычный base64 с padding.
+ */
+export function generateX25519Raw(): { privateKey: Buffer; publicKey: Buffer } {
+  const { publicKey, privateKey } = generateKeyPairSync('x25519')
+  return {
+    privateKey: (privateKey.export({ type: 'pkcs8', format: 'der' }) as Buffer).subarray(-32),
+    publicKey: (publicKey.export({ type: 'spki', format: 'der' }) as Buffer).subarray(-32),
+  }
+}
+
 // Формат совпадает с выводом `xray x25519`: base64url без padding
 export function generateRealityKeypair(): RealityKeypair {
-  const { publicKey, privateKey } = generateKeyPairSync('x25519')
-  const priv = (privateKey.export({ type: 'pkcs8', format: 'der' }) as Buffer).subarray(-32)
-  const pub = (publicKey.export({ type: 'spki', format: 'der' }) as Buffer).subarray(-32)
-  return { privateKey: priv.toString('base64url'), publicKey: pub.toString('base64url') }
+  const { privateKey, publicKey } = generateX25519Raw()
+  return { privateKey: privateKey.toString('base64url'), publicKey: publicKey.toString('base64url') }
 }
 
 export function derivePublicKey(privateKeyB64: string): string {

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { formatConfig, moveSelectedRule, nextSelection, resolveEditorText, toGraphContext } from '../src/features/editor/EditorPage'
+import {
+  escapeTarget,
+  formatConfig,
+  moveSelectedRule,
+  nextSelection,
+  renamedNodeId,
+  resolveEditorText,
+  toGraphContext,
+  traceOf,
+} from '../src/features/editor/EditorPage'
+import type { XrayConfig } from '../src/entities/xray'
 
 describe('editor logic', () => {
   it('formatConfig — JSON с отступом 2', () => {
@@ -66,5 +76,85 @@ describe('moveSelectedRule', () => {
     expect(moveSelectedRule(cfg, 'rule:1', 1)).toBeNull()
     expect(moveSelectedRule(cfg, 'in:a', 1)).toBeNull()
     expect(moveSelectedRule(cfg, null, 1)).toBeNull()
+  })
+})
+
+describe('traceOf', () => {
+  const config = {
+    outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    routing: {
+      rules: [
+        { domain: ['geosite:google'], outboundTag: 'direct' },
+        { domain: ['domain:openai.com'], outboundTag: 'direct' },
+      ],
+    },
+  } as unknown as XrayConfig
+
+  it('без цели трассировки нет', () => {
+    expect(traceOf(config, null, undefined)).toBeUndefined()
+  })
+
+  it('без валидного конфига трассировки нет', () => {
+    expect(
+      traceOf(undefined, { address: 'openai.com', port: 443, network: 'tcp' }, undefined),
+    ).toBeUndefined()
+  })
+
+  it('без geo-ответов geo-правила неизвестны', () => {
+    const res = traceOf(config, { address: 'api.openai.com', port: 443, network: 'tcp' }, undefined)
+    expect(res?.verdicts[0].state).toBe('unknown')
+    expect(res?.winner?.ruleIndex).toBe(1)
+  })
+
+  it('с geo-ответами geo-правило получает точный вердикт', () => {
+    const res = traceOf(
+      config,
+      { address: 'www.google.com', port: 443, network: 'tcp' },
+      { loaded: true, answers: { 'geosite:google': true }, missing: [] },
+    )
+    expect(res?.verdicts[0].state).toBe('yes')
+    expect(res?.winner?.ruleIndex).toBe(0)
+  })
+})
+
+// TraceTarget требует address, port и network — минимальная цель для проверок
+const TARGET = { address: 'example.com', port: 443, network: 'tcp' } as const
+
+describe('escapeTarget', () => {
+  it('открытый инспектор закрывается первым', () => {
+    expect(escapeTarget({ selectedNode: 'in:a', traceTarget: TARGET, searchQuery: 'q' })).toBe(
+      'inspector',
+    )
+  })
+
+  it('без инспектора — панель трассы', () => {
+    expect(escapeTarget({ selectedNode: null, traceTarget: TARGET, searchQuery: 'q' })).toBe('trace')
+  })
+
+  it('без инспектора и трассы — результаты поиска', () => {
+    expect(escapeTarget({ selectedNode: null, traceTarget: null, searchQuery: 'q' })).toBe('search')
+  })
+
+  it('пробелы в поиске за запрос не считаются', () => {
+    expect(escapeTarget({ selectedNode: null, traceTarget: null, searchQuery: '  ' })).toBeNull()
+  })
+})
+
+describe('renamedNodeId', () => {
+  it('смена тега даёт новый id узла', () => {
+    expect(renamedNodeId('out:direct', { tag: 'wg' })).toBe('out:wg')
+    expect(renamedNodeId('in:vless-in', { tag: 'vless-new' })).toBe('in:vless-new')
+  })
+
+  it('тот же тег, пустой тег и нестроковый тег — выбор не переносим', () => {
+    expect(renamedNodeId('out:direct', { tag: 'direct' })).toBeNull()
+    expect(renamedNodeId('out:direct', { tag: '' })).toBeNull()
+    expect(renamedNodeId('out:direct', { tag: 42 })).toBeNull()
+    expect(renamedNodeId('out:direct', null)).toBeNull()
+  })
+
+  it('у правил и dns тег не адресует узел', () => {
+    expect(renamedNodeId('rule:0', { tag: 'wg' })).toBeNull()
+    expect(renamedNodeId('dns', { tag: 'wg' })).toBeNull()
   })
 })

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { DnsSchema, LogSchema, RoutingRuleSchema, validateXrayConfig, XrayConfigSchema } from '../src/entities/xray'
+import {
+  analyzeIntegrity,
+  DnsSchema,
+  formatPath,
+  LogSchema,
+  RoutingRuleSchema,
+  validateXrayConfig,
+  XrayConfigSchema,
+  type XrayConfig,
+} from '../src/entities/xray'
 
 const fullConfig = {
   log: { loglevel: 'warning' },
@@ -310,5 +319,117 @@ describe('analyzeIntegrity — ссылки и правила (план 4)', () 
     expect(src.issues.some((i) => i.level === 'error' && i.path === 'routing.rules.0.sourcePort')).toBe(true)
     const good = validateXrayConfig(JSON.stringify(mk('443,1000-2000')))
     expect(good.issues.filter((i) => i.level === 'error')).toHaveLength(0)
+  })
+})
+
+describe('analyzeIntegrity: sniffing и доменные правила', () => {
+  const base = (inbounds: unknown[], rules: unknown[]) =>
+    ({
+      inbounds,
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      routing: { rules },
+    }) as unknown as XrayConfig
+
+  it('правило по домену на inbound без sniffing — warning с тегом inbound', () => {
+    const issues = analyzeIntegrity(
+      base(
+        [{ tag: 'vless-in', protocol: 'vless', sniffing: { enabled: false } }],
+        [{ inboundTag: ['vless-in'], domain: ['domain:openai.com'], outboundTag: 'direct' }],
+      ),
+    )
+    const hit = issues.find((i) => i.path === 'routing.rules.0.domain')
+    expect(hit?.level).toBe('warning')
+    expect(hit?.message).toContain('vless-in')
+    expect(hit?.message).toContain('sniffing')
+  })
+
+  it('sniffing включён, но destOverride пуст — тоже warning', () => {
+    const issues = analyzeIntegrity(
+      base(
+        [{ tag: 'vless-in', protocol: 'vless', sniffing: { enabled: true, destOverride: [] } }],
+        [{ inboundTag: ['vless-in'], domain: ['domain:openai.com'], outboundTag: 'direct' }],
+      ),
+    )
+    expect(issues.some((i) => i.path === 'routing.rules.0.domain')).toBe(true)
+  })
+
+  it('sniffing настроен — предупреждения нет', () => {
+    const issues = analyzeIntegrity(
+      base(
+        [{ tag: 'vless-in', protocol: 'vless', sniffing: { enabled: true, destOverride: ['tls', 'http'] } }],
+        [{ inboundTag: ['vless-in'], domain: ['domain:openai.com'], outboundTag: 'direct' }],
+      ),
+    )
+    expect(issues.some((i) => i.path === 'routing.rules.0.domain')).toBe(false)
+  })
+
+  it('правило без inboundTag применяется ко всем — слепые inbound-ы перечисляются', () => {
+    const issues = analyzeIntegrity(
+      base(
+        [
+          { tag: 'a-in', protocol: 'vless', sniffing: { enabled: true, destOverride: ['tls'] } },
+          { tag: 'b-in', protocol: 'vless' },
+        ],
+        [{ domain: ['domain:openai.com'], outboundTag: 'direct' }],
+      ),
+    )
+    const hit = issues.find((i) => i.path === 'routing.rules.0.domain')
+    expect(hit?.message).toContain('b-in')
+    expect(hit?.message).not.toContain('a-in')
+  })
+
+  it('правило по протоколу проверяется так же, но со своим путём', () => {
+    const issues = analyzeIntegrity(
+      base(
+        [{ tag: 'vless-in', protocol: 'vless' }],
+        [{ inboundTag: ['vless-in'], protocol: ['tls'], outboundTag: 'direct' }],
+      ),
+    )
+    expect(issues.some((i) => i.path === 'routing.rules.0.protocol')).toBe(true)
+  })
+
+  it('правило без доменных и протокольных условий не трогаем', () => {
+    const issues = analyzeIntegrity(
+      base([{ tag: 'vless-in', protocol: 'vless' }], [{ ip: ['10.0.0.0/8'], outboundTag: 'direct' }]),
+    )
+    expect(issues.some((i) => i.path.startsWith('routing.rules.0'))).toBe(false)
+  })
+})
+
+describe('путь диагностики', () => {
+  it('parts несёт индексы числами, path остаётся строкой', () => {
+    const res = validateXrayConfig(
+      JSON.stringify({
+        inbounds: [
+          {
+            tag: 'a',
+            protocol: 'vless',
+            streamSettings: { network: 'ws', security: 'reality' },
+          },
+        ],
+        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      }),
+    )
+    const issue = res.issues.find((i) => i.path === 'inbounds.0.streamSettings')!
+    expect(issue).toBeDefined()
+    expect(issue.parts).toEqual(['inbounds', 0, 'streamSettings'])
+  })
+
+  it('parts у схемной ошибки приходит из zod без склейки', () => {
+    const res = validateXrayConfig(JSON.stringify({ dns: { servers: 'не массив' } }))
+    const issue = res.issues.find((i) => i.path === 'dns.servers')!
+    expect(issue.parts).toEqual(['dns', 'servers'])
+  })
+
+  it('ключ с точкой не разваливается на сегменты', () => {
+    // hosts — словарь: ключ сам содержит точки, и склейка через точку неоднозначна
+    const res = validateXrayConfig(JSON.stringify({ dns: { hosts: { 'example.com': 42 } } }))
+    const issue = res.issues.find((i) => i.parts.includes('example.com'))
+    expect(issue?.parts).toEqual(['dns', 'hosts', 'example.com'])
+  })
+
+  it('formatPath собирает ту же строку, что была раньше', () => {
+    expect(formatPath(['routing', 'rules', 2, 'domain'])).toBe('routing.rules.2.domain')
+    expect(formatPath([])).toBe('')
   })
 })

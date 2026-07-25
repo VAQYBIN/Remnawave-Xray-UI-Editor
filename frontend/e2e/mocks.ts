@@ -37,6 +37,38 @@ export const PROFILE = {
 export async function mockApi(page: Page) {
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: { authenticated: true } }))
   await page.route('**/api/squads', (r) => r.fulfill({ json: { squads: [] } }))
+  // Обработчики просмотра идут раньше общего '**/api/geo': порядок здесь важен,
+  // ранний маршрут Playwright перехватывает запрос первым
+  await page.route('**/api/geo/geosite/categories', (r) =>
+    r.fulfill({ json: { categories: [{ code: 'GOOGLE', count: 2 }] } }),
+  )
+  await page.route('**/api/geo/geosite/categories/**', (r) =>
+    r.fulfill({
+      json: {
+        code: 'GOOGLE',
+        total: 2,
+        offset: 0,
+        domains: [
+          { type: 'domain', value: 'google.com', attributes: [] },
+          { type: 'full', value: 'api.google.com', attributes: ['cn'] },
+        ],
+      },
+    }),
+  )
+  await page.route('**/api/geo', (r) =>
+    r.fulfill({
+      json: {
+        geosite: { url: 'https://example.test/dlc.dat', present: false },
+        geoip: { url: 'https://example.test/geoip.dat', present: false },
+      },
+    }),
+  )
+  await page.route('**/api/tools/geo/match', (r) =>
+    r.fulfill({ json: { loaded: false, answers: {}, missing: [] } }),
+  )
+  await page.route('**/api/tools/xray-test', (r) =>
+    r.fulfill({ json: { available: false, ok: false, errors: [], warnings: [], injected: [] } }),
+  )
   await page.route(`**/api/profiles/${UUID}/inbounds`, (r) => r.fulfill({ json: { inbounds: [] } }))
   await page.route(`**/api/profiles/${UUID}/backups/b1.json`, (r) =>
     r.fulfill({ json: { savedAt: '2026-07-10T10:00:00.000Z', profile: { ...PROFILE, config: CONFIG } } }),

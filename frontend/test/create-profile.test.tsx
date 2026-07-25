@@ -71,3 +71,43 @@ describe('CreateProfileDialog — выбор пресета', () => {
     expect(String(profileCall[1]?.body)).toContain('"privateKey":"PK"')
   })
 })
+
+describe('CreateProfileDialog — рецепты', () => {
+  it('отмеченные рецепты применяются к шаблону перед созданием', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/profiles')) {
+        return new Response(
+          JSON.stringify({ profile: { uuid: 'p1', name: 'Germany', config: {} } }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      throw new Error(`неожиданный запрос: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderDialog()
+    await userEvent.type(screen.getByLabelText('Имя профиля'), 'Germany 1')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Блокировать торренты' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Блокировать рекламу' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Создать' }))
+
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/profiles'))).toBe(true)
+    })
+    // fetchMock объявлен с одним параметром — второй аргумент читаем через приведение
+    const call = fetchMock.mock.calls.find(([u]) => String(u).includes('/api/profiles'))!
+    const [, init] = call as unknown as [RequestInfo, RequestInit]
+    const sent = JSON.parse(String(init.body)) as {
+      config: {
+        outbounds: { tag: string }[]
+        routing: { rules: { protocol?: string[]; domain?: string[] }[] }
+      }
+    }
+    expect(sent.config.outbounds.some((o) => o.tag === 'block')).toBe(true)
+    expect(sent.config.routing.rules.some((r) => r.protocol?.[0] === 'bittorrent')).toBe(true)
+    expect(sent.config.routing.rules.some((r) => r.domain?.[0] === 'geosite:category-ads-all')).toBe(
+      true,
+    )
+  })
+})
