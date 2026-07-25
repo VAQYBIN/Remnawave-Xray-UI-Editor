@@ -6,7 +6,9 @@ import type {
   GeoStatus,
   Profile,
   ProfileInboundDetail,
+  RealityProbeResult,
   SquadInfo,
+  XrayTestResult,
 } from './types'
 
 export function useMe() {
@@ -161,6 +163,26 @@ export function useUpdateGeo() {
       // Вердикты трассировки посчитаны по старой базе — пересчитываем
       qc.invalidateQueries({ queryKey: ['geo-match'] })
     },
+  })
+}
+
+export function useXrayTest() {
+  return useMutation({
+    mutationFn: (config: unknown) =>
+      apiFetch<XrayTestResult>('/api/tools/xray-test', {
+        method: 'POST',
+        body: JSON.stringify({ config }),
+      }),
+  })
+}
+
+export function useRealityProbe() {
+  return useMutation({
+    mutationFn: (input: { target: string; serverNames: string[] }) =>
+      apiFetch<RealityProbeResult>('/api/tools/reality-target', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
   })
 }
 

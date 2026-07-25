@@ -68,3 +68,51 @@ export interface GeoMatchAnswer {
   answers: Record<string, boolean>
   missing: string[]
 }
+
+export interface XrayTestError {
+  message: string
+  line?: number
+  hint?: string
+  code?: 'geo'
+}
+
+export interface XrayTestResult {
+  available: boolean
+  ok: boolean
+  version?: string
+  errors: XrayTestError[]
+  /** Теги inbound'ов, куда на время проверки подставлен фиктивный пользователь */
+  injected: string[]
+}
+
+export type CheckLevel = 'ok' | 'warn' | 'error'
+
+export interface RealityCheck {
+  id: string
+  level: CheckLevel
+  title: string
+  detail?: string
+}
+
+export interface RealityPeerInfo {
+  protocol: string | null
+  cipher?: string
+  alpn?: string | null
+  keyExchange?: string
+  subject?: string
+  issuer?: string
+  altNames: string[]
+  validTo?: string
+  authorized?: boolean
+  authorizationError?: string
+}
+
+export interface RealityProbeResult {
+  target: string
+  host?: string
+  port?: number
+  reachable: boolean
+  error?: string
+  info?: RealityPeerInfo
+  checks: RealityCheck[]
+}
