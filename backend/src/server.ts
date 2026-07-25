@@ -16,12 +16,15 @@ import { backupRoutes } from './routes/backups.js'
 import { toolsRoutes } from './routes/tools.js'
 import { GeoService } from './geo/service.js'
 import { geoRoutes } from './routes/geo.js'
+import { XrayService } from './xray/service.js'
+import type { RealityProbe } from './tools/realityProbe.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
     remnawave: RemnawavePort
     backups: BackupService
     geo: GeoService
+    xray: XrayService
   }
 }
 
@@ -29,6 +32,9 @@ export interface ServerDeps {
   remnawave?: RemnawavePort
   backups?: BackupService
   geo?: GeoService
+  xray?: XrayService
+  /** Подменяется в тестах: настоящая проба открывает TLS-соединение наружу */
+  probeReality?: RealityProbe
 }
 
 export async function buildServer(
@@ -56,6 +62,7 @@ export async function buildServer(
     'geo',
     deps.geo ?? new GeoService(config.dataDir, { allowPrivate: config.geoAllowPrivateUrls }),
   )
+  app.decorate('xray', deps.xray ?? new XrayService(config.xrayBin, config.dataDir))
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err instanceof RemnawaveError) {
@@ -78,7 +85,7 @@ export async function buildServer(
   await app.register(profileRoutes)
   await app.register(panelRoutes)
   await app.register(backupRoutes)
-  await app.register(toolsRoutes)
+  await app.register(toolsRoutes, { probeReality: deps.probeReality })
   await app.register(geoRoutes)
 
   await app.register(fastifyStatic, { root: resolve(config.staticDir) })
