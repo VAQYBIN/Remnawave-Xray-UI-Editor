@@ -9,6 +9,12 @@ const envSchema = z.object({
   DATA_DIR: z.string().default('./data'),
   STATIC_DIR: z.string().default('./public'),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
+  // Ссылки на geo-базы задаёт пользователь, поэтому сервер по умолчанию отказывается
+  // ходить во внутреннюю сеть (защита от SSRF). Включать только для своего зеркала.
+  GEO_ALLOW_PRIVATE_URLS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 })
 
 export interface AppConfig {
@@ -20,6 +26,7 @@ export interface AppConfig {
   dataDir: string
   staticDir: string
   sessionTtlSeconds: number
+  geoAllowPrivateUrls: boolean
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -49,5 +56,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     dataDir: e.DATA_DIR,
     staticDir: e.STATIC_DIR,
     sessionTtlSeconds: e.SESSION_TTL_SECONDS,
+    geoAllowPrivateUrls: e.GEO_ALLOW_PRIVATE_URLS,
   }
 }

@@ -52,7 +52,10 @@ export async function buildServer(
       new RemnawaveClient({ baseUrl: config.remnawaveUrl, token: config.remnawaveToken }),
   )
   app.decorate('backups', deps.backups ?? new BackupService(config.dataDir))
-  app.decorate('geo', deps.geo ?? new GeoService(config.dataDir))
+  app.decorate(
+    'geo',
+    deps.geo ?? new GeoService(config.dataDir, { allowPrivate: config.geoAllowPrivateUrls }),
+  )
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err instanceof RemnawaveError) {

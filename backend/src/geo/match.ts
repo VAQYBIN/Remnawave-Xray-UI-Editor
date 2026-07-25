@@ -62,7 +62,20 @@ export function ipToBytes(ip: string): Uint8Array | null {
     return bytes
   }
   if (!ip.includes(':')) return null
-  const halves = ip.split('::')
+
+  // Смешанная запись (::ffff:8.8.8.8) — часть стандарта IPv6: точечный хвост
+  // переводим в две 16-битные группы, иначе адрес не разберётся вовсе
+  let text = ip
+  if (text.includes('.')) {
+    const lastColon = text.lastIndexOf(':')
+    const tail = ipToBytes(text.slice(lastColon + 1))
+    if (!tail || tail.length !== 4) return null
+    const high = ((tail[0]! << 8) | tail[1]!).toString(16)
+    const low = ((tail[2]! << 8) | tail[3]!).toString(16)
+    text = `${text.slice(0, lastColon + 1)}${high}:${low}`
+  }
+
+  const halves = text.split('::')
   if (halves.length > 2) return null
   const head = halves[0] === '' ? [] : halves[0]!.split(':')
   const tail = halves.length === 2 ? (halves[1] === '' ? [] : halves[1]!.split(':')) : []

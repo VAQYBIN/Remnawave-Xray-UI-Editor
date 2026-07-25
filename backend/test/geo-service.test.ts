@@ -144,15 +144,19 @@ describe('GeoService.update', () => {
       { code: 'GOOGLE', domains: [{ type: 2, value: 'google.com', attributes: [] }] },
     ])
 
-  function fetchStub(body: Uint8Array | null, status = 200): typeof fetch {
-    return (async () =>
-      new Response(body === null ? null : (body as unknown as BodyInit), {
-        status,
-      })) as unknown as typeof fetch
+  // lookupImpl подставной: иначе guard полез бы в реальный DNS за github.com
+  function net(body: Uint8Array | null, status = 200) {
+    return {
+      fetchImpl: (async () =>
+        new Response(body === null ? null : (body as unknown as BodyInit), {
+          status,
+        })) as unknown as typeof fetch,
+      lookupImpl: async () => [{ address: '140.82.121.4' }],
+    }
   }
 
   it('скачивает базу и она сразу отвечает на запросы', async () => {
-    const svc = new GeoService(dataDir, fetchStub(goodBody()))
+    const svc = new GeoService(dataDir, net(goodBody()))
     const status = await svc.update(['geosite'])
     expect(status.geosite.present).toBe(true)
     expect(status.geosite.categories).toBe(1)
@@ -161,26 +165,26 @@ describe('GeoService.update', () => {
   })
 
   it('ошибка сервера — исключение с текстом про статус', async () => {
-    const svc = new GeoService(dataDir, fetchStub(goodBody(), 503))
+    const svc = new GeoService(dataDir, net(goodBody(), 503))
     await expect(svc.update(['geosite'])).rejects.toThrow(/503/)
   })
 
   it('файл не похож на geo-базу — отказ, старая база не затирается', async () => {
     await writeGeosite()
-    const svc = new GeoService(dataDir, fetchStub(new Uint8Array([1, 2, 3])))
+    const svc = new GeoService(dataDir, net(new Uint8Array([1, 2, 3])))
     await expect(svc.update(['geosite'])).rejects.toThrow(/не похож/)
     const res = await svc.match({ domain: 'google.com', keys: ['geosite:google'] })
     expect(res.answers['geosite:google']).toBe(true)
   })
 
   it('пустой ответ — отказ', async () => {
-    const svc = new GeoService(dataDir, fetchStub(new Uint8Array()))
+    const svc = new GeoService(dataDir, net(new Uint8Array()))
     await expect(svc.update(['geosite'])).rejects.toThrow(/Пуст/i)
   })
 
   it('обновление сбрасывает кэш: новая база отвечает по-новому', async () => {
     await writeGeosite()
-    const svc = new GeoService(dataDir, fetchStub(goodBody()))
+    const svc = new GeoService(dataDir, net(goodBody()))
     expect(
       (await svc.match({ domain: 'openai.com', keys: ['geosite:openai'] })).answers['geosite:openai'],
     ).toBe(true)
@@ -188,5 +192,26 @@ describe('GeoService.update', () => {
     const after = await svc.match({ domain: 'openai.com', keys: ['geosite:openai'] })
     // В новой базе категории OPENAI нет — она должна уйти в missing, а не остаться true из кэша
     expect(after.missing).toEqual(['geosite:openai'])
+  })
+
+  it('ссылка на внутренний адрес отклоняется до запроса (SSRF)', async () => {
+    const fetchImpl = (async () => new Response('secrets', { status: 200 })) as unknown as typeof fetch
+    const svc = new GeoService(dataDir, {
+      fetchImpl,
+      lookupImpl: async () => [{ address: '169.254.169.254' }],
+    })
+    await svc.setUrls({ geositeUrl: 'http://metadata.internal/latest' })
+    await expect(svc.update(['geosite'])).rejects.toThrow(/внутренн/i)
+  })
+
+  it('allowPrivate разрешает своё зеркало в локальной сети', async () => {
+    const svc = new GeoService(dataDir, {
+      ...net(goodBody()),
+      lookupImpl: async () => [{ address: '192.168.1.10' }],
+      allowPrivate: true,
+    })
+    await svc.setUrls({ geositeUrl: 'http://mirror.lan/dlc.dat' })
+    const status = await svc.update(['geosite'])
+    expect(status.geosite.present).toBe(true)
   })
 })

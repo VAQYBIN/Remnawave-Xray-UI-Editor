@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { indexEntries, parseCidrs, parseDomains, type GeoCidr, type GeoDomain } from './dat.js'
 import { domainMatches, ipMatches, parseKey } from './match.js'
+import { fetchExternal, type FetchGuardOptions } from '../net/guard.js'
 
 // Дефолты — канонические списки v2fly. Альтернатива с расширенными категориями:
 // https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
@@ -47,12 +48,14 @@ interface Cached {
 
 const MAX_BYTES = 64 * 1024 * 1024
 
+export interface GeoServiceOptions extends FetchGuardOptions {}
+
 export class GeoService {
   private cache = new Map<Kind, Cached>()
 
   constructor(
     private dataDir: string,
-    private fetchImpl: typeof fetch = fetch,
+    private net: GeoServiceOptions = {},
   ) {}
 
   private fileFor(kind: Kind): string {
@@ -177,10 +180,9 @@ export class GeoService {
     await mkdir(join(this.dataDir, 'geodata'), { recursive: true })
     for (const kind of kinds) {
       const url = this.urlFor(kind, settings)
-      const res = await this.fetchImpl(url, {
-        signal: AbortSignal.timeout(120_000),
-        redirect: 'follow',
-      })
+      // Ссылку задаёт пользователь: fetchExternal проверяет, что и исходный адрес,
+      // и каждый редирект ведут во внешнюю сеть, а не к внутренним сервисам
+      const res = await fetchExternal(url, this.net)
       if (!res.ok) throw new Error(`Не удалось скачать ${kind}: сервер ответил ${res.status}`)
       const body = new Uint8Array(await res.arrayBuffer())
       if (body.byteLength === 0) throw new Error(`Пустой ответ при загрузке ${kind}`)
