@@ -22,6 +22,7 @@ test.beforeEach(async ({ page }) => {
 
 test('трассировка показывает победившее правило и подсвечивает его узел', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
+  await page.getByRole('button', { name: 'Трасса' }).click()
   await expect(page.locator('.react-flow__node[data-id="in:vless-in"]')).toBeVisible()
 
   await page.getByLabel('Адрес').fill('api.openai.com')
@@ -38,6 +39,7 @@ test('трассировка показывает победившее прав�
 
 test('geo-правила честно помечаются как неизвестные', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
+  await page.getByRole('button', { name: 'Трасса' }).click()
   await page.getByLabel('Адрес').fill('api.openai.com')
 
   const panel = page.locator('.trace-panel')
@@ -48,6 +50,7 @@ test('geo-правила честно помечаются как неизвес
 
 test('очистка адреса убирает панель разбора', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
+  await page.getByRole('button', { name: 'Трасса' }).click()
   const address = page.getByLabel('Адрес')
   await address.fill('api.openai.com')
   await expect(page.locator('.trace-panel')).toBeVisible()

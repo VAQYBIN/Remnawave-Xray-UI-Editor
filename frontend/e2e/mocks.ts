@@ -37,6 +37,17 @@ export const PROFILE = {
 export async function mockApi(page: Page) {
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: { authenticated: true } }))
   await page.route('**/api/squads', (r) => r.fulfill({ json: { squads: [] } }))
+  await page.route('**/api/geo', (r) =>
+    r.fulfill({
+      json: {
+        geosite: { url: 'https://example.test/dlc.dat', present: false },
+        geoip: { url: 'https://example.test/geoip.dat', present: false },
+      },
+    }),
+  )
+  await page.route('**/api/tools/geo/match', (r) =>
+    r.fulfill({ json: { loaded: false, answers: {}, missing: [] } }),
+  )
   await page.route(`**/api/profiles/${UUID}/inbounds`, (r) => r.fulfill({ json: { inbounds: [] } }))
   await page.route(`**/api/profiles/${UUID}/backups/b1.json`, (r) =>
     r.fulfill({ json: { savedAt: '2026-07-10T10:00:00.000Z', profile: { ...PROFILE, config: CONFIG } } }),
