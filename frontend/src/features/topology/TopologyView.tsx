@@ -152,23 +152,32 @@ export function TopologyView({
   const setPosition = usePositionsStore((s) => s.setPosition)
   const resetPositions = usePositionsStore((s) => s.resetPositions)
 
-  const computed = useMemo(() => {
+  // Граф пересобирается только от конфига и контекста панели. Трассировка сюда
+  // не входит намеренно: иначе каждый символ в строке адреса создавал бы все узлы
+  // заново, а вместе с ними перезапускалась бы анимация появления (узлы мигали
+  // и не успевали проявиться).
+  const graph = useMemo(() => {
     const g = buildGraph(config, ctx)
+    return { nodes: layoutColumns(g.nodes), edges: g.edges }
+  }, [config, ctx])
+
+  const computed = useMemo(() => {
     const traced = tracedEdgeIds(trace, config)
-    const laid = layoutColumns(g.nodes).map((n) => ({
-      ...n,
-      deletable: false,
-      position: saved?.[n.id] ?? n.position,
-      selected: n.id === selectedId,
-      // buildGraph о трассировке не знает — вердикт доклеивается здесь
-      data:
-        n.data.kind === 'rule'
-          ? { ...n.data, traceState: traceStateOf(trace, n.data.index as number) }
-          : n.data,
-    }))
+    const laid = graph.nodes.map((n) => {
+      const traceState = n.data.kind === 'rule' ? traceStateOf(trace, n.data.index as number) : undefined
+      return {
+        ...n,
+        deletable: false,
+        position: saved?.[n.id] ?? n.position,
+        selected: n.id === selectedId,
+        // Ссылку на data сохраняем, когда вердикта нет: React Flow сравнивает
+        // объекты по ссылке, и новый объект на каждый ввод — лишняя перерисовка
+        data: traceState === undefined ? n.data : { ...n.data, traceState },
+      }
+    })
     // Кабели, касающиеся выбранного узла или лежащие на трассе, подсвечиваются
     // бегущим пунктиром — видно весь путь трафика от входа до выхода
-    const wired = g.edges.map((e) => ({
+    const wired = graph.edges.map((e) => ({
       ...e,
       type: 'signal',
       data: {
@@ -178,7 +187,7 @@ export function TopologyView({
       },
     }))
     return { nodes: laid, edges: wired }
-  }, [config, ctx, saved, selectedId, trace])
+  }, [graph, config, saved, selectedId, trace])
 
   // controlled-режим: drag применяется к локальному стейту, ресинк при пересборке графа
   const [nodes, setNodes] = useState<Node[]>(computed.nodes)

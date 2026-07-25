@@ -24,6 +24,7 @@ import {
 import type { GraphContext } from '../../entities/graph/types'
 import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
 import { relativeTime } from '../../shared/lib/relativeTime'
+import { useDebounced } from '../../shared/lib/useDebounced'
 import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
 import { NodeInspector } from '../topology/NodeInspector'
@@ -75,6 +76,13 @@ export function nextSelection(
 // geosite:/geoip: неизвестными и говорит об этом в caveats.
 const NO_GEO: GeoAnswers = { loaded: false, answers: {}, missing: [] }
 
+/**
+ * Пауза, после которой строка трассировки считается введённой. 600 мс: доменное
+ * имя к этому моменту дописано, а ощущения «подвисло» ещё нет — секунда с лишним
+ * читалась бы как задержка интерфейса.
+ */
+const TRACE_DEBOUNCE_MS = 600
+
 export function traceOf(
   config: XrayConfig | undefined,
   target: TraceTarget | null,
@@ -124,14 +132,17 @@ function EditorInner({ profile }: { profile: Profile }) {
   )
   // топология строится только по валидному (по схеме) документу
   const parsedConfig = validation.ok ? (validation.config as XrayConfig) : undefined
+  // Считаем и спрашиваем базу, когда ввод затих: иначе каждый символ адреса
+  // пересчитывал бы граф и дергал бэкенд, а вердикты мигали бы на полуслове
+  const settledTarget = useDebounced(traceTarget, TRACE_DEBOUNCE_MS)
   // Спрашиваем базу только по тем ключам, что реально есть в правилах
   const geoKeys = useMemo(() => (parsedConfig ? geoKeysOf(parsedConfig) : []), [parsedConfig])
   const geoQuery = useGeoMatch(
-    traceTarget ? { domain: traceTarget.address, ip: traceTarget.ip, keys: geoKeys } : null,
+    settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
   )
   const trace = useMemo(
-    () => traceOf(parsedConfig, traceTarget, geoQuery.data),
-    [parsedConfig, traceTarget, geoQuery.data],
+    () => traceOf(parsedConfig, settledTarget, geoQuery.data),
+    [parsedConfig, settledTarget, geoQuery.data],
   )
 
   function changeConfig(next: XrayConfig) {
