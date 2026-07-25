@@ -1252,3 +1252,7 @@ p { margin: 0 0 10px; }
 /* Бейдж вердикта на узле правила — тот же язык, что в панели разбора */
 .fnode .trace-badge { position: absolute; top: 6px; right: 8px; }
 .trace-badge-winner { color: var(--ember); border-color: var(--ember-line); background: var(--ember-soft); }
+
+/* Состояние geo-базы в диалоге */
+.geo-state { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.geo-state-name { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-dim); min-width: 4.5rem; }
