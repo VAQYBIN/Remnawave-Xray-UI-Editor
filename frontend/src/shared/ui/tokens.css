@@ -1258,3 +1258,35 @@ p { margin: 0 0 10px; }
 .geo-state-name { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-dim); min-width: 4.5rem; }
 .trace-bar-title { font-size: var(--t-sm); color: var(--ink); white-space: nowrap; }
 .trace-caveats .btn { margin-left: 6px; padding: 0 6px; }
+
+/* Отчёт проверки конфига: две секции — ядро и Reality-цели */
+.check-section { margin-bottom: 16px; }
+.check-section h3 {
+  margin: 0 0 8px;
+  font-size: var(--t-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.check-verdict-ok { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--live); }
+.check-note { margin: 8px 0 0; font-size: var(--t-sm); }
+.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.check-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: var(--t-sm);
+  border: 1px solid var(--rail);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.check-level-ok { border-left-color: var(--live); }
+.check-level-warn { border-left-color: var(--ember); }
+.check-level-error { border-left-color: var(--alert); }
+.check-hint { flex-basis: 100%; color: var(--ink-dim); }
+.check-targets { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.check-target { padding: 8px; border: 1px solid var(--rail); border-radius: var(--radius-sm); }
+.check-target .check-list { margin-top: 8px; }
