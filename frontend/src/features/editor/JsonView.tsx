@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import CodeMirror, { EditorView } from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
+import { linter, lintGutter } from '@codemirror/lint'
 import { validateXrayConfig } from '../../entities/xray'
 import { xrayIntellisense } from './intellisense'
+import { diagnosticsFor } from './jsonLocate'
 
 const editorTheme = EditorView.theme({
   '&': { backgroundColor: 'var(--void)', fontSize: '13px', height: '100%' },
@@ -12,17 +13,9 @@ const editorTheme = EditorView.theme({
 })
 
 function xrayLinter() {
-  return linter((view) => {
-    const res = validateXrayConfig(view.state.doc.toString())
-    return res.issues.map(
-      (issue): Diagnostic => ({
-        from: 0,
-        to: 0,
-        severity: issue.level === 'error' ? 'error' : 'warning',
-        message: issue.path ? `${issue.path}: ${issue.message}` : issue.message,
-      }),
-    )
-  })
+  return linter((view) =>
+    diagnosticsFor(view.state, validateXrayConfig(view.state.doc.toString()).issues),
+  )
 }
 
 export function JsonView({ text, onChange }: { text: string; onChange: (v: string) => void }) {

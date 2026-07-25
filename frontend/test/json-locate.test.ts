@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { json } from '@codemirror/lang-json'
-import { locateRange } from '../src/features/editor/jsonLocate'
+import { diagnosticsFor, locateRange } from '../src/features/editor/jsonLocate'
 
 const DOC = `{
   "inbounds": [
@@ -63,5 +63,42 @@ describe('locateRange', () => {
 
   it('нечитаемый документ — null', () => {
     expect(locateRange(stateOf('не json вовсе'), ['inbounds', 0])).toBeNull()
+  })
+})
+
+describe('diagnosticsFor', () => {
+  it('диагностика встаёт на своё место в тексте', () => {
+    const [diag] = diagnosticsFor(stateOf(DOC), [
+      {
+        parts: ['inbounds', 0, 'streamSettings', 'security'],
+        path: 'inbounds.0.streamSettings.security',
+        message: 'Reality несовместим с ws',
+        level: 'error',
+      },
+    ])
+    expect(DOC.slice(diag!.from, diag!.to)).toBe('"reality"')
+    expect(diag!.severity).toBe('error')
+    expect(diag!.message).toContain('Reality несовместим с ws')
+  })
+
+  it('warning остаётся warning', () => {
+    const [diag] = diagnosticsFor(stateOf(DOC), [
+      {
+        parts: ['inbounds', 0, 'tag'],
+        path: 'inbounds.0.tag',
+        message: 'дубликат',
+        level: 'warning',
+      },
+    ])
+    expect(diag!.severity).toBe('warning')
+  })
+
+  it('неразрешимый путь помечается в тексте, а не врёт позицией', () => {
+    const [diag] = diagnosticsFor(stateOf(DOC), [
+      { parts: [], path: '', message: 'Некорректный JSON', level: 'error' },
+    ])
+    expect(diag!.from).toBe(0)
+    expect(diag!.to).toBe(0)
+    expect(diag!.message).toMatch(/место в документе не определено/i)
   })
 })
