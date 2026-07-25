@@ -1353,3 +1353,7 @@ p { margin: 0 0 10px; }
 
 /* Сравнение версий конфига: общая рамка для MergeView */
 .diff-frame { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-xs); }
+
+/* Диалог версий конфига */
+.versions-tabs { margin-bottom: 12px; }
+.file-tab .row { margin-top: 12px; }

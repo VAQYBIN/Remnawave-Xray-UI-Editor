@@ -39,7 +39,7 @@ import { TracePanel } from '../diagnostics/TracePanel'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
 import { CheckReportDialog } from '../diagnostics/CheckReportDialog'
 import { useDraftStore, type Draft } from './draftStore'
-import { BackupsDialog } from './BackupsDialog'
+import { VersionsDialog } from './VersionsDialog'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
 import { IssueList } from './IssueList'
 import { JsonView } from './JsonView'
@@ -196,7 +196,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   const save = useSaveProfile(profile.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
-  const [backupsOpen, setBackupsOpen] = useState(false)
+  const [versionsOpen, setVersionsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [conflict, setConflict] = useState<Profile | null>(null)
@@ -268,8 +268,8 @@ function EditorInner({ profile }: { profile: Profile }) {
         <Button variant="ghost" onClick={() => setGeoOpen(true)}>
           Geo-базы
         </Button>
-        <Button variant="ghost" onClick={() => setBackupsOpen(true)}>
-          Бэкапы
+        <Button variant="ghost" onClick={() => setVersionsOpen(true)}>
+          Версии
         </Button>
         <Button variant="ghost" disabled={!dirty} onClick={() => setResetOpen(true)}>
           Сбросить к версии панели
@@ -491,14 +491,16 @@ function EditorInner({ profile }: { profile: Profile }) {
         }}
       />
 
-      <BackupsDialog
-        open={backupsOpen}
+      <VersionsDialog
+        open={versionsOpen}
         profileUuid={profile.uuid}
+        profileName={profile.name}
+        currentText={text}
         onRestore={(configText) => {
           setDraft(profile.uuid, configText, draft?.baseUpdatedAt ?? profile.updatedAt)
           setSelectedNode(null)
         }}
-        onClose={() => setBackupsOpen(false)}
+        onClose={() => setVersionsOpen(false)}
       />
     </div>
   )

@@ -50,7 +50,7 @@ test('восстановление бэкапа закрывает инспек�
   const inspector = page.locator('aside')
   await page.locator('.react-flow__node[data-id="in:vless-in"]').click()
   await expect(inspector.getByText('in:vless-in', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Бэкапы' }).click()
+  await page.getByRole('button', { name: 'Версии' }).click()
   await page.getByRole('button', { name: 'В черновик' }).click()
   await expect(page.locator('aside')).toHaveCount(0)
 })
