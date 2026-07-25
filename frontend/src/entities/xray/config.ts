@@ -179,6 +179,39 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
     }
   })
 
+  // Правило по домену или протоколу не сработает, если inbound не снифает трафик:
+  // ядро просто не узнает ни домена, ни протокола
+  const blindTags = inbounds
+    .filter((inb) => {
+      const sniffing = inb.sniffing as { enabled?: boolean; destOverride?: string[] } | undefined
+      return sniffing?.enabled !== true || (sniffing.destOverride?.length ?? 0) === 0
+    })
+    .map((inb) => inb.tag)
+
+  if (blindTags.length > 0) {
+    rules.forEach((rule, i) => {
+      // Пустой inboundTag означает «все inbound-ы»
+      const scope = rule.inboundTag?.length ? rule.inboundTag : [...inboundTags]
+      const blind = scope.filter((tag) => blindTags.includes(tag))
+      if (blind.length === 0) return
+      const list = blind.map((t) => `«${t}»`).join(', ')
+      if (rule.domain?.length) {
+        issues.push({
+          path: `routing.rules.${i}.domain`,
+          message: `Правило матчит по домену, но на ${list} выключен sniffing — ядро не увидит домен`,
+          level: 'warning',
+        })
+      }
+      if (rule.protocol?.length) {
+        issues.push({
+          path: `routing.rules.${i}.protocol`,
+          message: `Правило матчит по протоколу, но на ${list} выключен sniffing — ядро не определит протокол`,
+          level: 'warning',
+        })
+      }
+    })
+  }
+
   return issues
 }
 
