@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fetchExternal, isPrivateAddress } from '../src/net/guard.js'
+import { assertPublicHost, fetchExternal, isPrivateAddress } from '../src/net/guard.js'
+
+describe('assertPublicHost', () => {
+  it('подсказка добавляется только когда её передали', async () => {
+    const lookupImpl = async () => [{ address: '10.1.2.3' }]
+    await expect(assertPublicHost('mirror.test', { lookupImpl })).rejects.toThrow(/внутреннюю сеть/)
+    await expect(assertPublicHost('mirror.test', { lookupImpl })).rejects.not.toThrow(/GEO_ALLOW/)
+    await expect(assertPublicHost('mirror.test', { lookupImpl }, 'подсказка')).rejects.toThrow(
+      /подсказка/,
+    )
+  })
+})
 
 describe('isPrivateAddress', () => {
   it('loopback, приватные и link-local диапазоны IPv4 закрыты', () => {

@@ -1,6 +1,9 @@
 // Проверка Reality-цели: годится ли сайт под маскировку. Своя реализация вместо
 // `xray tls ping` — даёт структурированный результат и работает без бинаря ядра.
 
+import { connect, type PeerCertificate } from 'node:tls'
+import { assertPublicHost } from '../net/guard.js'
+
 export type CheckLevel = 'ok' | 'warn' | 'error'
 
 export interface RealityCheck {
@@ -141,3 +144,144 @@ export function buildChecks(info: PeerInfo, serverNames: string[]): RealityCheck
 
   return checks
 }
+
+export interface RealityProbeInput {
+  target: string
+  serverNames?: string[]
+}
+
+export interface RealityProbeResult {
+  target: string
+  host?: string
+  port?: number
+  reachable: boolean
+  error?: string
+  info?: PeerInfo
+  checks: RealityCheck[]
+}
+
+export interface RealityProbeOptions {
+  lookupImpl?: (host: string) => Promise<{ address: string }[]>
+  connectImpl?: (opts: {
+    host: string
+    port: number
+    servername: string
+    timeoutMs: number
+  }) => Promise<PeerInfo>
+  timeoutMs?: number
+}
+
+const TIMEOUT_MS = 5_000
+
+export function parseTarget(target: string): { host: string; port: number } | null {
+  const trimmed = target.trim()
+  if (trimmed === '') return null
+
+  const bracketed = /^\[([^\]]+)\](?::(\d+))?$/.exec(trimmed)
+  const [host, rawPort] = bracketed
+    ? ([bracketed[1]!, bracketed[2]] as const)
+    : (() => {
+        const idx = trimmed.lastIndexOf(':')
+        // Двоеточий больше одного — это IPv6 без скобок, порта в записи нет
+        if (idx === -1 || trimmed.indexOf(':') !== idx) return [trimmed, undefined] as const
+        return [trimmed.slice(0, idx), trimmed.slice(idx + 1)] as const
+      })()
+
+  if (host === '') return null
+  if (rawPort === undefined || rawPort === '') return { host, port: 443 }
+  if (!/^\d+$/.test(rawPort)) return null
+  const port = Number(rawPort)
+  if (port < 1 || port > 65535) return null
+  return { host, port }
+}
+
+function altNamesOf(cert: PeerCertificate | undefined): string[] {
+  return (cert?.subjectaltname ?? '')
+    .split(',')
+    .map((entry) => entry.trim().replace(/^DNS:/i, ''))
+    .filter((entry) => entry !== '')
+}
+
+/**
+ * rejectUnauthorized: false намеренно — это инспектор, а не транспорт: сертификат
+ * мы разбираем сами и обязаны увидеть даже негодный, а секретов в это соединение
+ * не отправляется. Результат проверки цепочки не теряется — он уходит в вердикт
+ * `chain` (см. buildChecks). minVersion TLS 1.2, чтобы цель без 1.3 не роняла
+ * рукопожатие, а честно попадала в вердикт «нет TLS 1.3».
+ */
+const tlsConnect: NonNullable<RealityProbeOptions['connectImpl']> = (o) =>
+  new Promise((resolve, reject) => {
+    const socket = connect(
+      {
+        host: o.host,
+        port: o.port,
+        servername: o.servername,
+        ALPNProtocols: ['h2', 'http/1.1'],
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2',
+      },
+      () => {
+        const cert = socket.getPeerCertificate()
+        const ephemeral = socket.getEphemeralKeyInfo() as { name?: string; type?: string } | null
+        const authError: unknown = socket.authorizationError
+        resolve({
+          protocol: socket.getProtocol(),
+          cipher: socket.getCipher()?.name,
+          alpn: socket.alpnProtocol === false ? null : (socket.alpnProtocol ?? null),
+          keyExchange: ephemeral?.name ?? ephemeral?.type,
+          subject: cert?.subject?.CN,
+          issuer: [cert?.issuer?.O, cert?.issuer?.CN].filter(Boolean).join(' ') || undefined,
+          altNames: altNamesOf(cert),
+          validTo: cert?.valid_to,
+          authorized: socket.authorized,
+          // В типах это Error, но в рантайме встречается и код строкой — терпим оба
+          authorizationError:
+            typeof authError === 'string' ? authError : (authError as Error | undefined)?.message,
+        })
+        socket.end()
+      },
+    )
+    socket.setTimeout(o.timeoutMs, () => socket.destroy(new Error('Цель не ответила за 5 секунд')))
+    socket.on('error', reject)
+  })
+
+export async function probeRealityTarget(
+  input: RealityProbeInput,
+  opts: RealityProbeOptions = {},
+): Promise<RealityProbeResult> {
+  const serverNames = input.serverNames ?? []
+  const parsed = parseTarget(input.target)
+  if (!parsed) {
+    return {
+      target: input.target,
+      reachable: false,
+      error: 'Не разобрал адрес цели: ожидается host или host:port',
+      checks: [],
+    }
+  }
+
+  const base = { target: input.target, host: parsed.host, port: parsed.port }
+  try {
+    // Тот же запрет, что у загрузки geo-баз: адрес приходит из браузера,
+    // а серверу незачем ходить по внутренней сети. Опт-ина здесь нет —
+    // Reality-цель по определению публичный сайт.
+    await assertPublicHost(parsed.host, { lookupImpl: opts.lookupImpl })
+  } catch (err) {
+    return { ...base, reachable: false, error: (err as Error).message, checks: [] }
+  }
+
+  const doConnect = opts.connectImpl ?? tlsConnect
+  try {
+    const info = await doConnect({
+      host: parsed.host,
+      port: parsed.port,
+      servername: serverNames[0] ?? parsed.host,
+      timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
+    })
+    return { ...base, reachable: true, info, checks: buildChecks(info, serverNames) }
+  } catch (err) {
+    return { ...base, reachable: false, error: (err as Error).message, checks: [] }
+  }
+}
+
+export type RealityProbe = typeof probeRealityTarget

@@ -52,9 +52,14 @@ export function isPrivateAddress(ip: string): boolean {
   return false
 }
 
-async function assertPublicHost(
+/**
+ * Отклоняет хост, если хоть один его адрес внутренний. Общая для загрузки geo-баз
+ * и пробы Reality-цели: у обеих адрес приходит из браузера.
+ */
+export async function assertPublicHost(
   hostname: string,
-  opts: FetchGuardOptions,
+  opts: FetchGuardOptions = {},
+  hint?: string,
 ): Promise<void> {
   const resolve =
     opts.lookupImpl ?? ((host: string) => lookup(host, { all: true, verbatim: true }))
@@ -68,9 +73,8 @@ async function assertPublicHost(
   // Проверяем все адреса: достаточно одного внутреннего, чтобы отказать
   for (const { address } of addresses) {
     if (isPrivateAddress(address)) {
-      throw new Error(
-        `Адрес «${hostname}» указывает во внутреннюю сеть (${address}). Если это ваше зеркало, включите GEO_ALLOW_PRIVATE_URLS=true`,
-      )
+      const base = `Адрес «${hostname}» указывает во внутреннюю сеть (${address})`
+      throw new Error(hint === undefined ? base : `${base}. ${hint}`)
     }
   }
 }
@@ -94,7 +98,13 @@ export async function fetchExternal(url: string, opts: FetchGuardOptions = {}): 
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error('Ссылка должна начинаться с http:// или https://')
     }
-    if (!opts.allowPrivate) await assertPublicHost(parsed.hostname, opts)
+    if (!opts.allowPrivate) {
+      await assertPublicHost(
+        parsed.hostname,
+        opts,
+        'Если это ваше зеркало, включите GEO_ALLOW_PRIVATE_URLS=true',
+      )
+    }
 
     const res = await doFetch(current, {
       redirect: 'manual',

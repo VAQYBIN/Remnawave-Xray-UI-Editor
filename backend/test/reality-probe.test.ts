@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { buildChecks, cdnSuspect, certCovers, type PeerInfo } from '../src/tools/realityProbe.js'
+import {
+  buildChecks,
+  cdnSuspect,
+  certCovers,
+  parseTarget,
+  probeRealityTarget,
+  type PeerInfo,
+} from '../src/tools/realityProbe.js'
 
 const GOOD: PeerInfo = {
   protocol: 'TLSv1.3',
@@ -96,5 +103,107 @@ describe('buildChecks', () => {
 
   it('доверенная цепочка — вердикт ok', () => {
     expect(buildChecks(GOOD, ['www.example.com']).find((c) => c.id === 'chain')?.level).toBe('ok')
+  })
+})
+
+describe('parseTarget', () => {
+  it('хост с портом', () => {
+    expect(parseTarget('example.com:8443')).toEqual({ host: 'example.com', port: 8443 })
+  })
+
+  it('без порта — 443', () => {
+    expect(parseTarget('example.com')).toEqual({ host: 'example.com', port: 443 })
+  })
+
+  it('IPv6 в скобках', () => {
+    expect(parseTarget('[2606:4700::1]:443')).toEqual({ host: '2606:4700::1', port: 443 })
+  })
+
+  it('мусорный порт — null', () => {
+    expect(parseTarget('example.com:0')).toBeNull()
+    expect(parseTarget('example.com:abc')).toBeNull()
+  })
+})
+
+describe('probeRealityTarget', () => {
+  const info: PeerInfo = { ...GOOD }
+
+  it('успешная проба возвращает вердикты', async () => {
+    const res = await probeRealityTarget(
+      { target: 'www.example.com:443', serverNames: ['www.example.com'] },
+      { lookupImpl: async () => [{ address: '93.184.216.34' }], connectImpl: async () => info },
+    )
+    expect(res.reachable).toBe(true)
+    expect(res.port).toBe(443)
+    expect(res.checks.find((c) => c.id === 'tls13')?.level).toBe('ok')
+  })
+
+  it('внутренний адрес отклоняется до соединения', async () => {
+    let connected = false
+    const res = await probeRealityTarget(
+      { target: 'intranet.test:443' },
+      {
+        lookupImpl: async () => [{ address: '10.0.0.5' }],
+        connectImpl: async () => {
+          connected = true
+          return info
+        },
+      },
+    )
+    expect(connected).toBe(false)
+    expect(res.reachable).toBe(false)
+    expect(res.error).toMatch(/внутреннюю сеть/i)
+    expect(res.error).not.toMatch(/GEO_ALLOW_PRIVATE_URLS/)
+  })
+
+  it('SNI берётся из первого serverName', async () => {
+    let servername = ''
+    await probeRealityTarget(
+      { target: 'www.example.com:443', serverNames: ['sni.example.com'] },
+      {
+        lookupImpl: async () => [{ address: '93.184.216.34' }],
+        connectImpl: async (o) => {
+          servername = o.servername
+          return info
+        },
+      },
+    )
+    expect(servername).toBe('sni.example.com')
+  })
+
+  it('без serverNames SNI равен хосту', async () => {
+    let servername = ''
+    await probeRealityTarget(
+      { target: 'www.example.com' },
+      {
+        lookupImpl: async () => [{ address: '93.184.216.34' }],
+        connectImpl: async (o) => {
+          servername = o.servername
+          return info
+        },
+      },
+    )
+    expect(servername).toBe('www.example.com')
+  })
+
+  it('обрыв соединения — reachable: false с текстом ошибки', async () => {
+    const res = await probeRealityTarget(
+      { target: 'www.example.com:443' },
+      {
+        lookupImpl: async () => [{ address: '93.184.216.34' }],
+        connectImpl: async () => {
+          throw new Error('Таймаут соединения')
+        },
+      },
+    )
+    expect(res.reachable).toBe(false)
+    expect(res.error).toBe('Таймаут соединения')
+    expect(res.checks).toEqual([])
+  })
+
+  it('неразбираемая цель — понятное сообщение, без запроса', async () => {
+    const res = await probeRealityTarget({ target: 'example.com:0' })
+    expect(res.reachable).toBe(false)
+    expect(res.error).toMatch(/адрес цели/i)
   })
 })
