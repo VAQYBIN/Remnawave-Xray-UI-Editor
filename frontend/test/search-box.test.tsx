@@ -40,3 +40,13 @@ describe('SearchBox', () => {
     expect(screen.getByText(/ничего не найдено/i)).toBeInTheDocument()
   })
 })
+
+describe('SearchBox: фокус по сигналу', () => {
+  it('focusSignal переводит фокус в поле поиска', () => {
+    const { rerender } = render(
+      <SearchBox query="" hits={[]} onQuery={vi.fn()} onPick={vi.fn()} focusSignal={0} />,
+    )
+    rerender(<SearchBox query="" hits={[]} onQuery={vi.fn()} onPick={vi.fn()} focusSignal={1} />)
+    expect(screen.getByLabelText('Поиск по конфигу')).toHaveFocus()
+  })
+})

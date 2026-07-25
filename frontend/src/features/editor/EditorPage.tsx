@@ -30,6 +30,7 @@ import { issueCountsByNode, nodeIdForPath } from '../../entities/graph/locate'
 import { searchNodes } from '../../entities/graph/search'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { useDebounced } from '../../shared/lib/useDebounced'
+import { hasOpenDialog, useHotkeys } from '../../shared/lib/useHotkeys'
 import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
 import { SearchBox } from '../topology/SearchBox'
@@ -44,6 +45,7 @@ import { VersionsDialog } from './VersionsDialog'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
 import { IssueList } from './IssueList'
 import { JsonView } from './JsonView'
+import { ShortcutsDialog } from './ShortcutsDialog'
 import { SaveDialog } from './SaveDialog'
 
 export function formatConfig(config: unknown): string {
@@ -162,6 +164,8 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [reveal, setReveal] = useState<{ parts: PathParts; nonce: number } | null>(null)
   const revealNonce = useRef(0)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchFocus, setSearchFocus] = useState(0)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [focus, setFocus] = useState<{ nodeId: string; nonce: number } | null>(null)
   const focusNonce = useRef(0)
   const squads = useSquads()
@@ -255,6 +259,31 @@ function EditorInner({ profile }: { profile: Profile }) {
     setTab('topology')
   }
 
+  useHotkeys([
+    { combo: 'mod+z', handler: () => { if (undoAvailable) doUndo() } },
+    { combo: 'mod+shift+z', handler: () => { if (redoAvailable) doRedo() } },
+    { combo: 'mod+y', handler: () => { if (redoAvailable) doRedo() } },
+    {
+      combo: 'mod+f',
+      // На вкладке JSON Ctrl+F отдан поиску CodeMirror
+      handler: () => { if (tab === 'topology') setSearchFocus((v) => v + 1) },
+    },
+    {
+      combo: 'Escape',
+      // Нативный <dialog> закрывается по Escape сам — не мешаем и не отменяем действие
+      preventDefault: false,
+      whenEditable: true,
+      handler: () => {
+        if (hasOpenDialog()) return
+        const target = escapeTarget({ selectedNode, traceTarget, searchQuery })
+        if (target === 'inspector') setSelectedNode(null)
+        if (target === 'trace') setTraceTarget(null)
+        if (target === 'search') setSearchQuery('')
+      },
+    },
+    { combo: '?', handler: () => setShortcutsOpen(true) },
+  ])
+
   const save = useSaveProfile(profile.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
@@ -315,6 +344,13 @@ function EditorInner({ profile }: { profile: Profile }) {
             onClick={doRedo}
           >
             ↷
+          </Button>
+          <Button
+            aria-label="Горячие клавиши"
+            title="Горячие клавиши (?)"
+            onClick={() => setShortcutsOpen(true)}
+          >
+            ?
           </Button>
         </div>
 
@@ -389,6 +425,7 @@ function EditorInner({ profile }: { profile: Profile }) {
                     <SearchBox
                       query={searchQuery}
                       hits={searchHits}
+                      focusSignal={searchFocus}
                       onQuery={setSearchQuery}
                       onPick={(nodeId) => {
                         setSelectedNode(nodeId)
@@ -554,6 +591,8 @@ function EditorInner({ profile }: { profile: Profile }) {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       <GeoDataDialog open={geoOpen} onClose={() => setGeoOpen(false)} />
 

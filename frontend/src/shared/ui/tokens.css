@@ -1361,3 +1361,9 @@ p { margin: 0 0 10px; }
 /* История правок и справка в топбаре */
 .wb-iconbar { display: flex; gap: 4px; }
 .wb-iconbar .btn { min-width: 2rem; padding: 6px 8px; font-size: var(--t-md); line-height: 1; }
+
+/* Шпаргалка по хоткеям */
+.shortcuts-list { margin: 0 0 12px; display: grid; gap: 6px; }
+.shortcuts-row { display: grid; grid-template-columns: 8rem 1fr; gap: 12px; align-items: baseline; }
+.shortcuts-row dt { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--text); }
+.shortcuts-row dd { margin: 0; color: var(--muted); font-size: var(--t-sm); }

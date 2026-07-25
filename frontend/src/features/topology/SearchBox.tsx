@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { SearchHit } from '../../entities/graph/search'
 import { TextInput } from '../../shared/ui'
 
@@ -14,18 +15,28 @@ export function SearchBox({
   hits,
   onQuery,
   onPick,
+  focusSignal,
 }: {
   query: string
   hits: SearchHit[]
   onQuery: (value: string) => void
   onPick: (nodeId: string) => void
+  /** Сигнал от Ctrl+F: значение растёт, эффект перезапускается и ставит фокус */
+  focusSignal?: number
 }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (focusSignal) inputRef.current?.focus()
+  }, [focusSignal])
+
   return (
     <div className="search-box">
       <label className="sr-only" htmlFor="graph-search">
         Поиск по конфигу
       </label>
       <TextInput
+        ref={inputRef}
         id="graph-search"
         value={query}
         placeholder="Поиск: тег, порт, домен…"
