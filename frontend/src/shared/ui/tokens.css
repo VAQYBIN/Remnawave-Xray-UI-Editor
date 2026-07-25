@@ -1350,3 +1350,6 @@ p { margin: 0 0 10px; }
 .search-hit-kind { font-size: var(--t-xs); color: var(--ink-dim); min-width: 4.5rem; }
 .search-hit-title { font-family: var(--font-mono); }
 .search-hit-why { margin-left: auto; font-size: var(--t-xs); color: var(--ink-dim); }
+
+/* Сравнение версий конфига: общая рамка для MergeView */
+.diff-frame { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-xs); }
