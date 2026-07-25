@@ -28,6 +28,50 @@ export function getNodeJson(config: XrayConfig, nodeId: string): unknown | undef
   return undefined
 }
 
+// Тег — это ссылка: на него смотрят правила, dialerProxy, proxySettings и балансеры.
+// Переименование узла обязано протащить новый тег по всем ссылкам, иначе правило молча
+// остаётся привязанным к тегу, которого больше нет. Мутирует переданный конфиг —
+// вызывается только на свежем клоне внутри applyNodeJson.
+function retagInPlace(
+  config: XrayConfig,
+  kind: 'inbound' | 'outbound',
+  oldTag: string,
+  newTag: string,
+): void {
+  for (const rule of config.routing?.rules ?? []) {
+    if (kind === 'inbound') {
+      if (rule.inboundTag) rule.inboundTag = rule.inboundTag.map((t) => (t === oldTag ? newTag : t))
+    } else if (rule.outboundTag === oldTag) {
+      rule.outboundTag = newTag
+    }
+  }
+  if (kind === 'inbound') return
+
+  for (const out of config.outbounds ?? []) {
+    const sockopt = out.streamSettings?.sockopt
+    if (sockopt?.dialerProxy === oldTag) sockopt.dialerProxy = newTag
+    // proxySettings хранится нетипизированным объектом (passthrough)
+    const proxy = (out as { proxySettings?: { tag?: string } }).proxySettings
+    if (proxy?.tag === oldTag) proxy.tag = newTag
+  }
+
+  for (const raw of config.routing?.balancers ?? []) {
+    const balancer = raw as { selector?: string[]; fallbackTag?: string }
+    // selector хранит ПРЕФИКСЫ тегов — переписываем только точное совпадение,
+    // иначе «direct» затёр бы чужой префикс «dir»
+    if (balancer.selector) {
+      balancer.selector = balancer.selector.map((s) => (s === oldTag ? newTag : s))
+    }
+    if (balancer.fallbackTag === oldTag) balancer.fallbackTag = newTag
+  }
+}
+
+function tagOf(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const tag = (value as { tag?: unknown }).tag
+  return typeof tag === 'string' ? tag : undefined
+}
+
 export function applyNodeJson(config: XrayConfig, nodeId: string, value: unknown): XrayConfig {
   const next = clone(config)
   if (nodeId === 'dns') {
@@ -35,13 +79,23 @@ export function applyNodeJson(config: XrayConfig, nodeId: string, value: unknown
     return next
   }
   if (nodeId.startsWith('in:')) {
-    const i = inboundIndex(next, nodeId.slice(3))
+    const oldTag = nodeId.slice(3)
+    const i = inboundIndex(next, oldTag)
     if (i !== -1) next.inbounds![i] = value as NonNullable<XrayConfig['inbounds']>[number]
+    const newTag = tagOf(value)
+    if (i !== -1 && newTag !== undefined && newTag !== oldTag) {
+      retagInPlace(next, 'inbound', oldTag, newTag)
+    }
     return next
   }
   if (nodeId.startsWith('out:')) {
-    const i = outboundIndex(next, nodeId.slice(4))
+    const oldTag = nodeId.slice(4)
+    const i = outboundIndex(next, oldTag)
     if (i !== -1) next.outbounds![i] = value as NonNullable<XrayConfig['outbounds']>[number]
+    const newTag = tagOf(value)
+    if (i !== -1 && newTag !== undefined && newTag !== oldTag) {
+      retagInPlace(next, 'outbound', oldTag, newTag)
+    }
     return next
   }
   if (nodeId.startsWith('rule:')) {

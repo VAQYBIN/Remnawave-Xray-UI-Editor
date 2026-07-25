@@ -132,6 +132,21 @@ export function escapeTarget(state: {
   return null
 }
 
+/**
+ * Новый id узла, если правка сменила его тег: id inbound'а и outbound'а —
+ * это его тег, поэтому после переименования выбор нужно вести за узлом,
+ * иначе инспектор закрывается прямо во время редактирования.
+ */
+export function renamedNodeId(nodeId: string, value: unknown): string | null {
+  const prefix = nodeId.startsWith('in:') ? 'in:' : nodeId.startsWith('out:') ? 'out:' : null
+  if (prefix === null) return null
+  if (typeof value !== 'object' || value === null) return null
+  const tag = (value as { tag?: unknown }).tag
+  if (typeof tag !== 'string' || tag === '') return null
+  const next = `${prefix}${tag}`
+  return next === nodeId ? null : next
+}
+
 function EditorInner({ profile }: { profile: Profile }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -466,7 +481,12 @@ function EditorInner({ profile }: { profile: Profile }) {
                 config={parsedConfig}
                 nodeId={selectedNode}
                 inboundSquads={ctx.inboundSquads}
-                onApply={(value) => changeConfig(applyNodeJson(parsedConfig, selectedNode, value))}
+                onApply={(value) => {
+                  changeConfig(applyNodeJson(parsedConfig, selectedNode, value))
+                  // Тег сменился — сменился и id узла: перекрываем сброс выбора из changeConfig
+                  const renamed = renamedNodeId(selectedNode, value)
+                  if (renamed !== null) setSelectedNode(renamed)
+                }}
                 onMoveRule={(dir) => {
                   const moved = moveSelectedRule(parsedConfig, selectedNode, dir)
                   if (!moved) return

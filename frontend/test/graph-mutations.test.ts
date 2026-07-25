@@ -165,3 +165,75 @@ describe('moveRule', () => {
     expect(cfg).toEqual(snapshot)
   })
 })
+
+// Тег узла — это ссылка: на него смотрят правила, dialerProxy, proxySettings и балансеры.
+// Переименование обязано протащить новый тег по всем ссылкам, иначе правило молча
+// остаётся привязанным к несуществующему выходу.
+const linkedCfg = () => ({
+  inbounds: [
+    { tag: 'vless-in', port: 443, protocol: 'vless' },
+    { tag: 'ss-in', port: 8388, protocol: 'shadowsocks' },
+  ],
+  outbounds: [
+    { tag: 'direct', protocol: 'freedom' },
+    {
+      tag: 'chain',
+      protocol: 'vless',
+      streamSettings: { sockopt: { dialerProxy: 'direct' } },
+      proxySettings: { tag: 'direct' },
+    },
+  ],
+  routing: {
+    rules: [
+      { inboundTag: ['vless-in', 'ss-in'], outboundTag: 'direct' },
+      { inboundTag: ['ss-in'], outboundTag: 'chain' },
+    ],
+    balancers: [{ tag: 'lb', selector: ['direct', 'dir'], fallbackTag: 'direct' }],
+  },
+})
+
+describe('переименование узла тянет за собой ссылки', () => {
+  it('outbound: правила, dialerProxy, proxySettings и балансер', () => {
+    const next = applyNodeJson(linkedCfg(), 'out:direct', { tag: 'wg', protocol: 'freedom' })
+
+    expect(next.routing!.rules![0]!.outboundTag).toBe('wg')
+    expect(next.routing!.rules![1]!.outboundTag).toBe('chain')
+    const chain = next.outbounds![1] as unknown as {
+      streamSettings: { sockopt: { dialerProxy: string } }
+      proxySettings: { tag: string }
+    }
+    expect(chain.streamSettings.sockopt.dialerProxy).toBe('wg')
+    expect(chain.proxySettings.tag).toBe('wg')
+    const balancer = next.routing!.balancers![0] as { selector: string[]; fallbackTag: string }
+    // selector хранит префиксы тегов: обновляем только точное совпадение
+    expect(balancer.selector).toEqual(['wg', 'dir'])
+    expect(balancer.fallbackTag).toBe('wg')
+  })
+
+  it('inbound: обновляется inboundTag во всех правилах, чужие теги не трогаются', () => {
+    const next = applyNodeJson(linkedCfg(), 'in:ss-in', { tag: 'ss-new', port: 8388, protocol: 'shadowsocks' })
+
+    expect(next.routing!.rules![0]!.inboundTag).toEqual(['vless-in', 'ss-new'])
+    expect(next.routing!.rules![1]!.inboundTag).toEqual(['ss-new'])
+  })
+
+  it('без смены тега ссылки остаются как были', () => {
+    const next = applyNodeJson(linkedCfg(), 'out:direct', { tag: 'direct', protocol: 'freedom', settings: {} })
+    expect(next.routing!.rules![0]!.outboundTag).toBe('direct')
+  })
+
+  it('новый тег, совпавший с существующим, ссылки не склеивает вслепую', () => {
+    // Переименование direct → chain: правило direct теперь ведёт в chain,
+    // но правило, уже смотревшее на chain, остаётся нетронутым
+    const next = applyNodeJson(linkedCfg(), 'out:direct', { tag: 'chain', protocol: 'freedom' })
+    expect(next.routing!.rules![0]!.outboundTag).toBe('chain')
+    expect(next.routing!.rules![1]!.outboundTag).toBe('chain')
+  })
+
+  it('вход не мутируется', () => {
+    const cfg = linkedCfg()
+    const snapshot = structuredClone(cfg)
+    applyNodeJson(cfg, 'out:direct', { tag: 'wg', protocol: 'freedom' })
+    expect(cfg).toEqual(snapshot)
+  })
+})

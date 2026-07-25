@@ -4,6 +4,7 @@ import {
   formatConfig,
   moveSelectedRule,
   nextSelection,
+  renamedNodeId,
   resolveEditorText,
   toGraphContext,
   traceOf,
@@ -136,5 +137,24 @@ describe('escapeTarget', () => {
 
   it('пробелы в поиске за запрос не считаются', () => {
     expect(escapeTarget({ selectedNode: null, traceTarget: null, searchQuery: '  ' })).toBeNull()
+  })
+})
+
+describe('renamedNodeId', () => {
+  it('смена тега даёт новый id узла', () => {
+    expect(renamedNodeId('out:direct', { tag: 'wg' })).toBe('out:wg')
+    expect(renamedNodeId('in:vless-in', { tag: 'vless-new' })).toBe('in:vless-new')
+  })
+
+  it('тот же тег, пустой тег и нестроковый тег — выбор не переносим', () => {
+    expect(renamedNodeId('out:direct', { tag: 'direct' })).toBeNull()
+    expect(renamedNodeId('out:direct', { tag: '' })).toBeNull()
+    expect(renamedNodeId('out:direct', { tag: 42 })).toBeNull()
+    expect(renamedNodeId('out:direct', null)).toBeNull()
+  })
+
+  it('у правил и dns тег не адресует узел', () => {
+    expect(renamedNodeId('rule:0', { tag: 'wg' })).toBeNull()
+    expect(renamedNodeId('dns', { tag: 'wg' })).toBeNull()
   })
 })
