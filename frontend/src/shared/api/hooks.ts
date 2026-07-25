@@ -8,6 +8,7 @@ import type {
   ProfileInboundDetail,
   RealityProbeResult,
   SquadInfo,
+  WarpAccount,
   XrayTestResult,
 } from './types'
 
@@ -113,6 +114,16 @@ export function useRealityKeypair() {
     mutationFn: () =>
       apiFetch<{ privateKey: string; publicKey: string }>('/api/tools/reality-keypair', {
         method: 'POST',
+      }),
+  })
+}
+
+export function useWarpAccount() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<WarpAccount>('/api/tools/warp-account', {
+        method: 'POST',
+        body: JSON.stringify({}),
       }),
   })
 }

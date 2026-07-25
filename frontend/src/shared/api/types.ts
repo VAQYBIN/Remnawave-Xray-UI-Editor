@@ -118,3 +118,11 @@ export interface RealityProbeResult {
   info?: RealityPeerInfo
   checks: RealityCheck[]
 }
+
+/** Ответ регистрации WARP: то же, что выдаёт wgcf, только уже в терминах wireguard-outbound */
+export interface WarpAccount {
+  secretKey: string
+  address: string[]
+  reserved: number[]
+  peer: { publicKey: string; endpoint: string }
+}
