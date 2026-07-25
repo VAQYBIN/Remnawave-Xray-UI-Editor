@@ -1242,3 +1242,9 @@ p { margin: 0 0 10px; }
 .trace-badge-unknown { color: var(--flux); border-color: var(--flux-line); background: var(--flux-soft); }
 .trace-fields { display: grid; gap: 2px; margin-top: 4px; font-size: var(--t-sm); color: var(--ink-dim); }
 .trace-field-name { font-family: var(--font-mono); margin-right: 6px; color: var(--ink); }
+
+/* Строка трассировки внутри дока: подписи мелкие, поля узкие */
+.trace-bar { display: flex; align-items: center; gap: 6px; }
+.trace-bar-label { font-size: var(--t-xs); color: var(--ink-dim); white-space: nowrap; }
+.trace-bar .input { width: 9rem; }
+.trace-bar .input[inputmode='numeric'] { width: 4.5rem; }
