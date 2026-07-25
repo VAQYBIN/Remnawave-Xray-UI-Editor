@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useGeoStatus, useSaveGeoUrls, useUpdateGeo, type GeoSourceStatus } from '../../shared/api'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Dialog, TextInput } from '../../shared/ui'
+import { GeoBrowser } from './GeoBrowser'
 
 const PRESETS = {
   v2fly: {
@@ -39,12 +40,22 @@ function SourceState({ label, status }: { label: string; status: GeoSourceStatus
   )
 }
 
-export function GeoDataDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function GeoDataDialog({
+  open,
+  onClose,
+  onUseKey,
+}: {
+  open: boolean
+  onClose: () => void
+  /** Не передан — просмотр без кнопки «В правило» */
+  onUseKey?: (key: string) => void
+}) {
   const status = useGeoStatus()
   const save = useSaveGeoUrls()
   const update = useUpdateGeo()
   const [geositeUrl, setGeositeUrl] = useState('')
   const [geoipUrl, setGeoipUrl] = useState('')
+  const [tab, setTab] = useState<'sources' | 'browse'>('sources')
 
   // Поля наполняются, когда приходит статус; правки пользователя не перетираем
   useEffect(() => {
@@ -62,57 +73,88 @@ export function GeoDataDialog({ open, onClose }: { open: boolean; onClose: () =>
   const error = (save.error ?? update.error) as Error | undefined
 
   return (
-    <Dialog open={open} title="Geo-базы" onClose={onClose}>
-      <p className="muted" style={{ marginTop: 0 }}>
-        Списки нужны трассировщику, чтобы отвечать по условиям <span className="mono">geosite:</span>{' '}
-        и <span className="mono">geoip:</span>. Держите их теми же, что стоят на нодах — иначе
-        вердикты разойдутся с реальностью.
-      </p>
+    <Dialog open={open} title="Geo-базы" onClose={onClose} wide={tab === 'browse'}>
+      {/* Закрытый <dialog> всё равно рендерит children: без этого условия поля диалога
+          перехватывают поиск по подписям на всей странице */}
+      {open && (
+        <>
+          <div className="segmented versions-tabs">
+            <Button aria-pressed={tab === 'sources'} onClick={() => setTab('sources')}>
+              Источники
+            </Button>
+            <Button aria-pressed={tab === 'browse'} onClick={() => setTab('browse')}>
+              Просмотр
+            </Button>
+          </div>
 
-      <SourceState label="geosite" status={status.data?.geosite} />
-      <SourceState label="geoip" status={status.data?.geoip} />
+          {tab === 'browse' && (
+            <GeoBrowser onUseKey={onUseKey} onOpenSources={() => setTab('sources')} />
+          )}
 
-      <div className="field">
-        <label className="field-label" htmlFor="geo-site-url">
-          Ссылка на geosite
-        </label>
-        <TextInput
-          id="geo-site-url"
-          value={geositeUrl}
-          onChange={(e) => setGeositeUrl(e.target.value)}
-        />
-      </div>
-      <div className="field">
-        <label className="field-label" htmlFor="geo-ip-url">
-          Ссылка на geoip
-        </label>
-        <TextInput id="geo-ip-url" value={geoipUrl} onChange={(e) => setGeoipUrl(e.target.value)} />
-      </div>
+          {tab === 'sources' && (
+            <>
+              <p className="muted" style={{ marginTop: 0 }}>
+                Списки нужны трассировщику, чтобы отвечать по условиям{' '}
+                <span className="mono">geosite:</span> и <span className="mono">geoip:</span>.
+                Держите их теми же, что стоят на нодах — иначе вердикты разойдутся с реальностью.
+              </p>
 
-      <div className="row">
-        <span className="muted">Пресеты:</span>
-        <Button onClick={() => applyPreset('v2fly')}>v2fly</Button>
-        <Button onClick={() => applyPreset('loyalsoldier')}>Loyalsoldier</Button>
-      </div>
+              <SourceState label="geosite" status={status.data?.geosite} />
+              <SourceState label="geoip" status={status.data?.geoip} />
 
-      {error && <p className="field-error">{error.message}</p>}
+              <div className="field">
+                <label className="field-label" htmlFor="geo-site-url">
+                  Ссылка на geosite
+                </label>
+                <TextInput
+                  id="geo-site-url"
+                  value={geositeUrl}
+                  onChange={(e) => setGeositeUrl(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="geo-ip-url">
+                  Ссылка на geoip
+                </label>
+                <TextInput
+                  id="geo-ip-url"
+                  value={geoipUrl}
+                  onChange={(e) => setGeoipUrl(e.target.value)}
+                />
+              </div>
 
-      <div className="row" style={{ marginTop: 12 }}>
-        <span className="spacer" />
-        <Button variant="ghost" onClick={onClose}>
-          Закрыть
-        </Button>
-        <Button
-          variant="primary"
-          disabled={busy}
-          onClick={async () => {
-            await save.mutateAsync({ geositeUrl, geoipUrl })
-            await update.mutateAsync()
-          }}
-        >
-          {busy ? 'Загружаю…' : 'Загрузить'}
-        </Button>
-      </div>
+              <div className="row">
+                <span className="muted">Пресеты:</span>
+                <Button onClick={() => applyPreset('v2fly')}>v2fly</Button>
+                <Button onClick={() => applyPreset('loyalsoldier')}>Loyalsoldier</Button>
+              </div>
+
+              {error && <p className="field-error">{error.message}</p>}
+
+              <div className="row" style={{ marginTop: 12 }}>
+                <span className="spacer" />
+                <Button
+                  variant="primary"
+                  disabled={busy}
+                  onClick={async () => {
+                    await save.mutateAsync({ geositeUrl, geoipUrl })
+                    await update.mutateAsync()
+                  }}
+                >
+                  {busy ? 'Загружаю…' : 'Загрузить'}
+                </Button>
+              </div>
+            </>
+          )}
+
+          <div className="row" style={{ marginTop: 12 }}>
+            <span className="spacer" />
+            <Button variant="ghost" onClick={onClose}>
+              Закрыть
+            </Button>
+          </div>
+        </>
+      )}
     </Dialog>
   )
 }

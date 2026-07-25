@@ -53,7 +53,7 @@ describe('useGeoMatch', () => {
 
 describe('useGeoCategories и useGeoCategory', () => {
   it('список категорий приходит распакованным', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
       new Response(JSON.stringify({ categories: [{ code: 'GOOGLE', count: 2 }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -68,7 +68,7 @@ describe('useGeoCategories и useGeoCategory', () => {
   })
 
   it('страница категории запрашивается с q, offset и limit; без кода запрос не уходит', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
       new Response(JSON.stringify({ code: 'GOOGLE', total: 1, offset: 0, domains: [] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },

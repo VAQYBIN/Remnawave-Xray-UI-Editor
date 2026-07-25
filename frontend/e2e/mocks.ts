@@ -37,6 +37,24 @@ export const PROFILE = {
 export async function mockApi(page: Page) {
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: { authenticated: true } }))
   await page.route('**/api/squads', (r) => r.fulfill({ json: { squads: [] } }))
+  // Обработчики просмотра идут раньше общего '**/api/geo': порядок здесь важен,
+  // ранний маршрут Playwright перехватывает запрос первым
+  await page.route('**/api/geo/geosite/categories', (r) =>
+    r.fulfill({ json: { categories: [{ code: 'GOOGLE', count: 2 }] } }),
+  )
+  await page.route('**/api/geo/geosite/categories/**', (r) =>
+    r.fulfill({
+      json: {
+        code: 'GOOGLE',
+        total: 2,
+        offset: 0,
+        domains: [
+          { type: 'domain', value: 'google.com', attributes: [] },
+          { type: 'full', value: 'api.google.com', attributes: ['cn'] },
+        ],
+      },
+    }),
+  )
   await page.route('**/api/geo', (r) =>
     r.fulfill({
       json: {

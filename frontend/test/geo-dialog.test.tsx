@@ -69,3 +69,36 @@ describe('GeoDataDialog', () => {
     await waitFor(() => expect(screen.getByText(/на нодах/i)).toBeInTheDocument())
   })
 })
+
+describe('GeoDataDialog — вкладки', () => {
+  it('вкладка «Просмотр» показывает категории, «Источники» — ссылки', async () => {
+    const viewerFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/categories')) {
+        return new Response(JSON.stringify({ categories: [{ code: 'GOOGLE', count: 2 }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify(STATUS), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', viewerFetch)
+
+    wrap(<GeoDataDialog open onClose={() => {}} />)
+    expect(screen.getByLabelText('Ссылка на geosite')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Просмотр' }))
+    expect(await screen.findByRole('button', { name: /GOOGLE/ })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Ссылка на geosite')).not.toBeInTheDocument()
+  })
+
+  it('закрытый диалог не рендерит содержимое вкладок', () => {
+    wrap(<GeoDataDialog open={false} onClose={() => {}} />)
+    // Иначе поля диалога перехватывают поиск по подписям на всей странице
+    expect(screen.queryByLabelText('Ссылка на geosite')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Просмотр' })).not.toBeInTheDocument()
+  })
+})

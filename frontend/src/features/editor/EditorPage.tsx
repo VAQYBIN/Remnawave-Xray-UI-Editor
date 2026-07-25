@@ -25,7 +25,13 @@ import {
   type XrayConfig,
 } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
-import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
+import {
+  appendGeoKey,
+  applyNodeJson,
+  getNodeJson,
+  moveRule,
+  removeNode,
+} from '../../entities/graph/mutations'
 import { issueCountsByNode, nodeIdForPath } from '../../entities/graph/locate'
 import { searchNodes } from '../../entities/graph/search'
 import { relativeTime } from '../../shared/lib/relativeTime'
@@ -617,7 +623,20 @@ function EditorInner({ profile }: { profile: Profile }) {
 
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
-      <GeoDataDialog open={geoOpen} onClose={() => setGeoOpen(false)} />
+      <GeoDataDialog
+        open={geoOpen}
+        onClose={() => setGeoOpen(false)}
+        onUseKey={(key) => {
+          if (parsedConfig === undefined) return
+          // Категория дописывается в открытое правило, иначе создаётся новое
+          const ruleIndex = selectedNode?.startsWith('rule:') ? Number(selectedNode.slice(5)) : null
+          const res = appendGeoKey(parsedConfig, ruleIndex, key)
+          if (res.config !== parsedConfig) changeConfig(res.config)
+          // Перекрывает сброс выбора из changeConfig: показываем, куда попала категория
+          setSelectedNode(`rule:${res.ruleIndex}`)
+          setGeoOpen(false)
+        }}
+      />
 
       {parsedConfig !== undefined && (
         <RecipesDialog

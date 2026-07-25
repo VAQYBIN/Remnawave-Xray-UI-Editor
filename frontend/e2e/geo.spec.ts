@@ -39,3 +39,18 @@ test('из caveat трассировки можно открыть диалог 
   await page.locator('.trace-caveats').getByRole('button', { name: 'Geo-базы' }).click()
   await expect(page.getByRole('dialog')).toContainText('не загружена')
 })
+
+test('категория из просмотра уходит в новое правило', async ({ page }) => {
+  await page.goto(`/profiles/${UUID}`)
+  await expect(page.locator('.react-flow__node[data-id^="rule:"]')).toHaveCount(1)
+
+  await page.getByRole('button', { name: 'Geo-базы' }).click()
+  await page.getByRole('button', { name: 'Просмотр' }).click()
+  await page.getByRole('button', { name: /GOOGLE/ }).click()
+  await expect(page.getByText('google.com').first()).toBeVisible()
+  await page.getByRole('button', { name: 'В правило' }).click()
+
+  // Правило создано, черновик помечен изменённым
+  await expect(page.locator('.react-flow__node[data-id^="rule:"]')).toHaveCount(2)
+  await expect(page.getByText('черновик', { exact: true })).toBeVisible()
+})
