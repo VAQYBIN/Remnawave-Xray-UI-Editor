@@ -39,6 +39,17 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - `remnawave/client.ts` — `RemnawaveClient` (реализация `RemnawavePort`), все ошибки панели заворачиваются в `RemnawaveError` и превращаются глобальным error handler'ом в JSON-ответы с исходным статусом.
 - `routes/profiles.ts` — ключевой флоу сохранения: `PATCH /api/profiles/:uuid` требует `expectedUpdatedAt`; при расхождении — `409` с актуальным профилем (оптимистическая блокировка). Перед каждым обновлением текущая версия пишется в бэкап (`backups/service.ts`, каталог `DATA_DIR/backups/<uuid>/`).
 - `auth/*` — вход по паролю (`APP_PASSWORD` — plaintext или bcrypt-хэш), подписанная httpOnly-cookie, rate-limit на логин, guard закрывает все `/api/*` кроме auth/health.
+- `xray/*` — проверка конфига ядром: `dummyClient.ts` подставляет фиктивного пользователя
+  (профили панели хранятся с `clients: []`), `service.ts` запускает `xray run -test` с
+  `XRAY_LOCATION_ASSET` на geo-базы из `DATA_DIR`, `parseOutput.ts` переводит цепочки ошибок ядра
+  в русские подсказки. Нет бинаря (`XRAY_BIN`) — `available: false`, а не ошибка.
+- `tools/realityProbe.ts` — TLS-проба Reality-цели (TLS 1.3, ALPN h2, X25519, покрытие
+  `serverNames` сертификатом, проверка цепочки, подозрение на CDN). Исходящие соединения обоих
+  инструментов проходят через `net/guard.ts` (`assertPublicHost`/`fetchExternal`) — приватные,
+  loopback, link-local и CGNAT-адреса отклоняются, у geo есть опт-ин `GEO_ALLOW_PRIVATE_URLS`.
+- `geo/*` — разбор `geosite.dat`/`geoip.dat` (свой декодер protobuf), настраиваемые источники в
+  `DATA_DIR/settings.json`, ответы на вопрос «входит ли домен/IP в категорию». Коды категорий в
+  `.dat` лежат в ВЕРХНЕМ регистре — поиск по исходной строке из конфига всегда промахнётся.
 - `config.ts` — env валидируется zod'ом при старте; отдельная проверка ловит bcrypt-хэш, испорченный интерполяцией `$` в Docker Compose (см. README).
 - Статика фронтенда отдаётся из `STATIC_DIR` с SPA-fallback на `index.html`; неизвестные `/api/*` — JSON 404.
 
@@ -50,6 +61,11 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - `entities/graph` — `buildGraph.ts` строит из конфига колоночный граф (squad → inbound → rule → outbound); `mutations.ts` — обратные правки конфига из графа. Дубликаты тегов пропускаются (иначе ломаются id узлов React Flow).
 - `features/editor` — `EditorPage` (вкладки: топология / JSON узла), `draftStore.ts` — zustand-persist черновики в localStorage по uuid профиля, хранят `baseUpdatedAt` для проверки конфликта при сохранении; `BackupsDialog`, `SaveDialog`, `IssueList`.
 - `features/topology` + `features/inspector` — граф и формы редактирования выбранного узла (InboundForm/OutboundForm/StreamForm; генератор ключей Reality дергает `/api/tools`).
+- `features/diagnostics` — трассировщик (`TraceBar` в доке + `TracePanel` оверлеем), `GeoDataDialog`
+  и `CheckReportDialog` (проверка ядром и Reality-целями). Логика трассировки живёт в
+  `entities/xray/trace.ts`, бэкенд отвечает только на вопрос «входит ли домен/IP в geo-категорию».
+  Цель трассировки в state `EditorPage` без персиста: это инструмент, а не документ; ввод
+  проходит через `useDebounced` (600 мс), иначе каждый символ дергал бы бэкенд.
 - `shared/api` — fetch-клиент; `AuthError` перехватывается в `App.tsx` на уровне QueryCache/MutationCache и редиректит на `/login`.
 - `shared/ui` — свой мини-UI-kit (Button, Dialog, Select…), сторонних компонентных библиотек нет.
 
