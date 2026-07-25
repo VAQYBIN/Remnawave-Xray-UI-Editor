@@ -39,6 +39,7 @@ import { TraceBar } from '../diagnostics/TraceBar'
 import { TracePanel } from '../diagnostics/TracePanel'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
 import { CheckReportDialog } from '../diagnostics/CheckReportDialog'
+import { RecipesDialog } from '../recipes/RecipesDialog'
 import { useDraftStore, type Draft } from './draftStore'
 import { canRedo, canUndo, useHistoryStore } from './historyStore'
 import { VersionsDialog } from './VersionsDialog'
@@ -159,6 +160,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [traceOpen, setTraceOpen] = useState(false)
   const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null)
   const [geoOpen, setGeoOpen] = useState(false)
+  const [recipesOpen, setRecipesOpen] = useState(false)
   const [checkOpen, setCheckOpen] = useState(false)
   // Прокрутка к месту проблемы в JSON; nonce делает повторный клик рабочим
   const [reveal, setReveal] = useState<{ parts: PathParts; nonce: number } | null>(null)
@@ -420,6 +422,7 @@ function EditorInner({ profile }: { profile: Profile }) {
                 trace={trace}
                 issues={nodeIssues}
                 focus={focus}
+                onOpenRecipes={() => setRecipesOpen(true)}
                 dockExtra={
                   <>
                     <SearchBox
@@ -595,6 +598,23 @@ function EditorInner({ profile }: { profile: Profile }) {
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       <GeoDataDialog open={geoOpen} onClose={() => setGeoOpen(false)} />
+
+      {parsedConfig !== undefined && (
+        <RecipesDialog
+          open={recipesOpen}
+          config={parsedConfig}
+          onApply={(next) => {
+            changeConfig(next)
+            // Правила рецепта вставляются в начало: позиционные rule:N сдвигаются
+            setSelectedNode(null)
+          }}
+          onOpenGeo={() => {
+            setRecipesOpen(false)
+            setGeoOpen(true)
+          }}
+          onClose={() => setRecipesOpen(false)}
+        />
+      )}
 
       <CheckReportDialog
         open={checkOpen}

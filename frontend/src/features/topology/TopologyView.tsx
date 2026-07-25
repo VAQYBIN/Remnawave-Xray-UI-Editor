@@ -31,6 +31,8 @@ interface Props {
   issues?: Record<string, IssueCount>
   /** Запрос центрирования на узле (из поиска) */
   focus?: { nodeId: string; nonce: number } | null
+  /** Открыть библиотеку рецептов; кнопка появляется только когда обработчик передан */
+  onOpenRecipes?: () => void
 }
 
 // Индекс правила, зашитый в id ребра (`rule:{i}`), для сортировки перед батч-удалением.
@@ -211,6 +213,7 @@ export function TopologyView({
   dockExtra,
   issues,
   focus,
+  onOpenRecipes,
 }: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
@@ -375,6 +378,7 @@ export function TopologyView({
           <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
           <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
           <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
+          {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
           <span className="wb-dock-sep" aria-hidden="true" />
           {dockExtra}
           {dockExtra && <span className="wb-dock-sep" aria-hidden="true" />}
