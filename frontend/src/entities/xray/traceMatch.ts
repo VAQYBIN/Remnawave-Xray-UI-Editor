@@ -157,13 +157,11 @@ export function matchIpField(
   ip: string | undefined,
   availability: IpAvailability,
   geo: GeoAnswers,
+  /** Текст для 'never': зависит от фактической стратегии домена в конфиге */
+  neverReason = 'стратегия домена AsIs: ядро не резолвит домен, поэтому ip-условия не применяются',
 ): FieldVerdict {
   if (availability === 'never') {
-    return {
-      field,
-      state: 'no',
-      reason: 'стратегия домена AsIs: ядро не резолвит домен, поэтому ip-условия не применяются',
-    }
+    return { field, state: 'no', reason: neverReason }
   }
   if (availability === 'unspecified' || ip === undefined) {
     return { field, state: 'unknown', reason: 'укажите IP назначения, чтобы проверить ip-условия' }

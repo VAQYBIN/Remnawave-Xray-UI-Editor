@@ -204,3 +204,20 @@ describe('traceRoute: caveats', () => {
     expect(res.caveats.join(' ')).not.toContain('sniffing')
   })
 })
+
+describe('traceRoute: причина отказа ip-условия зависит от стратегии', () => {
+  const ipRule = [{ ip: ['10.0.0.0/8'], outboundTag: 'warp' }]
+
+  it('AsIs — так и говорит про AsIs', () => {
+    const res = traceRoute(config(ipRule), TARGET, NO_GEO)
+    expect(res.verdicts[0].fields[0].reason).toContain('AsIs')
+  })
+
+  it('IPIfNonMatch — говорит про второй проход, а не про AsIs', () => {
+    const cfg = { ...config(ipRule), routing: { domainStrategy: 'IPIfNonMatch', rules: ipRule } } as XrayConfig
+    const res = traceRoute(cfg, TARGET, NO_GEO)
+    const reason = res.verdicts[0].fields[0].reason
+    expect(reason).not.toContain('AsIs')
+    expect(reason).toMatch(/втор|IP назначения/i)
+  })
+})

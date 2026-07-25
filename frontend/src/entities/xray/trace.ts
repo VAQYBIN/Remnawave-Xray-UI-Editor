@@ -65,10 +65,13 @@ function judgeRule(
   target: TraceTarget,
   geo: GeoAnswers,
   ipAvailability: IpAvailability,
+  neverReason?: string,
 ): RuleVerdict {
   const fields: FieldVerdict[] = []
   if (rule.domain?.length) fields.push(matchDomainField(rule.domain, target.address, geo))
-  if (rule.ip?.length) fields.push(matchIpField('ip', rule.ip, target.ip, ipAvailability, geo))
+  if (rule.ip?.length) {
+    fields.push(matchIpField('ip', rule.ip, target.ip, ipAvailability, geo, neverReason))
+  }
   if (rule.port !== undefined) fields.push(matchPortField('port', rule.port, target.port))
   if (rule.network !== undefined) fields.push(matchNetworkField(rule.network, target.network))
   if (rule.source?.length) {
@@ -110,9 +113,12 @@ function judgeAll(
   target: TraceTarget,
   geo: GeoAnswers,
   ipAvailability: IpAvailability,
+  neverReason?: string,
 ): RuleVerdict[] {
   const rules = (config.routing?.rules ?? []) as Rule[]
-  return rules.map((rule, index) => judgeRule(rule, index, target, geo, ipAvailability))
+  return rules.map((rule, index) =>
+    judgeRule(rule, index, target, geo, ipAvailability, neverReason),
+  )
 }
 
 function pickWinner(verdicts: RuleVerdict[], config: XrayConfig): TraceWinner | undefined {
@@ -208,7 +214,13 @@ export function traceRoute(config: XrayConfig, target: TraceTarget, geo: GeoAnsw
         : 'known'
       : 'never'
 
-  const verdicts = judgeAll(config, effectiveTarget, geo, firstPassIp)
+  // Причина отказа ip-условия должна называть ту стратегию, что стоит в конфиге
+  const neverReason =
+    strategy === 'IPIfNonMatch'
+      ? 'на первом проходе домен ещё не разрешён в адрес; укажите IP назначения, чтобы увидеть второй проход'
+      : 'стратегия домена AsIs: ядро не резолвит домен, поэтому ip-условия не применяются'
+
+  const verdicts = judgeAll(config, effectiveTarget, geo, firstPassIp, neverReason)
   let winner = pickWinner(verdicts, config)
   let ipVerdicts: RuleVerdict[] | undefined
 
