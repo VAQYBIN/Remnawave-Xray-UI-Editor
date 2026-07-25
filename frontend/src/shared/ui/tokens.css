@@ -1433,3 +1433,56 @@ p { margin: 0 0 10px; }
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* --- Просмотр geo-баз --- */
+.geo-browser { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.geo-browser-head { display: flex; gap: 8px; align-items: center; }
+.geo-browser-body { display: grid; grid-template-columns: 240px 1fr; gap: 12px; align-items: start; }
+.geo-cat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 46vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding-right: 8px;
+}
+.geo-cat {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.geo-cat:hover { background: var(--rail); }
+.geo-cat-active { background: var(--rail); border-color: var(--flux); }
+.geo-cat-code { font-family: var(--font-mono); font-size: var(--t-sm); }
+.geo-cat-count { margin-left: auto; color: var(--ink-dim); font-size: var(--t-sm); }
+.geo-items { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.geo-item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 38vh;
+  overflow-y: auto;
+  font-size: var(--t-sm);
+}
+.geo-item-list li { display: flex; gap: 8px; align-items: baseline; }
+.geo-item-type {
+  color: var(--ink-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  min-width: 56px;
+}
+.geo-item-attr { color: var(--ember); font-size: 11px; }
+.geo-pager { display: flex; gap: 8px; align-items: center; }
+.geo-empty { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
