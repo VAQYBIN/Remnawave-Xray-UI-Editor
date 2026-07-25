@@ -28,6 +28,8 @@ interface Props {
   dockExtra?: ReactNode
   /** Счётчики проблем по id узла — рисуются значком */
   issues?: Record<string, IssueCount>
+  /** Запрос центрирования на узле (из поиска) */
+  focus?: { nodeId: string; nonce: number } | null
 }
 
 // Индекс правила, зашитый в id ребра (`rule:{i}`), для сортировки перед батч-удалением.
@@ -105,6 +107,25 @@ function ViewportShift({ shift }: { shift: number }) {
   return null
 }
 
+/** Центрирование на узле по запросу поиска; nonce позволяет вернуться к тому же узлу повторно */
+function FocusNode({ request }: { request?: { nodeId: string; nonce: number } | null }) {
+  const { getNode, setCenter } = useReactFlow()
+
+  useEffect(() => {
+    if (!request) return
+    const node = getNode(request.nodeId)
+    if (!node) return
+    const width = node.measured?.width ?? 220
+    const height = node.measured?.height ?? 90
+    setCenter(node.position.x + width / 2, node.position.y + height / 2, {
+      zoom: 1,
+      duration: 320,
+    })
+  }, [request, getNode, setCenter])
+
+  return null
+}
+
 const COLUMNS = [
   { kind: 'squad', title: 'сквады', x: COLUMN_X.squad },
   { kind: 'inbound', title: 'inbound', x: COLUMN_X.inbound },
@@ -162,6 +183,7 @@ export function TopologyView({
   trace,
   dockExtra,
   issues,
+  focus,
 }: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
@@ -297,6 +319,7 @@ export function TopologyView({
       <Background gap={22} size={1} />
       <Controls showInteractive={false} position="bottom-right" />
       <ViewportShift shift={selectedId === null ? 0 : inspectorWidth(window.innerWidth)} />
+      <FocusNode request={focus} />
 
       {/* Подписи колонок живут в координатах канваса и едут вместе с узлами */}
       <ViewportPortal>

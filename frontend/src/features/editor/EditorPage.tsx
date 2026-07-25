@@ -27,10 +27,12 @@ import {
 import type { GraphContext } from '../../entities/graph/types'
 import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
 import { issueCountsByNode, nodeIdForPath } from '../../entities/graph/locate'
+import { searchNodes } from '../../entities/graph/search'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { useDebounced } from '../../shared/lib/useDebounced'
 import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
+import { SearchBox } from '../topology/SearchBox'
 import { NodeInspector } from '../topology/NodeInspector'
 import { TraceBar } from '../diagnostics/TraceBar'
 import { TracePanel } from '../diagnostics/TracePanel'
@@ -133,6 +135,9 @@ function EditorInner({ profile }: { profile: Profile }) {
   // Прокрутка к месту проблемы в JSON; nonce делает повторный клик рабочим
   const [reveal, setReveal] = useState<{ parts: PathParts; nonce: number } | null>(null)
   const revealNonce = useRef(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [focus, setFocus] = useState<{ nodeId: string; nonce: number } | null>(null)
+  const focusNonce = useRef(0)
   const squads = useSquads()
   const panelInbounds = useProfileInbounds(profile.uuid)
   const ctx = useMemo(
@@ -149,6 +154,10 @@ function EditorInner({ profile }: { profile: Profile }) {
   const realityTargets = useMemo(
     () => (parsedConfig ? realityTargetsOf(parsedConfig) : []),
     [parsedConfig],
+  )
+  const searchHits = useMemo(
+    () => (parsedConfig ? searchNodes(parsedConfig, ctx, searchQuery) : []),
+    [parsedConfig, ctx, searchQuery],
   )
   const nodeIssues = useMemo(
     () => (parsedConfig ? issueCountsByNode(validation.issues, parsedConfig) : {}),
@@ -300,8 +309,20 @@ function EditorInner({ profile }: { profile: Profile }) {
                 onChangeConfig={changeConfig}
                 trace={trace}
                 issues={nodeIssues}
+                focus={focus}
                 dockExtra={
                   <>
+                    <SearchBox
+                      query={searchQuery}
+                      hits={searchHits}
+                      onQuery={setSearchQuery}
+                      onPick={(nodeId) => {
+                        setSelectedNode(nodeId)
+                        focusNonce.current += 1
+                        setFocus({ nodeId, nonce: focusNonce.current })
+                        setSearchQuery('')
+                      }}
+                    />
                     <Button
                       aria-pressed={traceOpen}
                       onClick={() => {
