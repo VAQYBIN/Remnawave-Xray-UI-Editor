@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { formatConfig, moveSelectedRule, nextSelection, resolveEditorText, toGraphContext } from '../src/features/editor/EditorPage'
+import {
+  formatConfig,
+  moveSelectedRule,
+  nextSelection,
+  resolveEditorText,
+  toGraphContext,
+  traceOf,
+} from '../src/features/editor/EditorPage'
+import type { XrayConfig } from '../src/entities/xray'
 
 describe('editor logic', () => {
   it('formatConfig — JSON с отступом 2', () => {
@@ -66,5 +74,25 @@ describe('moveSelectedRule', () => {
     expect(moveSelectedRule(cfg, 'rule:1', 1)).toBeNull()
     expect(moveSelectedRule(cfg, 'in:a', 1)).toBeNull()
     expect(moveSelectedRule(cfg, null, 1)).toBeNull()
+  })
+})
+
+describe('traceOf', () => {
+  const config = {
+    outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    routing: { rules: [{ domain: ['domain:openai.com'], outboundTag: 'direct' }] },
+  } as unknown as XrayConfig
+
+  it('без цели трассировки нет', () => {
+    expect(traceOf(config, null)).toBeUndefined()
+  })
+
+  it('без валидного конфига трассировки нет', () => {
+    expect(traceOf(undefined, { address: 'openai.com', port: 443, network: 'tcp' })).toBeUndefined()
+  })
+
+  it('цель и конфиг есть — считается маршрут, geo помечены как незагруженные', () => {
+    const res = traceOf(config, { address: 'api.openai.com', port: 443, network: 'tcp' })
+    expect(res?.winner).toEqual({ ruleIndex: 0, outboundTag: 'direct', balancerTag: undefined })
   })
 })

@@ -11,13 +11,21 @@ import {
   type ProfileInboundDetail,
   type SquadInfo,
 } from '../../shared/api'
-import { validateXrayConfig, type XrayConfig } from '../../entities/xray'
+import {
+  traceRoute,
+  validateXrayConfig,
+  type TraceResult,
+  type TraceTarget,
+  type XrayConfig,
+} from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
 import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
 import { NodeInspector } from '../topology/NodeInspector'
+import { TraceBar } from '../diagnostics/TraceBar'
+import { TracePanel } from '../diagnostics/TracePanel'
 import { useDraftStore, type Draft } from './draftStore'
 import { BackupsDialog } from './BackupsDialog'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
@@ -59,6 +67,18 @@ export function nextSelection(
   return selected
 }
 
+// Geo-базы появятся на следующем этапе; сейчас трассировщик честно считает
+// geosite:/geoip: неизвестными и говорит об этом в caveats.
+const NO_GEO = { loaded: false, answers: {}, missing: [] }
+
+export function traceOf(
+  config: XrayConfig | undefined,
+  target: TraceTarget | null,
+): TraceResult | undefined {
+  if (!config || !target) return undefined
+  return traceRoute(config, target, NO_GEO)
+}
+
 // Перестановка выбранного правила: конфиг меняется, а позиционный id выбора
 // должен «переехать» вместе с правилом — иначе rule:N укажет на соседа
 export function moveSelectedRule(
@@ -87,6 +107,8 @@ function EditorInner({ profile }: { profile: Profile }) {
 
   const [tab, setTab] = useState<'topology' | 'json'>('topology')
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  // Цель трассировки — инструмент, а не документ: в localStorage ей делать нечего
+  const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null)
   const squads = useSquads()
   const panelInbounds = useProfileInbounds(profile.uuid)
   const ctx = useMemo(
@@ -95,6 +117,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   )
   // топология строится только по валидному (по схеме) документу
   const parsedConfig = validation.ok ? (validation.config as XrayConfig) : undefined
+  const trace = useMemo(() => traceOf(parsedConfig, traceTarget), [parsedConfig, traceTarget])
 
   function changeConfig(next: XrayConfig) {
     setDraft(profile.uuid, formatConfig(next), draft?.baseUpdatedAt ?? profile.updatedAt)
@@ -152,6 +175,8 @@ function EditorInner({ profile }: { profile: Profile }) {
             onClick={() => {
               setTab('json')
               setSelectedNode(null)
+              // Панель разбора живёт над канвасом — над JSON-редактором ей не место
+              setTraceTarget(null)
             }}
           >
             JSON
@@ -201,8 +226,17 @@ function EditorInner({ profile }: { profile: Profile }) {
                 selectedId={selectedNode}
                 onSelect={setSelectedNode}
                 onChangeConfig={changeConfig}
+                trace={trace}
+                dockExtra={<TraceBar value={traceTarget} onChange={setTraceTarget} />}
               />
             </div>
+            {trace && (
+              <TracePanel
+                result={trace}
+                onClose={() => setTraceTarget(null)}
+                onSelectRule={(index) => setSelectedNode(`rule:${index}`)}
+              />
+            )}
             {selectedNode && (
               <NodeInspector
                 key={selectedNode}
