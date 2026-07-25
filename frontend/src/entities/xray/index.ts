@@ -1,5 +1,7 @@
 export * from './compat'
 export * from './rules'
+export * from './traceMatch'
+export * from './trace'
 export * from './stream'
 export * from './inbounds'
 export * from './outbounds'
