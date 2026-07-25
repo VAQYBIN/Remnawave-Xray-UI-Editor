@@ -137,3 +137,56 @@ describe('GeoService.match', () => {
     expect(res.missing).toEqual([])
   })
 })
+
+describe('GeoService.update', () => {
+  const goodBody = () =>
+    encodeGeoSiteList([
+      { code: 'GOOGLE', domains: [{ type: 2, value: 'google.com', attributes: [] }] },
+    ])
+
+  function fetchStub(body: Uint8Array | null, status = 200): typeof fetch {
+    return (async () =>
+      new Response(body === null ? null : (body as unknown as BodyInit), {
+        status,
+      })) as unknown as typeof fetch
+  }
+
+  it('скачивает базу и она сразу отвечает на запросы', async () => {
+    const svc = new GeoService(dataDir, fetchStub(goodBody()))
+    const status = await svc.update(['geosite'])
+    expect(status.geosite.present).toBe(true)
+    expect(status.geosite.categories).toBe(1)
+    const res = await svc.match({ domain: 'www.google.com', keys: ['geosite:google'] })
+    expect(res.answers['geosite:google']).toBe(true)
+  })
+
+  it('ошибка сервера — исключение с текстом про статус', async () => {
+    const svc = new GeoService(dataDir, fetchStub(goodBody(), 503))
+    await expect(svc.update(['geosite'])).rejects.toThrow(/503/)
+  })
+
+  it('файл не похож на geo-базу — отказ, старая база не затирается', async () => {
+    await writeGeosite()
+    const svc = new GeoService(dataDir, fetchStub(new Uint8Array([1, 2, 3])))
+    await expect(svc.update(['geosite'])).rejects.toThrow(/не похож/)
+    const res = await svc.match({ domain: 'google.com', keys: ['geosite:google'] })
+    expect(res.answers['geosite:google']).toBe(true)
+  })
+
+  it('пустой ответ — отказ', async () => {
+    const svc = new GeoService(dataDir, fetchStub(new Uint8Array()))
+    await expect(svc.update(['geosite'])).rejects.toThrow(/Пуст/i)
+  })
+
+  it('обновление сбрасывает кэш: новая база отвечает по-новому', async () => {
+    await writeGeosite()
+    const svc = new GeoService(dataDir, fetchStub(goodBody()))
+    expect(
+      (await svc.match({ domain: 'openai.com', keys: ['geosite:openai'] })).answers['geosite:openai'],
+    ).toBe(true)
+    await svc.update(['geosite'])
+    const after = await svc.match({ domain: 'openai.com', keys: ['geosite:openai'] })
+    // В новой базе категории OPENAI нет — она должна уйти в missing, а не остаться true из кэша
+    expect(after.missing).toEqual(['geosite:openai'])
+  })
+})
