@@ -47,6 +47,12 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
   `serverNames` сертификатом, проверка цепочки, подозрение на CDN). Исходящие соединения обоих
   инструментов проходят через `net/guard.ts` (`assertPublicHost`/`fetchExternal`) — приватные,
   loopback, link-local и CGNAT-адреса отклоняются, у geo есть опт-ин `GEO_ALLOW_PRIVATE_URLS`.
+- `tools/warp.ts` — регистрация бесплатного аккаунта Cloudflare WARP (то же, что делает `wgcf`):
+  POST `/reg` + PATCH `warp_enabled`, ответ приводится к настройкам wireguard-outbound. Оба
+  запроса идут через `fetchExternal` с параметром `init` (метод/заголовки/тело) — обходить guard
+  нельзя. API неофициальный, поэтому ручка отвечает 502 с русским текстом, а не 500: в форме
+  рецепта остаётся ручной ввод ключей. Ключ здесь в обычном base64 с padding, у Reality —
+  base64url без padding; общая генерация сырых байт — `generateX25519Raw` в `tools/reality.ts`.
 - `geo/*` — разбор `geosite.dat`/`geoip.dat` (свой декодер protobuf), настраиваемые источники в
   `DATA_DIR/settings.json`, ответы на вопрос «входит ли домен/IP в категорию». Коды категорий в
   `.dat` лежат в ВЕРХНЕМ регистре — поиск по исходной строке из конфига всегда промахнётся.
@@ -86,6 +92,15 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
   `entities/xray/trace.ts`, бэкенд отвечает только на вопрос «входит ли домен/IP в geo-категорию».
   Цель трассировки в state `EditorPage` без персиста: это инструмент, а не документ; ввод
   проходит через `useDebounced` (600 мс), иначе каждый символ дергал бы бэкенд.
+- `entities/xray/recipes` — библиотека рецептов чистыми функциями `plan(config, params) →
+  { config, changes, notes }`: вход не мутируется, идемпотентность держится на трёх примитивах
+  (`ensureOutbound`/`ensureRule`/`ensureSniffing`) из `apply.ts`. Правила вставляются в начало
+  `routing.rules` (в Xray выигрывает первое совпавшее), маршрутные — сразу за ведущей серией
+  блокирующих. Реестр в `recipes/index.ts`: `planFor`/`validateFor` разводят рецепты switch'ем по
+  `RecipeId`, параметры всех рецептов лежат одной картой `AllParams` — так `RecipesDialog` не
+  теряет введённое при переключении списка. UI — `features/recipes` (диалог + формы параметров),
+  вход через кнопку «+ Рецепт» в доке топологии, применение идёт через `changeConfig`, то есть
+  одним снимком истории. Ключи WARP: ручной ввод либо `POST /api/tools/warp-account`.
 - `shared/api` — fetch-клиент; `AuthError` перехватывается в `App.tsx` на уровне QueryCache/MutationCache и редиректит на `/login`.
 - `shared/ui` — свой мини-UI-kit (Button, Dialog, Select…), сторонних компонентных библиотек нет.
 

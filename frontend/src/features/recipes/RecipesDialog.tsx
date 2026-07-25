@@ -29,7 +29,12 @@ export function RecipesDialog({ open, config, onApply, onOpenGeo, onClose }: Pro
   const [params, setParams] = useState<AllParams>(DEFAULT_PARAMS)
   const [diff, setDiff] = useState(false)
 
-  const plan = useMemo(() => planFor(config, id, params), [config, id, params])
+  // Закрытый диалог не считает план и не рисует формы: иначе их поля и кнопки
+  // остаются в дереве доступности и перехватывают поиск по подписям на всей странице
+  const plan = useMemo(
+    () => (open ? planFor(config, id, params) : { config, changes: [], notes: [] }),
+    [open, config, id, params],
+  )
   const error = validateFor(id, params)
   const canApply = error === null && plan.changes.some((c) => c.status === 'add')
 
@@ -48,7 +53,7 @@ export function RecipesDialog({ open, config, onApply, onOpenGeo, onClose }: Pro
 
   return (
     <Dialog open={open} title="Рецепты" onClose={onClose} wide>
-      {diff ? (
+      {!open ? null : diff ? (
         <>
           <p className="muted" style={{ marginTop: 0 }}>
             Слева — текущий черновик, справа — каким он станет после рецепта.

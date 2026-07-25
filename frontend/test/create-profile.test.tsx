@@ -95,8 +95,10 @@ describe('CreateProfileDialog — рецепты', () => {
     await vi.waitFor(() => {
       expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/profiles'))).toBe(true)
     })
+    // fetchMock объявлен с одним параметром — второй аргумент читаем через приведение
     const call = fetchMock.mock.calls.find(([u]) => String(u).includes('/api/profiles'))!
-    const sent = JSON.parse(String((call[1] as RequestInit).body)) as {
+    const [, init] = call as unknown as [RequestInfo, RequestInit]
+    const sent = JSON.parse(String(init.body)) as {
       config: {
         outbounds: { tag: string }[]
         routing: { rules: { protocol?: string[]; domain?: string[] }[] }

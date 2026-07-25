@@ -11,9 +11,9 @@ const CONFIG = {
   routing: { rules: [] },
 } as XrayConfig
 
-function renderWith(config: XrayConfig, extra: { onApply?: () => void; onOpenGeo?: () => void } = {}) {
-  const onApply = vi.fn(extra.onApply)
-  const onOpenGeo = vi.fn(extra.onOpenGeo)
+function renderWith(config: XrayConfig) {
+  const onApply = vi.fn<(next: XrayConfig) => void>()
+  const onOpenGeo = vi.fn<() => void>()
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
@@ -31,7 +31,7 @@ describe('RecipesDialog', () => {
     expect(screen.getByText(/протокол bittorrent/)).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
-    const applied = onApply.mock.calls[0]![0] as XrayConfig
+    const applied = onApply.mock.calls[0]![0]
     expect(applied.routing!.rules![0]!.protocol).toEqual(['bittorrent'])
   })
 
