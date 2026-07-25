@@ -24,6 +24,7 @@ import {
 } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
 import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
+import { issueCountsByNode } from '../../entities/graph/locate'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { useDebounced } from '../../shared/lib/useDebounced'
 import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
@@ -143,6 +144,10 @@ function EditorInner({ profile }: { profile: Profile }) {
   const realityTargets = useMemo(
     () => (parsedConfig ? realityTargetsOf(parsedConfig) : []),
     [parsedConfig],
+  )
+  const nodeIssues = useMemo(
+    () => (parsedConfig ? issueCountsByNode(validation.issues, parsedConfig) : {}),
+    [validation.issues, parsedConfig],
   )
   const geoQuery = useGeoMatch(
     settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
@@ -271,6 +276,7 @@ function EditorInner({ profile }: { profile: Profile }) {
                 onSelect={setSelectedNode}
                 onChangeConfig={changeConfig}
                 trace={trace}
+                issues={nodeIssues}
                 dockExtra={
                   <>
                     <Button

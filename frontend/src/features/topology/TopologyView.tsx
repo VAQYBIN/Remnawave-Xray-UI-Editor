@@ -6,7 +6,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import type { TraceResult, XrayConfig } from '../../entities/xray'
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
-import type { GraphContext } from '../../entities/graph/types'
+import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import {
   addInbound, addOutbound, addRule, attachInboundToRule, connectRule, disconnectEdge, setRuleOutbound,
 } from '../../entities/graph/mutations'
@@ -26,6 +26,8 @@ interface Props {
   trace?: TraceResult
   /** Дополнительные контролы в доке (строка трассировки) */
   dockExtra?: ReactNode
+  /** Счётчики проблем по id узла — рисуются значком */
+  issues?: Record<string, IssueCount>
 }
 
 // Индекс правила, зашитый в id ребра (`rule:{i}`), для сортировки перед батч-удалением.
@@ -122,6 +124,18 @@ export function traceStateOf(
   return result.winner?.ruleIndex === ruleIndex ? 'winner' : verdict.state
 }
 
+/** Значок проблем на узле: ошибка перевешивает предупреждения, счёт — общий */
+export function issueBadgeOf(
+  issues: Record<string, IssueCount> | undefined,
+  nodeId: string,
+): { level: 'error' | 'warn'; total: number } | undefined {
+  const count = issues?.[nodeId]
+  if (!count) return undefined
+  const total = count.errors + count.warnings
+  if (total === 0) return undefined
+  return { level: count.errors > 0 ? 'error' : 'warn', total }
+}
+
 /** Кабели победившего пути: входы → правило → выход. Дефолтный маршрут правил не задействует. */
 export function tracedEdgeIds(result: TraceResult | undefined, config: XrayConfig): Set<string> {
   const ids = new Set<string>()
@@ -147,6 +161,7 @@ export function TopologyView({
   onChangeConfig,
   trace,
   dockExtra,
+  issues,
 }: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
@@ -165,14 +180,23 @@ export function TopologyView({
     const traced = tracedEdgeIds(trace, config)
     const laid = graph.nodes.map((n) => {
       const traceState = n.data.kind === 'rule' ? traceStateOf(trace, n.data.index as number) : undefined
+      const issueCount = issues?.[n.id]
+      // Ссылку на data сохраняем, когда доклеивать нечего: React Flow сравнивает
+      // объекты по ссылке, и новый объект на каждый ввод — лишняя перерисовка
+      const data =
+        traceState === undefined && issueCount === undefined
+          ? n.data
+          : {
+              ...n.data,
+              ...(traceState === undefined ? {} : { traceState }),
+              ...(issueCount === undefined ? {} : { issueCount }),
+            }
       return {
         ...n,
         deletable: false,
         position: saved?.[n.id] ?? n.position,
         selected: n.id === selectedId,
-        // Ссылку на data сохраняем, когда вердикта нет: React Flow сравнивает
-        // объекты по ссылке, и новый объект на каждый ввод — лишняя перерисовка
-        data: traceState === undefined ? n.data : { ...n.data, traceState },
+        data,
       }
     })
     // Кабели, касающиеся выбранного узла или лежащие на трассе, подсвечиваются
@@ -187,7 +211,7 @@ export function TopologyView({
       },
     }))
     return { nodes: laid, edges: wired }
-  }, [graph, config, saved, selectedId, trace])
+  }, [graph, config, saved, selectedId, trace, issues])
 
   // controlled-режим: drag применяется к локальному стейту, ресинк при пересборке графа
   const [nodes, setNodes] = useState<Node[]>(computed.nodes)

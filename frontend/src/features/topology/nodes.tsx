@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type {
-  DnsNodeData, InboundNodeData, OutboundNodeData, RuleNodeData, SquadNodeData,
+  DnsNodeData, InboundNodeData, IssueCount, OutboundNodeData, RuleNodeData, SquadNodeData,
 } from '../../entities/graph/types'
 
 function frame(kind: string, selected: boolean | undefined): string {
@@ -22,6 +22,25 @@ function enter(kind: string): React.CSSProperties {
   return { '--enter-delay': `${ENTER_DELAY[kind] ?? 0}ms` } as React.CSSProperties
 }
 
+/** Значок проблем: текст лежит в статус-баре, поэтому здесь только счёт */
+function IssueBadge({ count }: { count?: IssueCount }) {
+  if (!count) return null
+  const total = count.errors + count.warnings
+  if (total === 0) return null
+  const error = count.errors > 0
+  return (
+    <span
+      className={`node-issue node-issue-${error ? 'error' : 'warn'}`}
+      aria-label={
+        error ? `проблем: ${total}, из них ошибок: ${count.errors}` : `предупреждений: ${total}`
+      }
+    >
+      {error ? '!' : '?'}
+      {total > 1 ? ` ${total}` : ''}
+    </span>
+  )
+}
+
 /** Ячейка приборного ряда: одна строка целиком, без разбивки на ключ/значение */
 function Metric({ children, accent }: { children: string; accent?: boolean }) {
   return <span className={accent ? 'metric metric-accent' : 'metric'}>{children}</span>
@@ -35,6 +54,7 @@ function InboundNode({ data, selected }: { data: InboundNodeData; selected?: boo
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <div className="fnode-head">
         <span className="fnode-kind">{data.protocol}</span>
+        <IssueBadge count={data.issueCount} />
       </div>
       <div className="fnode-title">{data.tag}</div>
       <div className="metrics">
@@ -56,6 +76,7 @@ function OutboundNode({ data, selected }: { data: OutboundNodeData; selected?: b
         <span className="fnode-kind">{data.protocol}</span>
         <span className="spacer" />
         {data.isDefault && <span className="fnode-flag">default</span>}
+        <IssueBadge count={data.issueCount} />
       </div>
       <div className="fnode-title">{data.tag}</div>
     </div>
@@ -73,6 +94,7 @@ function RuleNode({ data, selected }: { data: RuleNodeData; selected?: boolean }
       </span>
       <div className="fnode-head">
         <span className="fnode-kind">правило</span>
+        <IssueBadge count={data.issueCount} />
       </div>
       {data.traceState && (
         <span className={`trace-badge trace-badge-${data.traceState}`}>
@@ -104,6 +126,7 @@ function DnsNode({ data, selected }: { data: DnsNodeData; selected?: boolean }) 
     <div className={frame('dns', selected)} style={enter('dns')}>
       <div className="fnode-head">
         <span className="fnode-kind">резолвер</span>
+        <IssueBadge count={data.issueCount} />
       </div>
       <div className="fnode-title">DNS</div>
       <div className="metrics">
