@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { WARP_TEMPLATE } from '../../entities/xray/recipes/warp'
 import { Button, CollapsibleSection } from '../../shared/ui'
 import { CheckboxField, NumberField, SelectField, StringListField, TextField, type Option } from './fields'
 import { StreamForm } from './StreamForm'
@@ -50,21 +51,6 @@ const XUDP_MODES: Option[] = [
 
 // Протоколы, для которых mux имеет смысл (мультиплексируемый прокси-транспорт)
 const MUX_PROTOCOLS = ['vless', 'socks', 'http']
-
-// Публичный ключ WARP-пира Cloudflare и endpoint одинаковы для всех аккаунтов;
-// secretKey и address выдаются при регистрации устройства (wgcf / приложение WARP)
-export const WARP_TEMPLATE: Obj = {
-  secretKey: 'ВСТАВЬТЕ_ПРИВАТНЫЙ_КЛЮЧ_WARP',
-  address: ['172.16.0.2/32'],
-  mtu: 1280,
-  peers: [
-    {
-      publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
-      endpoint: 'engage.cloudflareclient.com:2408',
-      allowedIPs: ['0.0.0.0/0', '::/0'],
-    },
-  ],
-}
 
 // Правка первого пользователя карточки (vnext/servers): единственный опустевший
 // пользователь удаляется целиком — UUID может инжектить панель Remnawave
