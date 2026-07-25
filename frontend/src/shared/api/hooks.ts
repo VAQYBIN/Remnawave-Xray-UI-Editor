@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
-import type { BackupEntry, Profile, ProfileInboundDetail, SquadInfo } from './types'
+import type {
+  BackupEntry,
+  GeoMatchAnswer,
+  GeoStatus,
+  Profile,
+  ProfileInboundDetail,
+  SquadInfo,
+} from './types'
 
 export function useMe() {
   return useQuery({
@@ -124,5 +131,50 @@ export function useBackups(uuid: string, enabled = true) {
     queryFn: () =>
       apiFetch<{ backups: BackupEntry[] }>(`/api/profiles/${uuid}/backups`).then((r) => r.backups),
     enabled,
+  })
+}
+
+export function useGeoStatus() {
+  return useQuery({
+    queryKey: ['geo'],
+    queryFn: () => apiFetch<GeoStatus>('/api/geo'),
+    staleTime: 60_000,
+  })
+}
+
+export function useSaveGeoUrls() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (urls: { geositeUrl?: string; geoipUrl?: string }) =>
+      apiFetch<GeoStatus>('/api/geo', { method: 'PUT', body: JSON.stringify(urls) }),
+    onSuccess: (status) => qc.setQueryData(['geo'], status),
+  })
+}
+
+export function useUpdateGeo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<GeoStatus>('/api/geo/update', { method: 'POST', body: JSON.stringify({}) }),
+    onSuccess: (status) => {
+      qc.setQueryData(['geo'], status)
+      // Вердикты трассировки посчитаны по старой базе — пересчитываем
+      qc.invalidateQueries({ queryKey: ['geo-match'] })
+    },
+  })
+}
+
+/** Ответы geo-базы для набора ключей из правил. null или пустые keys — запрос не идёт. */
+export function useGeoMatch(input: { domain?: string; ip?: string; keys: string[] } | null) {
+  const keys = input?.keys ?? []
+  return useQuery({
+    queryKey: ['geo-match', input?.domain ?? null, input?.ip ?? null, [...keys].sort()],
+    queryFn: () =>
+      apiFetch<GeoMatchAnswer>('/api/tools/geo/match', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    enabled: input !== null && keys.length > 0,
+    staleTime: 60_000,
   })
 }

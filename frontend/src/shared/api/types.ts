@@ -49,3 +49,22 @@ export interface BackupFileData {
   savedAt: string
   profile: Profile
 }
+
+export interface GeoSourceStatus {
+  url: string
+  present: boolean
+  loadedAt?: string
+  sizeBytes?: number
+  categories?: number
+}
+
+export interface GeoStatus {
+  geosite: GeoSourceStatus
+  geoip: GeoSourceStatus
+}
+
+export interface GeoMatchAnswer {
+  loaded: boolean
+  answers: Record<string, boolean>
+  missing: string[]
+}
