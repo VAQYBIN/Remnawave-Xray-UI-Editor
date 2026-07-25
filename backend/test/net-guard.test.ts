@@ -170,4 +170,27 @@ describe('fetchExternal', () => {
       }),
     ).rejects.toThrow(/http/i)
   })
+
+  it('метод, заголовки и тело доходят до fetch, проверка хоста остаётся', async () => {
+    const fetchImpl = okFetch('{}')
+    await fetchExternal('https://api.example.test/reg', {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      lookupImpl: PUBLIC_LOOKUP,
+      init: { method: 'POST', headers: { 'X-Test': '1' }, body: '{"a":1}' },
+    })
+    // okFetch объявлен без параметров — читаем аргументы вызова через приведение
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1]
+    expect(init.method).toBe('POST')
+    expect((init.headers as Record<string, string>)['X-Test']).toBe('1')
+    expect(init.body).toBe('{"a":1}')
+    expect(init.redirect).toBe('manual')
+
+    await expect(
+      fetchExternal('https://api.example.test/reg', {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        lookupImpl: PRIVATE_LOOKUP,
+        init: { method: 'POST' },
+      }),
+    ).rejects.toThrow(/внутренн/i)
+  })
 })

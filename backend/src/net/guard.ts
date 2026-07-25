@@ -15,6 +15,8 @@ export interface FetchGuardOptions {
   allowPrivate?: boolean
   maxHops?: number
   timeoutMs?: number
+  /** Метод, заголовки и тело для не-GET запросов; проверка хостов и ручные редиректы не меняются */
+  init?: { method?: string; headers?: Record<string, string>; body?: string }
 }
 
 function v4Private(b: Uint8Array): boolean {
@@ -107,6 +109,7 @@ export async function fetchExternal(url: string, opts: FetchGuardOptions = {}): 
     }
 
     const res = await doFetch(current, {
+      ...opts.init,
       redirect: 'manual',
       signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
     })

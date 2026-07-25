@@ -18,6 +18,7 @@ import { GeoService } from './geo/service.js'
 import { geoRoutes } from './routes/geo.js'
 import { XrayService } from './xray/service.js'
 import type { RealityProbe } from './tools/realityProbe.js'
+import type { WarpRegister } from './tools/warp.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -35,6 +36,8 @@ export interface ServerDeps {
   xray?: XrayService
   /** Подменяется в тестах: настоящая проба открывает TLS-соединение наружу */
   probeReality?: RealityProbe
+  /** Подменяется в тестах: настоящая регистрация ходит в Cloudflare */
+  registerWarp?: WarpRegister
 }
 
 export async function buildServer(
@@ -85,7 +88,10 @@ export async function buildServer(
   await app.register(profileRoutes)
   await app.register(panelRoutes)
   await app.register(backupRoutes)
-  await app.register(toolsRoutes, { probeReality: deps.probeReality })
+  await app.register(toolsRoutes, {
+    probeReality: deps.probeReality,
+    registerWarp: deps.registerWarp,
+  })
   await app.register(geoRoutes)
 
   await app.register(fastifyStatic, { root: resolve(config.staticDir) })
