@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -18,13 +18,15 @@ import {
   traceRoute,
   validateXrayConfig,
   type GeoAnswers,
+  type PathParts,
   type TraceResult,
   type TraceTarget,
+  type ValidationIssue,
   type XrayConfig,
 } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
 import { applyNodeJson, getNodeJson, moveRule, removeNode } from '../../entities/graph/mutations'
-import { issueCountsByNode } from '../../entities/graph/locate'
+import { issueCountsByNode, nodeIdForPath } from '../../entities/graph/locate'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { useDebounced } from '../../shared/lib/useDebounced'
 import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
@@ -128,6 +130,9 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null)
   const [geoOpen, setGeoOpen] = useState(false)
   const [checkOpen, setCheckOpen] = useState(false)
+  // Прокрутка к месту проблемы в JSON; nonce делает повторный клик рабочим
+  const [reveal, setReveal] = useState<{ parts: PathParts; nonce: number } | null>(null)
+  const revealNonce = useRef(0)
   const squads = useSquads()
   const panelInbounds = useProfileInbounds(profile.uuid)
   const ctx = useMemo(
@@ -156,6 +161,23 @@ function EditorInner({ profile }: { profile: Profile }) {
     () => traceOf(parsedConfig, settledTarget, geoQuery.data),
     [parsedConfig, settledTarget, geoQuery.data],
   )
+
+  // Переход зависит от вкладки: на топологии ведём к узлу, в JSON — к месту в тексте.
+  // Вкладку не переключаем: у log/policy узла нет, и прыжок увёл бы в никуда.
+  function canSelectIssue(issue: ValidationIssue): boolean {
+    if (tab === 'json') return issue.parts.length > 0
+    return parsedConfig !== undefined && nodeIdForPath(issue.parts, parsedConfig) !== null
+  }
+
+  function selectIssue(issue: ValidationIssue) {
+    if (tab === 'json') {
+      revealNonce.current += 1
+      setReveal({ parts: issue.parts, nonce: revealNonce.current })
+      return
+    }
+    const id = parsedConfig ? nodeIdForPath(issue.parts, parsedConfig) : null
+    if (id) setSelectedNode(id)
+  }
 
   function changeConfig(next: XrayConfig) {
     setDraft(profile.uuid, formatConfig(next), draft?.baseUpdatedAt ?? profile.updatedAt)
@@ -253,6 +275,7 @@ function EditorInner({ profile }: { profile: Profile }) {
           <div className="wb-canvas">
             <JsonView
               text={text}
+              reveal={reveal}
               onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)}
             />
           </div>
@@ -352,7 +375,11 @@ function EditorInner({ profile }: { profile: Profile }) {
         </div>
         {issuesOpen && validation.issues.length > 0 && (
           <div className="wb-status-body">
-            <IssueList issues={validation.issues} />
+            <IssueList
+              issues={validation.issues}
+              onSelect={selectIssue}
+              canSelect={canSelectIssue}
+            />
           </div>
         )}
       </footer>

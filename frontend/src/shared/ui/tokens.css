@@ -1303,3 +1303,17 @@ p { margin: 0 0 10px; }
 }
 .node-issue-error { color: var(--alert); border-color: var(--alert); background: var(--alert-soft); }
 .node-issue-warn { color: var(--ember); border-color: var(--ember-line); background: var(--ember-soft); }
+
+/* Строка проблемы как кнопка перехода: к узлу или к месту в JSON */
+.issue-row-link {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--rail);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.issue-row-link:hover { background: var(--panel-2); }
+.issue-row-link:focus-visible { outline: 2px solid var(--flux); outline-offset: -2px; }
