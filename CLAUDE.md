@@ -60,7 +60,7 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
   байтам без разбора — полный разбор всей базы стоил бы сотни мегабайт), `categoryPage` режет
   содержимое по `offset`/`limit` и фильтрует по `q`, пересчитывая `total`. Кэш разобранных
   категорий ограничен восемью на вид (`MAX_PARSED`): вьюер листает категории подряд, а `US` в
-  geoip — 291 507 подсетей. UI — `features/diagnostics/GeoBrowser.tsx` во вкладке диалога
+  geoip — 336 502 подсети. UI — `features/diagnostics/GeoBrowser.tsx` во вкладке диалога
   «Geo-базы»; кнопка «В правило» идёт через `appendGeoKey` в `entities/graph/mutations.ts`.
 - `config.ts` — env валидируется zod'ом при старте; отдельная проверка ловит bcrypt-хэш, испорченный интерполяцией `$` в Docker Compose (см. README).
 - Статика фронтенда отдаётся из `STATIC_DIR` с SPA-fallback на `index.html`; неизвестные `/api/*` — JSON 404.

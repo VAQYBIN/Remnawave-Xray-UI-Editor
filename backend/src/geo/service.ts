@@ -74,7 +74,7 @@ export interface GeoPageOptions {
 const DOMAIN_TYPES = ['keyword', 'regexp', 'domain', 'full'] as const
 const DEFAULT_LIMIT = 200
 const MAX_LIMIT = 1000
-/** Сколько разобранных категорий держим на вид: US в geoip — 291 507 подсетей */
+/** Сколько разобранных категорий держим на вид: US в geoip — 336 502 подсети (v2fly, 2026-07) */
 const MAX_PARSED = 8
 
 interface Settings {
