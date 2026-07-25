@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate } from 'react-router'
 import { useMe } from '../../shared/api'
 
 export function RequireAuth({ children }: { children: ReactNode }) {

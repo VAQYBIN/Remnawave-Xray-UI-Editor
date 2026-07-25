@@ -3,6 +3,7 @@ import CodeMirror, { EditorView } from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
 import type { XrayConfig } from '../../entities/xray'
 import { getNodeJson } from '../../entities/graph/mutations'
+import { xrayIntellisense, type XrayRootKind } from '../editor/intellisense'
 import { Button, Dialog } from '../../shared/ui'
 import { InboundForm } from '../inspector/InboundForm'
 import { OutboundForm } from '../inspector/OutboundForm'
@@ -51,7 +52,6 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
   const [parseError, setParseError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [retagValue, setRetagValue] = useState<Obj | null>(null)
-  const extensions = useMemo(() => [json(), inspectorTheme], [])
 
   const kind = nodeId.startsWith('in:')
     ? 'inbound'
@@ -62,6 +62,12 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
         : nodeId === 'dns'
           ? 'dns'
           : 'other'
+  // Автоподсказки/hover питаются от узла docSchema, с которого начинается документ;
+  // у «прочих» узлов схемы нет — там только подсветка JSON
+  const extensions = useMemo(
+    () => [json(), ...(kind === 'other' ? [] : [xrayIntellisense(kind as XrayRootKind)]), inspectorTheme],
+    [kind],
+  )
   const [tab, setTab] = useState<'form' | 'json'>(kind === 'other' ? 'json' : 'form')
   const parsedNode = useMemo(() => parseNode(text), [text])
   const oldTag = kind === 'inbound' ? nodeId.slice(3) : ''

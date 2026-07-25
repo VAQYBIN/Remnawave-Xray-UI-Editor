@@ -44,6 +44,22 @@ test('outbound vless: streamSettings Reality с клиентскими поля�
   await expect(page.getByText('черновик', { exact: true })).toBeVisible()
 })
 
+test('Reality shortIds: счётчик генерации и пустой ID', async ({ page }) => {
+  const inspector = page.locator('aside')
+  await page.locator('.react-flow__node[data-id="in:vless-in"]').click()
+  // network tcp(raw) → reality допустим; появляются серверные поля Reality
+  await pickOption(page, inspector.getByLabel('Шифрование'), 'reality')
+  await expect(inspector.locator('.taglist-item')).toHaveCount(0)
+  // сгенерировать сразу несколько по счётчику
+  await inspector.getByLabel('Сколько shortId сгенерировать').fill('2')
+  await inspector.getByRole('button', { name: 'Сгенерировать', exact: true }).click()
+  await expect(inspector.locator('.taglist-item')).toHaveCount(2)
+  // добавить пустой shortId — виден как «(пусто)»
+  await inspector.getByRole('button', { name: '+ пустой' }).click()
+  await expect(inspector.locator('.taglist-item')).toHaveCount(3)
+  await expect(inspector.getByText('(пусто)')).toBeVisible()
+})
+
 test('диалог «Настройки конфига» и DNS-форма', async ({ page }) => {
   await page.getByRole('button', { name: 'Настройки конфига' }).click()
   await pickOption(page, page.getByLabel('Стратегия доменов (domainStrategy)'), 'IPIfNonMatch')

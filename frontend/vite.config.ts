@@ -12,7 +12,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+          'react-vendor': ['react', 'react-dom', 'react-router', '@tanstack/react-query'],
           codemirror: [
             '@uiw/react-codemirror',
             '@codemirror/lang-json',

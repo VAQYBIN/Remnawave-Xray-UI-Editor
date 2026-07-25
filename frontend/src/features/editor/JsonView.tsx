@@ -3,6 +3,7 @@ import CodeMirror, { EditorView } from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint'
 import { validateXrayConfig } from '../../entities/xray'
+import { xrayIntellisense } from './intellisense'
 
 const editorTheme = EditorView.theme({
   '&': { backgroundColor: 'var(--void)', fontSize: '13px', height: '100%' },
@@ -25,7 +26,10 @@ function xrayLinter() {
 }
 
 export function JsonView({ text, onChange }: { text: string; onChange: (v: string) => void }) {
-  const extensions = useMemo(() => [json(), lintGutter(), xrayLinter(), editorTheme], [])
+  const extensions = useMemo(
+    () => [json(), lintGutter(), xrayLinter(), xrayIntellisense('config'), editorTheme],
+    [],
+  )
   return <CodeMirror value={text} height="100%" theme="dark" extensions={extensions} onChange={onChange} />
 
 }

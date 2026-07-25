@@ -82,13 +82,22 @@ describe('StreamForm', () => {
     expect(next.realitySettings.privateKey).toBe('PRIV_43')
   })
 
-  it('добавляет короткий ID кнопкой «+ ID»', async () => {
+  it('генерирует несколько shortId кнопкой «Сгенерировать»', async () => {
     const onChange = vi.fn()
     wrap(<StreamForm value={{ security: 'reality', realitySettings: { shortIds: ['aa11'] } }} onChange={onChange} />)
-    await userEvent.click(screen.getByText('+ ID'))
+    await userEvent.click(screen.getByText('Сгенерировать'))
     const next = onChange.mock.lastCall![0] as { realitySettings: { shortIds: string[] } }
-    expect(next.realitySettings.shortIds).toHaveLength(2)
-    expect(next.realitySettings.shortIds[1]).toMatch(/^[0-9a-f]{8}$/)
+    // по умолчанию 4 — к исходному одному добавились ещё четыре
+    expect(next.realitySettings.shortIds).toHaveLength(5)
+    expect(next.realitySettings.shortIds.slice(1).every((s) => /^[0-9a-f]{8}$/.test(s))).toBe(true)
+  })
+
+  it('добавляет пустой shortId кнопкой «+ пустой»', async () => {
+    const onChange = vi.fn()
+    wrap(<StreamForm value={{ security: 'reality', realitySettings: { shortIds: ['aa11'] } }} onChange={onChange} />)
+    await userEvent.click(screen.getByText('+ пустой'))
+    const next = onChange.mock.lastCall![0] as { realitySettings: { shortIds: string[] } }
+    expect(next.realitySettings.shortIds).toEqual(['aa11', ''])
   })
 
   it('ws: показывает поле пути', async () => {

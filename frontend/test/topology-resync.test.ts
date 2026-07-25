@@ -71,11 +71,11 @@ describe('edgeHues — кабель окрашен от источника к п
   })
 
   it('inbound → правило: индиго переходит в сталь', () => {
-    expect(edgeHues('e:in:vless-in->rule:0')).toEqual(['var(--flux)', 'var(--rail-hi)'])
+    expect(edgeHues('e:in:vless-in->rule:0')).toEqual(['var(--flux)', 'var(--cable-steel)'])
   })
 
   it('правило → outbound: сталь переходит в янтарь', () => {
-    expect(edgeHues('e:rule:0->out:direct')).toEqual(['var(--rail-hi)', 'var(--ember)'])
+    expect(edgeHues('e:rule:0->out:direct')).toEqual(['var(--cable-steel)', 'var(--ember)'])
   })
 
   it('id градиента очищен от символов, недопустимых в id', () => {

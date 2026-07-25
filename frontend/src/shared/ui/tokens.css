@@ -14,6 +14,9 @@
   --panel-3: #232c38;
   --rail: #262f3b;
   --rail-hi: #35404e;
+  /* Конец кабеля со стороны правила: правило без своего hue, но на тёмном фоне
+     линия должна читаться — отдельный «стальной» тон ярче бордюрного --rail-hi */
+  --cable-steel: #6b7789;
 
   /* --- Текст --- */
   --ink: #e6edf5;
@@ -113,6 +116,7 @@ p { margin: 0 0 10px; }
   *, *::before, *::after {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
   }
 }
@@ -482,6 +486,9 @@ p { margin: 0 0 10px; }
   border-radius: 999px;
 }
 .chip-x:hover { color: var(--alert); background: var(--alert-soft); }
+/* Счётчик «сколько сгенерировать» рядом с чипами shortId — узкое числовое поле */
+.taglist-count { width: 3.5rem; text-align: center; padding-inline: 8px; }
+.taglist-item .muted { font-style: italic; }
 
 .multi-chip {
   border: 1px solid var(--rail);
@@ -579,10 +586,14 @@ p { margin: 0 0 10px; }
   flex-direction: column;
   gap: 12px;
   padding: 14px;
+  /* Карточки въезжают волной — общий язык появления с узлами графа */
+  animation: node-enter 380ms var(--ease) var(--enter-delay, 0ms) backwards;
 }
 .profile-card:hover, .profile-card:focus-within {
   border-color: var(--rail-hi);
   background: var(--panel-2);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
 }
 /* Ссылка растягивается на карточку целиком: клик мышью работает где угодно,
    а Tab и средняя кнопка — как на обычной ссылке, чего <div onClick> не давал */
@@ -621,7 +632,9 @@ p { margin: 0 0 10px; }
   border: 1px solid transparent;
   border-radius: var(--radius-xs);
   background: transparent;
-  color: var(--ink-faint);
+  /* --ink-dim, а не --ink-faint: иконка — графика управления, ей нужен контраст
+     ≥3:1 к фону карточки (WCAG 1.4.11), иначе кнопка невидима до наведения */
+  color: var(--ink-dim);
   cursor: pointer;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
     border-color var(--dur) var(--ease);
@@ -635,19 +648,36 @@ p { margin: 0 0 10px; }
   display: grid;
   place-items: center;
   padding: 24px;
-  /* Та же точечная сетка, что на канвасе, плюс мягкое свечение по центру */
+  /* Та же точечная сетка, что на канвасе, плюс двойное свечение под палитру
+     кабеля: индиго сверху уходит в тёплый янтарь ниже — вход в патчбей */
+  background-color: var(--void);
   background-image:
     radial-gradient(circle, var(--rail) 1px, transparent 1px),
-    radial-gradient(ellipse 55% 45% at 50% 42%, color-mix(in srgb, var(--flux) 8%, transparent), transparent 70%);
-  background-size: 22px 22px, auto;
+    radial-gradient(ellipse 46% 40% at 50% 34%, color-mix(in srgb, var(--flux) 15%, transparent), transparent 72%),
+    radial-gradient(ellipse 40% 32% at 50% 66%, color-mix(in srgb, var(--ember) 8%, transparent), transparent 74%);
+  background-size: 22px 22px, auto, auto;
 }
 .auth-card {
-  width: min(360px, 100%);
-  padding: 24px;
+  width: min(372px, 100%);
+  padding: 26px 26px 24px;
   box-shadow: var(--shadow-pop);
+  animation: auth-enter 460ms var(--ease) backwards;
+}
+@keyframes auth-enter {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+.auth-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.auth-mark { flex: none; }
+/* Ядро джека едва пульсирует — знак «живого» гнезда */
+.auth-mark circle:last-of-type { animation: jack-core-pulse 2.6s var(--ease) infinite; transform-origin: center; }
+@keyframes jack-core-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
 }
 .auth-title { font-family: var(--font-mono); font-size: var(--t-lg); font-weight: 600; }
-.auth-caret { color: var(--flux); }
+.auth-caret { color: var(--flux); animation: caret-blink 1.1s steps(1, end) infinite; }
+@keyframes caret-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
 .auth-sub { color: var(--ink-dim); margin: 2px 0 20px; }
 
 /* Поле пароля — гнездо коммутации: рамка загорается кабельным градиентом,
@@ -658,11 +688,16 @@ p { margin: 0 0 10px; }
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--flux), var(--ember));
+  /* Широкий градиент, чтобы его можно было прокручивать при проверке пароля */
+  background: linear-gradient(90deg, var(--flux), var(--ember), var(--flux));
+  background-size: 200% 100%;
   opacity: 0.32;
   transition: opacity var(--dur) var(--ease);
 }
 .jack-field:focus-within::before { opacity: 1; }
+/* Проверка пароля — сигнал бежит по гнезду, пока панель отвечает */
+.jack-field[data-pending='true']::before { opacity: 1; animation: jack-flow 1.1s linear infinite; }
+@keyframes jack-flow { to { background-position: -200% 0; } }
 .jack-field .input {
   position: relative;
   border-color: transparent;
@@ -798,6 +833,111 @@ p { margin: 0 0 10px; }
 }
 /* Редактор JSON сам управляет своей прокруткой и занимает высоту целиком */
 .wb-inspector-body-flush { padding: 0; overflow: hidden; }
+
+/* @uiw/react-codemirror вешает height:100% только на .cm-editor, а свою
+   обёртку (.cm-theme-*) оставляет height:auto — проценту не от чего считаться,
+   редактор схлопывается до высоты контента и не скроллит (лишнее прячет
+   overflow:hidden контейнера). Даём обёртке определённую высоту. */
+.wb-canvas > .cm-theme,
+.wb-canvas > [class^='cm-theme-'],
+.wb-inspector-body-flush > .cm-theme,
+.wb-inspector-body-flush > [class^='cm-theme-'] {
+  height: 100%;
+  min-height: 0;
+}
+
+/* IntelliSense: выпадашка автоподсказок и hover-тултип — под патчбей-тему.
+   CodeMirror рендерит их порталом в body, поэтому селекторы глобальные. */
+.cm-tooltip.cm-tooltip-autocomplete {
+  border: 1px solid var(--rail-hi);
+  border-radius: 8px;
+  background: var(--panel-2);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.cm-tooltip-autocomplete > ul {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  max-height: 16em;
+}
+.cm-tooltip-autocomplete > ul > li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 10px;
+  color: var(--ink-dim);
+}
+.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: color-mix(in srgb, var(--flux) 22%, transparent);
+  color: var(--ink);
+}
+.cm-completionLabel { color: var(--ink); }
+.cm-completionMatchedText {
+  color: var(--flux-line);
+  text-decoration: none;
+  font-weight: 600;
+}
+.cm-completionDetail {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 0.85em;
+  color: var(--ink-faint);
+}
+.cm-completionIcon { opacity: 0.7; margin-right: 2px; }
+.cm-completionIcon-enum::after { content: '◆'; }
+.cm-completionIcon-namespace::after { content: '{}'; }
+
+/* info-панель подсказки и hover-тултип */
+.cm-tooltip.cm-completionInfo,
+.cm-tooltip.cm-tooltip-hover {
+  border: 1px solid var(--rail-hi);
+  border-radius: 8px;
+  background: var(--panel-2);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+  padding: 0;
+}
+.cm-tooltip.cm-completionInfo {
+  max-width: 320px;
+  padding: 8px 10px;
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+.cm-xray-hover { padding: 8px 10px; max-width: 340px; }
+.cm-xray-hover-key {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink);
+}
+.cm-xray-hover-type { color: var(--ink-faint); font-size: 0.85em; }
+.cm-xray-hover-doc {
+  margin-top: 4px;
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+.cm-xray-hover-enum {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rail);
+  display: grid;
+  gap: 3px;
+}
+.cm-xray-hover-enum-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--t-xs, 11px);
+}
+.cm-xray-hover-enum-row code {
+  font-family: var(--font-mono);
+  color: var(--flux-line);
+}
+.cm-xray-hover-enum-row span { color: var(--ink-faint); }
 .wb-inspector-foot {
   flex: none;
   display: flex;
@@ -853,9 +993,16 @@ p { margin: 0 0 10px; }
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-1);
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
-    background var(--dur) var(--ease);
+    background var(--dur) var(--ease), transform var(--dur) var(--ease);
+  /* Входная волна: узел проявляется снизу-вверх, задержка — по колонке (nodes.tsx).
+     backwards держит его скрытым до старта, чтобы волна читалась как волна. */
+  animation: node-enter 360ms var(--ease) var(--enter-delay, 0ms) backwards;
 }
-.fnode:hover { border-color: var(--rail-hi); background: var(--panel-2); }
+@keyframes node-enter {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+.fnode:hover { border-color: var(--rail-hi); background: var(--panel-2); transform: translateY(-1px); }
 .fnode-in { --node-hue: var(--flux); --node-select: var(--flux); }
 .fnode-out { --node-hue: var(--ember); --node-select: var(--ember); }
 .fnode-squad { --node-hue: var(--flux); --node-select: var(--flux); }
@@ -970,13 +1117,51 @@ p { margin: 0 0 10px; }
 }
 .react-flow__handle.connectingto:not(.valid) { opacity: 0.25; }
 
-/* --- Кабели --- */
-.react-flow__edge-path { stroke-width: 1.75; }
-.react-flow__edge:hover .react-flow__edge-path { stroke-width: 2.5; }
-.react-flow__edge.selected .react-flow__edge-path { stroke-width: 2.75; }
-.react-flow__connection-path { stroke: var(--flux); stroke-width: 2; stroke-dasharray: 5 4; }
-.edge-pulse { stroke-dasharray: 6 10; animation: pulse-flow 900ms linear infinite; }
-@keyframes pulse-flow { to { stroke-dashoffset: -16; } }
+/* --- Кабели ---
+   Три слоя: гало-подложка (вес на тёмном фоне), сплошной кабель-градиент и —
+   только на активном пути — бегущая искра сигнала поверх. */
+.react-flow__edge-path {
+  stroke-width: 2;
+  transition: stroke-width var(--dur) var(--ease);
+}
+.react-flow__edge:hover .react-flow__edge-path { stroke-width: 2.75; }
+.react-flow__edge.selected .react-flow__edge-path { stroke-width: 3; }
+
+.edge-halo {
+  fill: none;
+  stroke-width: 7;
+  stroke-linecap: round;
+  opacity: 0.14;
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease), stroke-width var(--dur) var(--ease);
+}
+.edge-halo[data-active='true'] { opacity: 0.32; stroke-width: 10; }
+
+/* Искра пробегает от источника к приёмнику — метафора текущего сигнала.
+   Свечение окрашено в currentColor: цвет приёмника задаётся и на stroke, и на color. */
+.edge-flow {
+  fill: none;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-dasharray: 2 15;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px currentColor);
+  animation: signal-run 1100ms linear infinite;
+}
+@keyframes signal-run { to { stroke-dashoffset: -17; } }
+
+.react-flow__connection-path {
+  stroke: var(--flux);
+  stroke-width: 2.25;
+  stroke-dasharray: 5 4;
+  filter: drop-shadow(0 0 4px var(--flux-line));
+}
+
+/* Под prefers-reduced-motion бегущую искру не показываем вовсе — активность
+   пути остаётся читаемой по яркому гало, без движущегося раздражителя */
+@media (prefers-reduced-motion: reduce) {
+  .edge-flow { display: none; }
+}
 
 /* Подписи колонок в координатах канваса — карта потока слева направо */
 .column-label {

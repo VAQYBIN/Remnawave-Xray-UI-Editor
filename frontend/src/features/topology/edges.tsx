@@ -2,7 +2,7 @@ import { BaseEdge, getBezierPath, type EdgeProps, type EdgeTypes } from '@xyflow
 
 const FLUX = 'var(--flux)'
 const EMBER = 'var(--ember)'
-const STEEL = 'var(--rail-hi)'
+const STEEL = 'var(--cable-steel)'
 
 /**
  * Кабель окрашивается градиентом от цвета источника к цвету приёмника: индиго на
@@ -47,12 +47,11 @@ function SignalEdge({
           <stop offset="100%" style={{ stopColor: to }} />
         </linearGradient>
       </defs>
-      <BaseEdge
-        id={id}
-        path={path}
-        className={active ? 'edge-pulse' : undefined}
-        style={{ stroke: `url(#${gid})`, opacity: active ? 1 : 0.72 }}
-      />
+      {/* Гало-подложка — вес кабеля на почти-чёрном фоне */}
+      <path className="edge-halo" d={path} style={{ stroke: `url(#${gid})` }} data-active={active || undefined} />
+      <BaseEdge id={id} path={path} style={{ stroke: `url(#${gid})`, opacity: active ? 1 : 0.85 }} />
+      {/* Бегущая искра только по активному пути; currentColor красит и её свечение */}
+      {active && <path className="edge-flow" d={path} style={{ stroke: to, color: to }} />}
     </>
   )
 }

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useState, type CSSProperties } from 'react'
+import { Link, useNavigate } from 'react-router'
 import { useDeleteProfile, useLogout, useProfiles, type PanelInboundView, type Profile } from '../../shared/api'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
@@ -26,12 +26,23 @@ function InboundRow({ inbound }: { inbound: PanelInboundView }) {
   )
 }
 
-function ProfileCard({ profile, hasDraft, onDelete }: { profile: Profile; hasDraft: boolean; onDelete: () => void }) {
+function ProfileCard({
+  profile,
+  hasDraft,
+  index,
+  onDelete,
+}: {
+  profile: Profile
+  hasDraft: boolean
+  index: number
+  onDelete: () => void
+}) {
   const shown = profile.inbounds.slice(0, MAX_INBOUNDS)
   const hidden = profile.inbounds.length - shown.length
 
   return (
-    <Card className="profile-card">
+    // Карточки въезжают волной — тот же язык появления, что у узлов графа
+    <Card className="profile-card" style={{ '--enter-delay': `${Math.min(index, 8) * 45}ms` } as CSSProperties}>
       <div className="row">
         <h2>
           <Link className="card-link" to={`/profiles/${profile.uuid}`}>
@@ -126,10 +137,11 @@ export function ProfilesPage() {
 
       {profiles.data && profiles.data.length > 0 && (
         <div className="profile-grid">
-          {profiles.data.map((p) => (
+          {profiles.data.map((p, i) => (
             <ProfileCard
               key={p.uuid}
               profile={p}
+              index={i}
               hasDraft={drafts[p.uuid] !== undefined}
               onDelete={() => setToDelete(p)}
             />
