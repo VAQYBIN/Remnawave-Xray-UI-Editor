@@ -219,6 +219,37 @@ export function setRuleOutbound(config: XrayConfig, ruleIndex: number, outboundT
   return next
 }
 
+/**
+ * Кладёт geo-категорию в правило: geosite — в domain, geoip — в ip.
+ * ruleIndex === null (или индекс несуществующего правила) — создаётся новое правило
+ * в конце списка, там же, где его создаёт кнопка «+ Правило».
+ * Возвращает индекс правила, чтобы вызывающий мог его выделить.
+ */
+export function appendGeoKey(
+  config: XrayConfig,
+  ruleIndex: number | null,
+  key: string,
+): { config: XrayConfig; ruleIndex: number } {
+  const field = key.startsWith('geoip:') ? 'ip' : 'domain'
+  const rules = config.routing?.rules ?? []
+  const exists = ruleIndex !== null ? rules[ruleIndex] : undefined
+
+  // Повтор не добавляем: возвращаем тот же объект, как и прочие мутации
+  if (exists && (exists[field] ?? []).includes(key)) return { config, ruleIndex: ruleIndex! }
+
+  const next = clone(config)
+  next.routing = next.routing ?? {}
+  next.routing.rules = next.routing.rules ?? []
+  let index = ruleIndex
+  if (index === null || next.routing.rules[index] === undefined) {
+    next.routing.rules.push({})
+    index = next.routing.rules.length - 1
+  }
+  const rule = next.routing.rules[index]!
+  rule[field] = [...(rule[field] ?? []), key]
+  return { config: next, ruleIndex: index }
+}
+
 const EDGE_IN_RULE = /^e:in:(.+)->rule:(\d+)$/
 const EDGE_RULE_OUT = /^e:rule:(\d+)->out:(.+)$/
 

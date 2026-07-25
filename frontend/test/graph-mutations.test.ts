@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addInbound, addOutbound, addRule, applyNodeJson, attachInboundToRule, connectRule, moveRule,
-  disconnectEdge, getNodeJson, removeNode, setRuleOutbound,
+  addInbound, addOutbound, addRule, appendGeoKey, applyNodeJson, attachInboundToRule, connectRule,
+  moveRule, disconnectEdge, getNodeJson, removeNode, setRuleOutbound,
 } from '../src/entities/graph/mutations'
 
 const base = () => ({
@@ -235,5 +235,50 @@ describe('переименование узла тянет за собой сс�
     const snapshot = structuredClone(cfg)
     applyNodeJson(cfg, 'out:direct', { tag: 'wg', protocol: 'freedom' })
     expect(cfg).toEqual(snapshot)
+  })
+})
+
+describe('appendGeoKey', () => {
+  const cfg = () => ({
+    outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    routing: { rules: [{ inboundTag: ['vless-in'], outboundTag: 'direct' }] },
+  })
+
+  it('geosite дописывается в domain выбранного правила', () => {
+    const res = appendGeoKey(cfg(), 0, 'geosite:google')
+    expect(res.ruleIndex).toBe(0)
+    expect(res.config.routing!.rules![0]!.domain).toEqual(['geosite:google'])
+  })
+
+  it('geoip дописывается в ip, а не в domain', () => {
+    const res = appendGeoKey(cfg(), 0, 'geoip:private')
+    expect(res.config.routing!.rules![0]!.ip).toEqual(['geoip:private'])
+    expect(res.config.routing!.rules![0]!.domain).toBeUndefined()
+  })
+
+  it('без выбранного правила создаётся новое в конце списка', () => {
+    const res = appendGeoKey(cfg(), null, 'geosite:netflix')
+    expect(res.ruleIndex).toBe(1)
+    expect(res.config.routing!.rules).toHaveLength(2)
+    expect(res.config.routing!.rules![1]).toEqual({ domain: ['geosite:netflix'] })
+  })
+
+  it('несуществующий индекс правила тоже даёт новое правило', () => {
+    const res = appendGeoKey(cfg(), 7, 'geosite:netflix')
+    expect(res.ruleIndex).toBe(1)
+  })
+
+  it('повтор ничего не меняет и возвращает тот же config', () => {
+    const withKey = appendGeoKey(cfg(), 0, 'geosite:google').config
+    const again = appendGeoKey(withKey, 0, 'geosite:google')
+    expect(again.config).toBe(withKey)
+    expect(again.ruleIndex).toBe(0)
+  })
+
+  it('не мутирует входной конфиг', () => {
+    const source = cfg()
+    const snapshot = structuredClone(source)
+    appendGeoKey(source, 0, 'geosite:google')
+    expect(source).toEqual(snapshot)
   })
 })
