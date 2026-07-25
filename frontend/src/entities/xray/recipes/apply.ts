@@ -3,7 +3,8 @@
 // (по ссылке, вызывающий может сравнивать через ===).
 
 import type { XrayConfig } from '../config'
-import type { Outbound, Rule } from './types'
+import type { Outbound } from '../outbounds'
+import type { Rule } from './types'
 
 export interface MergeResult {
   config: XrayConfig

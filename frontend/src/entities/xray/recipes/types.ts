@@ -19,6 +19,5 @@ export interface RecipePlan {
   notes: RecipeNote[]
 }
 
-export type Outbound = NonNullable<XrayConfig['outbounds']>[number]
+/** Правило маршрутизации. Inbound и Outbound уже есть в соседних модулях слоя */
 export type Rule = NonNullable<NonNullable<XrayConfig['routing']>['rules']>[number]
-export type Inbound = NonNullable<XrayConfig['inbounds']>[number]
