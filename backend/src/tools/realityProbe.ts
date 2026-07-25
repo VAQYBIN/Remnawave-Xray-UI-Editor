@@ -195,6 +195,11 @@ export function parseTarget(target: string): { host: string; port: number } | nu
   return { host, port }
 }
 
+/** У многозначного RDN Node отдаёт массив вместо строки — берём первое значение */
+function firstOf(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
 function altNamesOf(cert: PeerCertificate | undefined): string[] {
   return (cert?.subjectaltname ?? '')
     .split(',')
@@ -229,8 +234,10 @@ const tlsConnect: NonNullable<RealityProbeOptions['connectImpl']> = (o) =>
           cipher: socket.getCipher()?.name,
           alpn: socket.alpnProtocol === false ? null : (socket.alpnProtocol ?? null),
           keyExchange: ephemeral?.name ?? ephemeral?.type,
-          subject: cert?.subject?.CN,
-          issuer: [cert?.issuer?.O, cert?.issuer?.CN].filter(Boolean).join(' ') || undefined,
+          subject: firstOf(cert?.subject?.CN),
+          issuer:
+            [firstOf(cert?.issuer?.O), firstOf(cert?.issuer?.CN)].filter(Boolean).join(' ') ||
+            undefined,
           altNames: altNamesOf(cert),
           validTo: cert?.valid_to,
           authorized: socket.authorized,
