@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow, useReactFlow, ViewportPortal,
+  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow, useReactFlow,
+  useUpdateNodeInternals, ViewportPortal,
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -122,6 +123,32 @@ function FocusNode({ request }: { request?: { nodeId: string; nonce: number } | 
       duration: 320,
     })
   }, [request, getNode, setCenter])
+
+  return null
+}
+
+/**
+ * Входная анимация `.fnode` сдвигает карточку на 8px вниз (`node-enter`), а React Flow
+ * снимает позиции гнёзд как раз в это время — и все рёбра остаются на 8px ниже своих
+ * гнёзд до первой перерисовки, которую раньше вызывало только перетаскивание узла.
+ * По окончании анимации просим пересчитать внутренности узла.
+ *
+ * Живёт отдельным узлом внутри `<ReactFlow>`: хук требует контекста провайдера, который
+ * создаёт сам канвас, — снаружи он падает с ошибкой 001.
+ */
+function RemeasureOnEnter() {
+  const updateNodeInternals = useUpdateNodeInternals()
+
+  useEffect(() => {
+    function onAnimationEnd(event: AnimationEvent) {
+      const target = event.target
+      if (!(target instanceof HTMLElement) || !target.classList.contains('fnode')) return
+      const id = target.closest('.react-flow__node')?.getAttribute('data-id')
+      if (id) updateNodeInternals(id)
+    }
+    document.addEventListener('animationend', onAnimationEnd, true)
+    return () => document.removeEventListener('animationend', onAnimationEnd, true)
+  }, [updateNodeInternals])
 
   return null
 }
@@ -320,6 +347,7 @@ export function TopologyView({
       <Controls showInteractive={false} position="bottom-right" />
       <ViewportShift shift={selectedId === null ? 0 : inspectorWidth(window.innerWidth)} />
       <FocusNode request={focus} />
+      <RemeasureOnEnter />
 
       {/* Подписи колонок живут в координатах канваса и едут вместе с узлами */}
       <ViewportPortal>
