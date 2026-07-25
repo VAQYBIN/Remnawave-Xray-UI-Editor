@@ -59,7 +59,20 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 
 - `entities/xray` — типы и чистая логика Xray-конфига: схемы inbound/outbound/stream/routing, генерация (`generate.ts`). Всё реэкспортируется через `entities/xray/index.ts`.
 - `entities/graph` — `buildGraph.ts` строит из конфига колоночный граф (squad → inbound → rule → outbound); `mutations.ts` — обратные правки конфига из графа. Дубликаты тегов пропускаются (иначе ломаются id узлов React Flow).
-- `features/editor` — `EditorPage` (вкладки: топология / JSON узла), `draftStore.ts` — zustand-persist черновики в localStorage по uuid профиля, хранят `baseUpdatedAt` для проверки конфликта при сохранении; `BackupsDialog`, `SaveDialog`, `IssueList`.
+- `features/editor` — `EditorPage` (вкладки: топология / JSON узла), `draftStore.ts` — zustand-persist черновики в localStorage по uuid профиля, хранят `baseUpdatedAt` для проверки конфликта при сохранении; `VersionsDialog`, `SaveDialog`, `IssueList`.
+- Все записи черновика в `EditorPage` идут через одну функцию `writeDraft(text, {history})`;
+  `historyStore.ts` — стеки `past`/`future` в памяти (без persist: 50 снимков конфига вытеснили бы
+  черновики из localStorage). Набор текста в JSON в историю не пишется — это забота CodeMirror,
+  вместо этого при уходе с вкладки записывается один снимок «как было до входа». После undo/redo,
+  импорта и восстановления бэкапа обязателен `setSelectedNode(null)`.
+- `shared/lib/useHotkeys.ts` — хоткеи с guard'ом `isEditableTarget` (проверяет и атрибут
+  `contenteditable` по цепочке предков — так покрывается `.cm-content`, а в jsdom свойства
+  `isContentEditable` вообще нет); `Escape` не отменяет действие браузера и молчит при открытом
+  `<dialog>`. Компонент, потребивший клавишу, обязан гасить всплытие — так `Select` не даёт
+  глобальному `Escape` закрыть инспектор вместе со своим списком.
+- `DiffView.tsx` — общий `MergeView` для `SaveDialog` и `VersionsDialog` (бывший `BackupsDialog`:
+  вкладки «Бэкапы панели» / «Файл», сравнение бэкапа с черновиком в том же диалоге, без вложенного
+  `<dialog>`). Разбор и именование файлов — `configFile.ts` (разворачивает `{profile:{config}}`).
 - `features/topology` + `features/inspector` — граф и формы редактирования выбранного узла (InboundForm/OutboundForm/StreamForm; генератор ключей Reality дергает `/api/tools`).
 - Диагностики несут путь массивом (`ValidationIssue.parts`), а строковый `path` — производный
   (`formatPath`). На `parts` завязаны три резолвера: `features/editor/jsonLocate.ts` (путь →
