@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   analyzeIntegrity,
   DnsSchema,
+  formatPath,
   LogSchema,
   RoutingRuleSchema,
   validateXrayConfig,
@@ -392,5 +393,43 @@ describe('analyzeIntegrity: sniffing и доменные правила', () => 
       base([{ tag: 'vless-in', protocol: 'vless' }], [{ ip: ['10.0.0.0/8'], outboundTag: 'direct' }]),
     )
     expect(issues.some((i) => i.path.startsWith('routing.rules.0'))).toBe(false)
+  })
+})
+
+describe('путь диагностики', () => {
+  it('parts несёт индексы числами, path остаётся строкой', () => {
+    const res = validateXrayConfig(
+      JSON.stringify({
+        inbounds: [
+          {
+            tag: 'a',
+            protocol: 'vless',
+            streamSettings: { network: 'ws', security: 'reality' },
+          },
+        ],
+        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      }),
+    )
+    const issue = res.issues.find((i) => i.path === 'inbounds.0.streamSettings')!
+    expect(issue).toBeDefined()
+    expect(issue.parts).toEqual(['inbounds', 0, 'streamSettings'])
+  })
+
+  it('parts у схемной ошибки приходит из zod без склейки', () => {
+    const res = validateXrayConfig(JSON.stringify({ dns: { servers: 'не массив' } }))
+    const issue = res.issues.find((i) => i.path === 'dns.servers')!
+    expect(issue.parts).toEqual(['dns', 'servers'])
+  })
+
+  it('ключ с точкой не разваливается на сегменты', () => {
+    // hosts — словарь: ключ сам содержит точки, и склейка через точку неоднозначна
+    const res = validateXrayConfig(JSON.stringify({ dns: { hosts: { 'example.com': 42 } } }))
+    const issue = res.issues.find((i) => i.parts.includes('example.com'))
+    expect(issue?.parts).toEqual(['dns', 'hosts', 'example.com'])
+  })
+
+  it('formatPath собирает ту же строку, что была раньше', () => {
+    expect(formatPath(['routing', 'rules', 2, 'domain'])).toBe('routing.rules.2.domain')
+    expect(formatPath([])).toBe('')
   })
 })
