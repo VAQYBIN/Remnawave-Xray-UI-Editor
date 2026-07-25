@@ -1196,3 +1196,49 @@ p { margin: 0 0 10px; }
 /* Точки фона задаём стилем: React Flow пишет цвет в презентационный атрибут fill,
    где var() не раскрывается */
 .react-flow__background pattern circle { fill: var(--rail); }
+
+/* Разбор трассы — оверлей поверх канваса, как инспектор, но у левого края */
+.trace-panel {
+  position: absolute;
+  left: 14px;
+  bottom: 74px;
+  z-index: 9;
+  width: min(440px, calc(100% - 28px));
+  max-height: 52%;
+  overflow-y: auto;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--panel-2) 94%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--rail-hi);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  animation: slide-in 180ms var(--ease);
+}
+.trace-panel-head { display: flex; align-items: center; gap: 8px; }
+.trace-panel-head h2 { margin: 0; font-size: var(--t-md); }
+.trace-winner { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.trace-caveats { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; font-size: var(--t-sm); }
+.trace-pass-note { margin: 0 0 8px; font-size: var(--t-sm); }
+.trace-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.trace-rule { border: 1px solid var(--rail); border-radius: 8px; padding: 6px 8px; }
+.trace-rule[data-winner] { border-color: var(--ember-line); background: var(--ember-soft); }
+.trace-rule-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.trace-rule-no { font-family: var(--font-mono); color: var(--ink-dim); }
+.trace-badge { font-size: var(--t-xs); padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rail-hi); }
+.trace-badge-yes { color: var(--ember); border-color: var(--ember-line); background: var(--ember-soft); }
+.trace-badge-no { color: var(--ink-dim); }
+.trace-badge-unknown { color: var(--flux); border-color: var(--flux-line); background: var(--flux-soft); }
+.trace-fields { display: grid; gap: 2px; margin-top: 4px; font-size: var(--t-sm); color: var(--ink-dim); }
+.trace-field-name { font-family: var(--font-mono); margin-right: 6px; color: var(--ink); }
