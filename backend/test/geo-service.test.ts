@@ -215,3 +215,146 @@ describe('GeoService.update', () => {
     expect(status.geosite.present).toBe(true)
   })
 })
+
+describe('просмотр категорий', () => {
+  it('список отсортирован и несёт счётчики', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'xui-geo-view-'))
+    await mkdir(join(dir, 'geodata'), { recursive: true })
+    await writeFile(
+      join(dir, 'geodata', 'geosite.dat'),
+      encodeGeoSiteList([
+        { code: 'NETFLIX', domains: [{ type: 2, value: 'netflix.com', attributes: [] }] },
+        {
+          code: 'GOOGLE',
+          domains: [
+            { type: 2, value: 'google.com', attributes: [] },
+            { type: 3, value: 'api.google.com', attributes: ['cn'] },
+          ],
+        },
+      ]),
+    )
+    const service = new GeoService(dir)
+
+    expect(await service.categories('geosite')).toEqual([
+      { code: 'GOOGLE', count: 2 },
+      { code: 'NETFLIX', count: 1 },
+    ])
+    // Базы geoip в каталоге нет
+    expect(await service.categories('geoip')).toBeNull()
+  })
+
+  it('страница доменов режется по offset/limit и фильтруется по q', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'xui-geo-page-'))
+    await mkdir(join(dir, 'geodata'), { recursive: true })
+    await writeFile(
+      join(dir, 'geodata', 'geosite.dat'),
+      encodeGeoSiteList([
+        {
+          code: 'GOOGLE',
+          domains: [
+            { type: 2, value: 'google.com', attributes: [] },
+            { type: 3, value: 'api.google.com', attributes: ['cn'] },
+            { type: 0, value: 'gstatic', attributes: [] },
+            { type: 1, value: '.*\.google\.dev', attributes: [] },
+          ],
+        },
+      ]),
+    )
+    const service = new GeoService(dir)
+
+    const first = await service.categoryPage('geosite', 'google', { offset: 0, limit: 2 })
+    expect(first.status).toBe('ok')
+    if (first.status !== 'ok') return
+    expect(first.page.total).toBe(4)
+    expect(first.page.domains).toEqual([
+      { type: 'domain', value: 'google.com', attributes: [] },
+      { type: 'full', value: 'api.google.com', attributes: ['cn'] },
+    ])
+
+    const tail = await service.categoryPage('geosite', 'GOOGLE', { offset: 2, limit: 200 })
+    if (tail.status !== 'ok') throw new Error('ожидалась страница')
+    expect(tail.page.domains).toEqual([
+      { type: 'keyword', value: 'gstatic', attributes: [] },
+      { type: 'regexp', value: '.*\.google\.dev', attributes: [] },
+    ])
+
+    // Фильтр меняет и total — иначе пагинация врёт
+    const filtered = await service.categoryPage('geosite', 'GOOGLE', { q: 'API', offset: 0, limit: 200 })
+    if (filtered.status !== 'ok') throw new Error('ожидалась страница')
+    expect(filtered.page.total).toBe(1)
+    expect(filtered.page.domains).toEqual([
+      { type: 'full', value: 'api.google.com', attributes: ['cn'] },
+    ])
+
+    // offset за концом списка — пустая страница, а не ошибка
+    const far = await service.categoryPage('geosite', 'GOOGLE', { offset: 99, limit: 200 })
+    if (far.status !== 'ok') throw new Error('ожидалась страница')
+    expect(far.page.domains).toEqual([])
+    expect(far.page.total).toBe(4)
+  })
+
+  it('geoip отдаёт строки подсетей и флаг reverseMatch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'xui-geo-ip-page-'))
+    await mkdir(join(dir, 'geodata'), { recursive: true })
+    await writeFile(
+      join(dir, 'geodata', 'geoip.dat'),
+      encodeGeoIpList([
+        {
+          code: 'PRIVATE',
+          cidrs: [
+            { ip: new Uint8Array([10, 0, 0, 0]), prefix: 8 },
+            { ip: new Uint8Array([192, 168, 0, 0]), prefix: 16 },
+          ],
+          reverseMatch: true,
+        },
+      ]),
+    )
+    const service = new GeoService(dir)
+
+    const page = await service.categoryPage('geoip', 'private', { offset: 0, limit: 200 })
+    if (page.status !== 'ok') throw new Error('ожидалась страница')
+    expect(page.page.cidrs).toEqual(['10.0.0.0/8', '192.168.0.0/16'])
+    expect(page.page.reverseMatch).toBe(true)
+
+    const filtered = await service.categoryPage('geoip', 'private', { q: '192.', offset: 0, limit: 200 })
+    if (filtered.status !== 'ok') throw new Error('ожидалась страница')
+    expect(filtered.page.cidrs).toEqual(['192.168.0.0/16'])
+  })
+
+  it('нет базы и нет категории — разные ответы', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'xui-geo-404-'))
+    await mkdir(join(dir, 'geodata'), { recursive: true })
+    await writeFile(
+      join(dir, 'geodata', 'geosite.dat'),
+      encodeGeoSiteList([{ code: 'GOOGLE', domains: [] }]),
+    )
+    const service = new GeoService(dir)
+
+    expect((await service.categoryPage('geosite', 'nosuch', {})).status).toBe('no-category')
+    expect((await service.categoryPage('geoip', 'US', {})).status).toBe('no-database')
+  })
+
+  it('кэш разобранных категорий не растёт бесконечно', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'xui-geo-cache-'))
+    await mkdir(join(dir, 'geodata'), { recursive: true })
+    await writeFile(
+      join(dir, 'geodata', 'geosite.dat'),
+      encodeGeoSiteList(
+        Array.from({ length: 12 }, (_, i) => ({
+          code: `CAT${i}`,
+          domains: [{ type: 2 as const, value: `site${i}.com`, attributes: [] }],
+        })),
+      ),
+    )
+    const service = new GeoService(dir)
+    for (let i = 0; i < 12; i += 1) {
+      await service.categoryPage('geosite', `CAT${i}`, {})
+    }
+
+    // Кэш приватный — читаем его напрямую: публичный геттер нужен только тесту
+    const cache = (service as unknown as {
+      cache: Map<string, { domains: Map<string, unknown> }>
+    }).cache
+    expect(cache.get('geosite')!.domains.size).toBe(8)
+  })
+})

@@ -1,7 +1,14 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { indexEntries, parseCidrs, parseDomains, type GeoCidr, type GeoDomain } from './dat.js'
-import { domainMatches, ipMatches, parseKey } from './match.js'
+import {
+  countEntries,
+  indexEntries,
+  parseCidrs,
+  parseDomains,
+  type GeoCidr,
+  type GeoDomain,
+} from './dat.js'
+import { domainMatches, formatCidr, ipMatches, parseKey } from './match.js'
 import { fetchExternal, type FetchGuardOptions } from '../net/guard.js'
 
 // Дефолты — канонические списки v2fly. Альтернатива с расширенными категориями:
@@ -30,6 +37,46 @@ export interface GeoMatchResult {
   missing: string[]
 }
 
+export interface GeoCategory {
+  code: string
+  count: number
+}
+
+/** Тип домена словом: цифры из geodat.proto наружу не уходят */
+export interface GeoDomainItem {
+  type: 'keyword' | 'regexp' | 'domain' | 'full'
+  value: string
+  attributes: string[]
+}
+
+export interface GeoCategoryPage {
+  code: string
+  total: number
+  offset: number
+  /** geosite */
+  domains?: GeoDomainItem[]
+  /** geoip */
+  cidrs?: string[]
+  reverseMatch?: boolean
+}
+
+export type GeoCategoryResult =
+  | { status: 'ok'; page: GeoCategoryPage }
+  | { status: 'no-database' }
+  | { status: 'no-category' }
+
+export interface GeoPageOptions {
+  q?: string
+  offset?: number
+  limit?: number
+}
+
+const DOMAIN_TYPES = ['keyword', 'regexp', 'domain', 'full'] as const
+const DEFAULT_LIMIT = 200
+const MAX_LIMIT = 1000
+/** Сколько разобранных категорий держим на вид: US в geoip — 291 507 подсетей */
+const MAX_PARSED = 8
+
 interface Settings {
   geositeUrl?: string
   geoipUrl?: string
@@ -40,6 +87,8 @@ type Kind = 'geosite' | 'geoip'
 interface Cached {
   mtimeMs: number
   index: Map<string, Uint8Array>
+  /** Размеры категорий: считаются один раз на всю базу, дёшево */
+  counts: Map<string, number>
   /** Разобранные категории: у крупных стран десятки и сотни тысяч подсетей,
    *  разбирать их заново на каждый запрос слишком дорого */
   domains: Map<string, GeoDomain[]>
@@ -107,6 +156,7 @@ export class GeoService {
     const fresh: Cached = {
       mtimeMs: info.mtimeMs,
       index: indexEntries(new Uint8Array(buf)),
+      counts: new Map(),
       domains: new Map(),
       cidrs: new Map(),
     }
@@ -114,14 +164,23 @@ export class GeoService {
     return fresh
   }
 
+  /** Кэш разобранного ограничен: вьюер листает категории подряд, память не резиновая.
+   *  Map хранит порядок вставки, поэтому первый ключ — самый старый. */
+  private remember<T>(store: Map<string, T>, code: string, value: T): T {
+    store.set(code, value)
+    if (store.size > MAX_PARSED) {
+      const oldest = store.keys().next().value
+      if (oldest !== undefined) store.delete(oldest)
+    }
+    return value
+  }
+
   private domainsOf(cached: Cached, code: string): GeoDomain[] | null {
     const hit = cached.domains.get(code)
     if (hit) return hit
     const entry = cached.index.get(code)
     if (!entry) return null
-    const parsed = parseDomains(entry)
-    cached.domains.set(code, parsed)
-    return parsed
+    return this.remember(cached.domains, code, parseDomains(entry))
   }
 
   private cidrsOf(cached: Cached, code: string): { cidrs: GeoCidr[]; reverseMatch: boolean } | null {
@@ -129,9 +188,7 @@ export class GeoService {
     if (hit) return hit
     const entry = cached.index.get(code)
     if (!entry) return null
-    const parsed = parseCidrs(entry)
-    cached.cidrs.set(code, parsed)
-    return parsed
+    return this.remember(cached.cidrs, code, parseCidrs(entry))
   }
 
   private async statusOf(kind: Kind, settings: Settings): Promise<GeoSourceStatus> {
@@ -156,6 +213,66 @@ export class GeoService {
     return {
       geosite: await this.statusOf('geosite', settings),
       geoip: await this.statusOf('geoip', settings),
+    }
+  }
+
+  /** Список категорий со счётчиками; null — базы нет на диске */
+  async categories(kind: Kind): Promise<GeoCategory[] | null> {
+    const cached = await this.cacheOf(kind)
+    if (!cached) return null
+    if (cached.counts.size !== cached.index.size) {
+      for (const [code, entry] of cached.index) cached.counts.set(code, countEntries(entry))
+    }
+    // Порядок записей в .dat произвольный — сортируем, чтобы список был стабильным
+    return [...cached.index.keys()]
+      .sort()
+      .map((code) => ({ code, count: cached.counts.get(code) ?? 0 }))
+  }
+
+  async categoryPage(kind: Kind, code: string, opts: GeoPageOptions): Promise<GeoCategoryResult> {
+    const cached = await this.cacheOf(kind)
+    if (!cached) return { status: 'no-database' }
+
+    // Коды в .dat лежат в верхнем регистре — поиск по исходной строке промахнётся
+    const key = code.toUpperCase()
+    if (!cached.index.has(key)) return { status: 'no-category' }
+
+    const offset = Math.max(0, opts.offset ?? 0)
+    const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_LIMIT), MAX_LIMIT)
+    const q = (opts.q ?? '').trim().toLowerCase()
+
+    if (kind === 'geosite') {
+      const all = this.domainsOf(cached, key) ?? []
+      const filtered = q === '' ? all : all.filter((d) => d.value.toLowerCase().includes(q))
+      return {
+        status: 'ok',
+        page: {
+          code: key,
+          total: filtered.length,
+          offset,
+          domains: filtered.slice(offset, offset + limit).map((d) => ({
+            type: DOMAIN_TYPES[d.type] ?? 'keyword',
+            value: d.value,
+            attributes: d.attributes,
+          })),
+        },
+      }
+    }
+
+    const entry = this.cidrsOf(cached, key) ?? { cidrs: [], reverseMatch: false }
+    // С фильтром приходится отформатировать все подсети — иначе не с чем сравнивать.
+    // Без фильтра форматируется только видимая страница.
+    const filtered =
+      q === '' ? entry.cidrs : entry.cidrs.filter((c) => formatCidr(c).toLowerCase().includes(q))
+    return {
+      status: 'ok',
+      page: {
+        code: key,
+        total: filtered.length,
+        offset,
+        cidrs: filtered.slice(offset, offset + limit).map(formatCidr),
+        reverseMatch: entry.reverseMatch,
+      },
     }
   }
 
