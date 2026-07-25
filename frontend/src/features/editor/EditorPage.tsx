@@ -14,6 +14,7 @@ import {
 } from '../../shared/api'
 import {
   geoKeysOf,
+  realityTargetsOf,
   traceRoute,
   validateXrayConfig,
   type GeoAnswers,
@@ -31,6 +32,7 @@ import { NodeInspector } from '../topology/NodeInspector'
 import { TraceBar } from '../diagnostics/TraceBar'
 import { TracePanel } from '../diagnostics/TracePanel'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
+import { CheckReportDialog } from '../diagnostics/CheckReportDialog'
 import { useDraftStore, type Draft } from './draftStore'
 import { BackupsDialog } from './BackupsDialog'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
@@ -124,6 +126,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [traceOpen, setTraceOpen] = useState(false)
   const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null)
   const [geoOpen, setGeoOpen] = useState(false)
+  const [checkOpen, setCheckOpen] = useState(false)
   const squads = useSquads()
   const panelInbounds = useProfileInbounds(profile.uuid)
   const ctx = useMemo(
@@ -137,6 +140,10 @@ function EditorInner({ profile }: { profile: Profile }) {
   const settledTarget = useDebounced(traceTarget, TRACE_DEBOUNCE_MS)
   // Спрашиваем базу только по тем ключам, что реально есть в правилах
   const geoKeys = useMemo(() => (parsedConfig ? geoKeysOf(parsedConfig) : []), [parsedConfig])
+  const realityTargets = useMemo(
+    () => (parsedConfig ? realityTargetsOf(parsedConfig) : []),
+    [parsedConfig],
+  )
   const geoQuery = useGeoMatch(
     settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
   )
@@ -214,6 +221,13 @@ function EditorInner({ profile }: { profile: Profile }) {
         {dirty && <Chip dir="none">черновик</Chip>}
         <Button variant="ghost" disabled={parsedConfig === undefined} onClick={() => setSettingsOpen(true)}>
           Настройки конфига
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={parsedConfig === undefined}
+          onClick={() => setCheckOpen(true)}
+        >
+          Проверить конфиг
         </Button>
         <Button variant="ghost" onClick={() => setGeoOpen(true)}>
           Geo-базы
@@ -411,6 +425,17 @@ function EditorInner({ profile }: { profile: Profile }) {
       )}
 
       <GeoDataDialog open={geoOpen} onClose={() => setGeoOpen(false)} />
+
+      <CheckReportDialog
+        open={checkOpen}
+        config={validation.config}
+        targets={realityTargets}
+        onClose={() => setCheckOpen(false)}
+        onOpenGeo={() => {
+          setCheckOpen(false)
+          setGeoOpen(true)
+        }}
+      />
 
       <BackupsDialog
         open={backupsOpen}
