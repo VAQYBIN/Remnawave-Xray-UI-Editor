@@ -93,6 +93,46 @@ export function ipToBytes(ip: string): Uint8Array | null {
   return bytes
 }
 
+/** Обратное к ipToBytes: 4 байта — точками, 16 — сжатой формой IPv6, иначе пусто */
+export function bytesToIp(bytes: Uint8Array): string {
+  if (bytes.length === 4) return Array.from(bytes).join('.')
+  if (bytes.length !== 16) return ''
+
+  const groups: string[] = []
+  for (let i = 0; i < 16; i += 2) {
+    groups.push((((bytes[i]! << 8) | bytes[i + 1]!) >>> 0).toString(16))
+  }
+
+  // Сжимаем самую длинную серию нулевых групп — как в каноничной записи адреса
+  let bestStart = -1
+  let bestLen = 0
+  let curStart = -1
+  let curLen = 0
+  for (let i = 0; i < groups.length; i += 1) {
+    if (groups[i] === '0') {
+      if (curStart === -1) {
+        curStart = i
+        curLen = 0
+      }
+      curLen += 1
+      if (curLen > bestLen) {
+        bestStart = curStart
+        bestLen = curLen
+      }
+    } else {
+      curStart = -1
+      curLen = 0
+    }
+  }
+  // Одиночный ноль сжимать незачем: «::» той же длины, но читается хуже
+  if (bestLen < 2) return groups.join(':')
+  return `${groups.slice(0, bestStart).join(':')}::${groups.slice(bestStart + bestLen).join(':')}`
+}
+
+export function formatCidr(cidr: GeoCidr): string {
+  return `${bytesToIp(cidr.ip)}/${cidr.prefix}`
+}
+
 function inCidr(cidr: GeoCidr, addr: Uint8Array): boolean {
   if (cidr.ip.length !== addr.length) return false
   const full = cidr.prefix >> 3

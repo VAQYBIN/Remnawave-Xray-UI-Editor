@@ -154,6 +154,25 @@ export function parseCidrs(entry: Uint8Array): { cidrs: GeoCidr[]; reverseMatch:
   return { cidrs, reverseMatch }
 }
 
+/**
+ * Сколько записей (доменов у GeoSite, подсетей у GeoIP) в категории. Тела записей
+ * пропускаются целиком: список категорий показывает размеры, а полный разбор всей
+ * базы ради этого — сотни мегабайт объектов.
+ */
+export function countEntries(entry: Uint8Array): number {
+  const r: Reader = { buf: entry, pos: 0 }
+  let count = 0
+  while (r.pos < entry.length) {
+    const key = readVarint(r)
+    const wire = key & 7
+    if (key >>> 3 === 2 && wire === 2) {
+      count += 1
+      readBytes(r)
+    } else skipField(r, wire)
+  }
+  return count
+}
+
 // --- Кодирование: нужно тестам и фикстурам, боевой код им не пользуется ---
 
 function varint(value: number): number[] {

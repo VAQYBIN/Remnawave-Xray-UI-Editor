@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { domainMatches, ipMatches, ipToBytes, parseKey } from '../src/geo/match.js'
+import { bytesToIp, domainMatches, formatCidr, ipMatches, ipToBytes, parseKey } from '../src/geo/match.js'
 import type { GeoDomain } from '../src/geo/dat.js'
 
 describe('parseKey', () => {
@@ -109,5 +109,32 @@ describe('ipMatches', () => {
 
   it('мусорный адрес не матчится', () => {
     expect(ipMatches([{ ip: new Uint8Array([10, 0, 0, 0]), prefix: 8 }], 'nope')).toBe(false)
+  })
+})
+
+describe('bytesToIp и formatCidr', () => {
+  it('IPv4 печатается точками', () => {
+    expect(bytesToIp(new Uint8Array([1, 2, 3, 4]))).toBe('1.2.3.4')
+    expect(formatCidr({ ip: new Uint8Array([10, 0, 0, 0]), prefix: 8 })).toBe('10.0.0.0/8')
+  })
+
+  it('IPv6 сжимает самую длинную серию нулей', () => {
+    const loopback = new Uint8Array(16)
+    loopback[15] = 1
+    expect(bytesToIp(loopback)).toBe('::1')
+
+    const cf = new Uint8Array([0x26, 0x06, 0x47, 0, 1, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])
+    expect(bytesToIp(cf)).toBe('2606:4700:110::1')
+
+    expect(bytesToIp(new Uint8Array(16))).toBe('::')
+  })
+
+  it('одиночный ноль не сжимается — это не короче', () => {
+    const addr = new Uint8Array([0x20, 1, 0x0d, 0xb8, 0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5])
+    expect(bytesToIp(addr)).toBe('2001:db8:0:1:2:3:4:5')
+  })
+
+  it('непонятная длина даёт пустую строку, а не мусор', () => {
+    expect(bytesToIp(new Uint8Array([1, 2, 3]))).toBe('')
   })
 })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  countEntries,
   encodeGeoIpList,
   encodeGeoSiteList,
   indexEntries,
@@ -87,5 +88,39 @@ describe('geoip .dat', () => {
     ])
     const parsed = parseCidrs(indexEntries(buf).get('ANY')!)
     expect(parsed.cidrs[0]!.prefix).toBe(0)
+  })
+})
+
+describe('countEntries', () => {
+  it('считает домены и подсети, не разбирая их', () => {
+    const site = indexEntries(
+      encodeGeoSiteList([
+        {
+          code: 'GOOGLE',
+          domains: [
+            { type: 2, value: 'google.com', attributes: [] },
+            { type: 3, value: 'www.google.com', attributes: ['cn'] },
+          ],
+        },
+        { code: 'EMPTY', domains: [] },
+      ]),
+    )
+    expect(countEntries(site.get('GOOGLE')!)).toBe(2)
+    expect(countEntries(site.get('EMPTY')!)).toBe(0)
+
+    const ip = indexEntries(
+      encodeGeoIpList([
+        {
+          code: 'US',
+          cidrs: [
+            { ip: new Uint8Array([1, 2, 3, 0]), prefix: 24 },
+            { ip: new Uint8Array([8, 8, 8, 8]), prefix: 32 },
+          ],
+          reverseMatch: true,
+        },
+      ]),
+    )
+    // reverseMatch — отдельное поле записи, в счёт подсетей попадать не должно
+    expect(countEntries(ip.get('US')!)).toBe(2)
   })
 })
