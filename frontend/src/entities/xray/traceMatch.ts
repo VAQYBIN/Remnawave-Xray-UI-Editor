@@ -1,6 +1,8 @@
 // Предикаты отдельных полей правила маршрутизации. Каждое поле отвечает на вопрос
 // «совпала ли цель», и отвечает честно: 'unknown' там, где данных нет, а не догадкой.
 
+import { portMatches, portSpecError } from './rules'
+
 export type MatchState = 'yes' | 'no' | 'unknown'
 
 /** Цель трассировки — то, что пользователь хочет провести через правила */
@@ -172,4 +174,37 @@ export function matchIpField(
     unknown: 'зависит от geo-списка или внешнего файла',
     no: 'ни одна подсеть не подходит',
   })
+}
+
+export function matchPortField(
+  field: string,
+  spec: string | number,
+  port: number | undefined,
+): FieldVerdict {
+  const formatError = portSpecError(spec)
+  if (formatError) return { field, state: 'unknown', reason: `непонятный формат портов: ${formatError}` }
+  if (port === undefined) return { field, state: 'unknown', reason: 'порт цели не задан' }
+  return portMatches(spec, port)
+    ? { field, state: 'yes', reason: `порт ${port} входит в «${spec}»` }
+    : { field, state: 'no', reason: `порт ${port} не входит в «${spec}»` }
+}
+
+export function matchNetworkField(spec: string, network: string): FieldVerdict {
+  const allowed = spec.split(',').map((s) => s.trim()).filter(Boolean)
+  return allowed.includes(network)
+    ? { field: 'network', state: 'yes', reason: `сеть ${network} разрешена` }
+    : { field: 'network', state: 'no', reason: `правило только для «${spec}»` }
+}
+
+/** Точное совпадение по списку (user, inboundTag, protocol) */
+export function matchExactField(
+  field: string,
+  patterns: string[],
+  value: string | undefined,
+  hint: string,
+): FieldVerdict {
+  if (value === undefined) return { field, state: 'unknown', reason: hint }
+  return patterns.includes(value)
+    ? { field, state: 'yes', reason: `«${value}» есть в списке` }
+    : { field, state: 'no', reason: `«${value}» не входит в список` }
 }

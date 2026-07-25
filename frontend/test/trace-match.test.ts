@@ -4,7 +4,10 @@ import {
   isIpAddress,
   matchDomainField,
   matchDomainPattern,
+  matchExactField,
   matchIpField,
+  matchNetworkField,
+  matchPortField,
   type GeoAnswers,
 } from '../src/entities/xray/traceMatch'
 
@@ -131,5 +134,44 @@ describe('matchIpField', () => {
     const v = matchIpField('ip', ['10.0.0.0/8'], undefined, 'never', NO_GEO)
     expect(v.state).toBe('no')
     expect(v.reason).toContain('AsIs')
+  })
+})
+
+describe('matchPortField', () => {
+  it('совпадение и промах', () => {
+    expect(matchPortField('port', '443', 443).state).toBe('yes')
+    expect(matchPortField('port', '443', 80).state).toBe('no')
+  })
+
+  it('порт цели не задан — unknown', () => {
+    expect(matchPortField('sourcePort', '443', undefined).state).toBe('unknown')
+  })
+
+  it('битая спецификация — unknown, а не ложный промах', () => {
+    const v = matchPortField('port', 'мусор', 443)
+    expect(v.state).toBe('unknown')
+    expect(v.reason).toContain('формат')
+  })
+})
+
+describe('matchNetworkField', () => {
+  it('одиночная сеть и список', () => {
+    expect(matchNetworkField('tcp', 'tcp').state).toBe('yes')
+    expect(matchNetworkField('tcp', 'udp').state).toBe('no')
+    expect(matchNetworkField('tcp,udp', 'udp').state).toBe('yes')
+    expect(matchNetworkField(' tcp , udp ', 'udp').state).toBe('yes')
+  })
+})
+
+describe('matchExactField', () => {
+  it('точное совпадение по списку значений', () => {
+    expect(matchExactField('user', ['a@b'], 'a@b', 'подсказка').state).toBe('yes')
+    expect(matchExactField('user', ['a@b'], 'c@d', 'подсказка').state).toBe('no')
+  })
+
+  it('значение цели неизвестно — unknown с подсказкой почему', () => {
+    const v = matchExactField('protocol', ['tls'], undefined, 'протокол определяется sniffing’ом')
+    expect(v.state).toBe('unknown')
+    expect(v.reason).toContain('sniffing')
   })
 })
