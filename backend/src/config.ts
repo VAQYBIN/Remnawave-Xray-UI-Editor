@@ -15,6 +15,9 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // Путь к бинарю ядра для проверки конфига. Не найден — проверка отдаёт
+  // available: false, редактор продолжает работать (в т.ч. на Windows).
+  XRAY_BIN: z.string().min(1).default('xray'),
 })
 
 export interface AppConfig {
@@ -27,6 +30,7 @@ export interface AppConfig {
   staticDir: string
   sessionTtlSeconds: number
   geoAllowPrivateUrls: boolean
+  xrayBin: string
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -57,5 +61,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     staticDir: e.STATIC_DIR,
     sessionTtlSeconds: e.SESSION_TTL_SECONDS,
     geoAllowPrivateUrls: e.GEO_ALLOW_PRIVATE_URLS,
+    xrayBin: e.XRAY_BIN,
   }
 }

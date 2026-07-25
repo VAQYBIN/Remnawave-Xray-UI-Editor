@@ -41,6 +41,16 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...validEnv, APP_PASSWORD: intact }).appPassword).toBe(intact)
   })
 
+  it('XRAY_BIN по умолчанию — xray в PATH', () => {
+    expect(loadConfig({ ...validEnv }).xrayBin).toBe('xray')
+  })
+
+  it('XRAY_BIN берётся из окружения', () => {
+    expect(loadConfig({ ...validEnv, XRAY_BIN: '/usr/local/bin/xray' }).xrayBin).toBe(
+      '/usr/local/bin/xray',
+    )
+  })
+
   it('падает при коротком SESSION_SECRET', () => {
     expect(() => loadConfig({ ...validEnv, SESSION_SECRET: 'short' })).toThrow(
       /Некорректная конфигурация окружения/,

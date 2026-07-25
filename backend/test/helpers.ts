@@ -17,6 +17,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     staticDir: join(process.cwd(), 'public'),
     sessionTtlSeconds: 3600,
     geoAllowPrivateUrls: false,
+    xrayBin: 'xray',
     ...overrides,
   }
 }
