@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  escapeTarget,
   formatConfig,
   moveSelectedRule,
   nextSelection,
@@ -112,5 +113,28 @@ describe('traceOf', () => {
     )
     expect(res?.verdicts[0].state).toBe('yes')
     expect(res?.winner?.ruleIndex).toBe(0)
+  })
+})
+
+// TraceTarget требует address, port и network — минимальная цель для проверок
+const TARGET = { address: 'example.com', port: 443, network: 'tcp' } as const
+
+describe('escapeTarget', () => {
+  it('открытый инспектор закрывается первым', () => {
+    expect(escapeTarget({ selectedNode: 'in:a', traceTarget: TARGET, searchQuery: 'q' })).toBe(
+      'inspector',
+    )
+  })
+
+  it('без инспектора — панель трассы', () => {
+    expect(escapeTarget({ selectedNode: null, traceTarget: TARGET, searchQuery: 'q' })).toBe('trace')
+  })
+
+  it('без инспектора и трассы — результаты поиска', () => {
+    expect(escapeTarget({ selectedNode: null, traceTarget: null, searchQuery: 'q' })).toBe('search')
+  })
+
+  it('пробелы в поиске за запрос не считаются', () => {
+    expect(escapeTarget({ selectedNode: null, traceTarget: null, searchQuery: '  ' })).toBeNull()
   })
 })

@@ -1357,3 +1357,7 @@ p { margin: 0 0 10px; }
 /* Диалог версий конфига */
 .versions-tabs { margin-bottom: 12px; }
 .file-tab .row { margin-top: 12px; }
+
+/* История правок и справка в топбаре */
+.wb-iconbar { display: flex; gap: 4px; }
+.wb-iconbar .btn { min-width: 2rem; padding: 6px 8px; font-size: var(--t-md); line-height: 1; }

@@ -39,6 +39,7 @@ import { TracePanel } from '../diagnostics/TracePanel'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
 import { CheckReportDialog } from '../diagnostics/CheckReportDialog'
 import { useDraftStore, type Draft } from './draftStore'
+import { canRedo, canUndo, useHistoryStore } from './historyStore'
 import { VersionsDialog } from './VersionsDialog'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
 import { IssueList } from './IssueList'
@@ -113,19 +114,44 @@ export function moveSelectedRule(
   return { config: next, selected: `rule:${from + dir}` }
 }
 
+/**
+ * Что закрывает Escape. Порядок — от самого «верхнего» слоя к нижнему: сначала
+ * инспектор узла, потом панель разбора трассы, потом результаты поиска.
+ */
+export function escapeTarget(state: {
+  selectedNode: string | null
+  traceTarget: TraceTarget | null
+  searchQuery: string
+}): 'inspector' | 'trace' | 'search' | null {
+  if (state.selectedNode) return 'inspector'
+  if (state.traceTarget) return 'trace'
+  if (state.searchQuery.trim() !== '') return 'search'
+  return null
+}
+
 function EditorInner({ profile }: { profile: Profile }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { drafts, setDraft, clearDraft } = useDraftStore()
+  const { stacks, record, undo, redo, clear: clearHistory } = useHistoryStore()
   const draft = drafts[profile.uuid]
   const text = resolveEditorText(draft, profile.config)
   const panelText = useMemo(() => formatConfig(profile.config), [profile.config])
   const dirty = draft !== undefined && draft.text !== panelText
 
+  // Единственная точка записи черновика: здесь же решается, попадает ли правка в историю
+  function writeDraft(nextText: string, opts: { history: boolean }) {
+    if (opts.history) record(profile.uuid, text)
+    setDraft(profile.uuid, nextText, draft?.baseUpdatedAt ?? profile.updatedAt)
+  }
+
   const validation = useMemo(() => validateXrayConfig(text), [text])
   const hasErrors = validation.issues.some((i) => i.level === 'error')
 
   const [tab, setTab] = useState<'topology' | 'json'>('topology')
+  // Текст на момент входа в JSON-редактор: вся текстовая сессия сворачивается
+  // в один снимок истории при уходе с вкладки
+  const jsonEntryText = useRef<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   // Цель трассировки — инструмент, а не документ: в localStorage ей делать нечего
   const [traceOpen, setTraceOpen] = useState(false)
@@ -189,8 +215,44 @@ function EditorInner({ profile }: { profile: Profile }) {
   }
 
   function changeConfig(next: XrayConfig) {
-    setDraft(profile.uuid, formatConfig(next), draft?.baseUpdatedAt ?? profile.updatedAt)
+    writeDraft(formatConfig(next), { history: true })
     setSelectedNode((cur) => nextSelection(cur, parsedConfig!, next))
+  }
+
+  const historyDisabled = tab === 'json'
+  const undoAvailable = !historyDisabled && canUndo(stacks, profile.uuid)
+  const redoAvailable = !historyDisabled && canRedo(stacks, profile.uuid)
+
+  function doUndo() {
+    const prev = undo(profile.uuid, text)
+    if (prev === null) return
+    setDraft(profile.uuid, prev, draft?.baseUpdatedAt ?? profile.updatedAt)
+    // Конфиг подменяется целиком — позиционные rule:N дрейфуют
+    setSelectedNode(null)
+  }
+
+  function doRedo() {
+    const next = redo(profile.uuid, text)
+    if (next === null) return
+    setDraft(profile.uuid, next, draft?.baseUpdatedAt ?? profile.updatedAt)
+    setSelectedNode(null)
+  }
+
+  function openJsonTab() {
+    jsonEntryText.current = text
+    setTab('json')
+    setSelectedNode(null)
+    // Панель разбора живёт над канвасом — над JSON-редактором ей не место
+    setTraceTarget(null)
+    setTraceOpen(false)
+  }
+
+  function openTopologyTab() {
+    // Вся текстовая сессия сворачивается в один шаг истории
+    const entry = jsonEntryText.current
+    if (entry !== null && entry !== text) record(profile.uuid, entry)
+    jsonEntryText.current = null
+    setTab('topology')
   }
 
   const save = useSaveProfile(profile.uuid)
@@ -207,6 +269,8 @@ function EditorInner({ profile }: { profile: Profile }) {
       {
         onSuccess: () => {
           clearDraft(profile.uuid)
+          // База сместилась: прежние снимки относятся к другому документу
+          clearHistory(profile.uuid)
           setSaveOpen(false)
           setConflict(null)
         },
@@ -235,20 +299,30 @@ function EditorInner({ profile }: { profile: Profile }) {
           <span className="eyebrow">обновлён {relativeTime(profile.updatedAt)}</span>
         </div>
 
-        <div className="segmented">
-          <Button aria-pressed={tab === 'topology'} onClick={() => setTab('topology')}>
-            Топология
+        <div className="wb-iconbar">
+          <Button
+            aria-label="Отменить"
+            title="Отменить (Ctrl+Z)"
+            disabled={!undoAvailable}
+            onClick={doUndo}
+          >
+            ↶
           </Button>
           <Button
-            aria-pressed={tab === 'json'}
-            onClick={() => {
-              setTab('json')
-              setSelectedNode(null)
-              // Панель разбора живёт над канвасом — над JSON-редактором ей не место
-              setTraceTarget(null)
-              setTraceOpen(false)
-            }}
+            aria-label="Вернуть"
+            title="Вернуть (Ctrl+Shift+Z)"
+            disabled={!redoAvailable}
+            onClick={doRedo}
           >
+            ↷
+          </Button>
+        </div>
+
+        <div className="segmented">
+          <Button aria-pressed={tab === 'topology'} onClick={openTopologyTab}>
+            Топология
+          </Button>
+          <Button aria-pressed={tab === 'json'} onClick={openJsonTab}>
             JSON
           </Button>
         </div>
@@ -285,7 +359,7 @@ function EditorInner({ profile }: { profile: Profile }) {
             <JsonView
               text={text}
               reveal={reveal}
-              onChange={(value) => setDraft(profile.uuid, value, draft?.baseUpdatedAt ?? profile.updatedAt)}
+              onChange={(value) => writeDraft(value, { history: false })}
             />
           </div>
         )}
@@ -426,6 +500,8 @@ function EditorInner({ profile }: { profile: Profile }) {
           <Button
             variant="danger"
             onClick={() => {
+              // Сброс тоже отменяется: undo вернёт текст и создаст черновик заново
+              record(profile.uuid, text)
               clearDraft(profile.uuid)
               setSelectedNode(null)
               setResetOpen(false)
@@ -448,6 +524,7 @@ function EditorInner({ profile }: { profile: Profile }) {
             onClick={() => {
               if (!conflict) return
               clearDraft(profile.uuid)
+              clearHistory(profile.uuid)
               // Конфиг подменяется целиком — сбрасываем выбор узла (позиционные rule-id дрейфуют)
               setSelectedNode(null)
               qc.setQueryData(['profiles', profile.uuid], conflict)
@@ -497,7 +574,7 @@ function EditorInner({ profile }: { profile: Profile }) {
         profileName={profile.name}
         currentText={text}
         onRestore={(configText) => {
-          setDraft(profile.uuid, configText, draft?.baseUpdatedAt ?? profile.updatedAt)
+          writeDraft(configText, { history: true })
           setSelectedNode(null)
         }}
         onClose={() => setVersionsOpen(false)}
