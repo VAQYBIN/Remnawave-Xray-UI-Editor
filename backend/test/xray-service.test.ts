@@ -83,6 +83,17 @@ describe('XrayService.test', () => {
     expect(res.errors[0]!.message).toMatch(/10 секунд|вердикт/i)
   })
 
+  it('предупреждения ядра доезжают вместе с успешным вердиктом', async () => {
+    const runner: SpawnRunner = async () => ({
+      code: 0,
+      output:
+        'Xray 26.6.27\n2026/07/25 15:39:15 [Warning] common/errors: The feature Trojan is deprecated.\nConfiguration OK.\n',
+    })
+    const res = await new XrayService('xray', dataDir, runner).test(CONFIG)
+    expect(res.ok).toBe(true)
+    expect(res.warnings).toEqual(['common/errors: The feature Trojan is deprecated.'])
+  })
+
   it('аргументы — run -test -c <файл>', async () => {
     let args: string[] = []
     const runner: SpawnRunner = async (_bin, a) => {

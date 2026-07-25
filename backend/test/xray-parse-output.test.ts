@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseXrayOutput, versionOf } from '../src/xray/parseOutput.js'
+import { parseXrayOutput, parseXrayWarnings, versionOf } from '../src/xray/parseOutput.js'
 
 const OK =
   'Xray 26.6.27 (Xray, Penetrates Everything.) Custom (go1.24.4 linux/amd64)\nConfiguration OK.\n'
@@ -69,5 +69,48 @@ describe('parseXrayOutput', () => {
     const errors = parseXrayOutput('какая-то мусорная строка', '/x.json')
     expect(errors).toHaveLength(1)
     expect(errors[0]!.message).toContain('мусорная')
+  })
+
+  // Строки ниже сняты с настоящего Xray 26.6.27 (прогон в докере, 2026-07-25):
+  // шаблоны подсказок обязаны совпадать с тем, что ядро пишет на самом деле
+  describe('на реальном выводе ядра', () => {
+    it('нет geo-баз', () => {
+      const out =
+        'Failed to start: main: failed to load config files: [/cfg/injected.json] > infra/conf: failed to build routing configuration > infra/conf: invalid field rule > common/geodata: illegal domain rule: geosite:category-ads-all > common/geodata: failed to open geosite.dat > stat /usr/local/bin/geosite.dat: no such file or directory'
+      const err = parseXrayOutput(out, '/cfg/injected.json')[0]!
+      expect(err.code).toBe('geo')
+      expect(err.message).not.toContain('/cfg/')
+    })
+
+    it('неизвестный протокол ядро называет unknown config id', () => {
+      const out =
+        'Failed to start: main: failed to load config files: [/x.json] > infra/conf: failed to build inbound config with tag TROJAN-IN > infra/conf: failed to load inbound detour config for protocol vmesss > infra/conf: unknown config id: vmesss'
+      expect(parseXrayOutput(out, '/x.json')[0]!.hint).toMatch(/протокол/i)
+    })
+
+    it('Reality без serverNames — кавычки в тексте не мешают', () => {
+      const out =
+        'Failed to start: main: failed to load config files: [/x.json] > infra/conf: Failed to build REALITY config. > infra/conf: empty "serverNames"'
+      expect(parseXrayOutput(out, '/x.json')[0]!.hint).toMatch(/serverNames/)
+    })
+  })
+})
+
+describe('parseXrayWarnings', () => {
+  it('достаёт предупреждения ядра — они приходят и при успешной проверке', () => {
+    const out =
+      'Xray 26.6.27\n2026/07/25 15:39:15.299055 [Warning] common/errors: The feature Trojan (with no Flow, etc.) is deprecated.\nConfiguration OK.\n'
+    expect(parseXrayWarnings(out)).toEqual([
+      'common/errors: The feature Trojan (with no Flow, etc.) is deprecated.',
+    ])
+  })
+
+  it('строки Info не считаются предупреждениями — там путь к временному файлу', () => {
+    const out = '2026/07/25 15:39:14 [Info] infra/conf/serial: Reading config: &{Name:/tmp/x.json}'
+    expect(parseXrayWarnings(out)).toEqual([])
+  })
+
+  it('предупреждений нет — пустой список', () => {
+    expect(parseXrayWarnings('Configuration OK.')).toEqual([])
   })
 })

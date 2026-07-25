@@ -81,6 +81,8 @@ export interface XrayTestResult {
   ok: boolean
   version?: string
   errors: XrayTestError[]
+  /** Предупреждения ядра: приходят и при успешной проверке */
+  warnings: string[]
   /** Теги inbound'ов, куда на время проверки подставлен фиктивный пользователь */
   injected: string[]
 }

@@ -25,11 +25,12 @@ const HINTS: { pattern: RegExp; hint: string; code?: 'geo' }[] = [
     hint: 'Правило или балансер ссылается на тег outbound, которого нет в конфиге.',
   },
   {
-    pattern: /reality|empty serverNames/i,
+    pattern: /reality|empty "?serverNames"?/i,
     hint: 'Reality собран неполно: нужны serverNames, приватный ключ и shortIds.',
   },
   {
-    pattern: /unknown protocol|unknown (network|security)|unsupported/i,
+    // «unknown config id: vmesss» — так ядро 26.6.27 сообщает о неизвестном протоколе
+    pattern: /unknown (protocol|network|security|config id)|unsupported/i,
     hint: 'Ядро не знает такой протокол или транспорт — проверьте написание значения.',
   },
   {
@@ -41,6 +42,19 @@ const HINTS: { pattern: RegExp; hint: string; code?: 'geo' }[] = [
     hint: 'Конфиг ссылается на файл, которого нет на диске рядом с ядром (сертификат, ключ, лог).',
   },
 ]
+
+/**
+ * Предупреждения ядра приходят и при успешной проверке (например, «Trojan
+ * устарел, переходите на VLESS») — терять их незачем, это ровно тот совет,
+ * ради которого проверку и запускают. Строки [Info] отбрасываем: там путь
+ * к временному файлу и ничего полезного.
+ */
+export function parseXrayWarnings(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => /\[Warning\]\s*(.+)$/.exec(line.trim())?.[1]?.trim())
+    .filter((line): line is string => line !== undefined && line !== '')
+}
 
 export function versionOf(output: string): string | undefined {
   return /^Xray\s+(\S+)/m.exec(output)?.[1]

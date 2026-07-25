@@ -29,7 +29,7 @@ const NO_TARGETS: never[] = []
 
 describe('CheckReportDialog', () => {
   it('ядра нет — сообщение вместо ошибки', async () => {
-    mockRoutes({ 'xray-test': { available: false, ok: false, errors: [], injected: [] } })
+    mockRoutes({ 'xray-test': { available: false, ok: false, errors: [], warnings: [], injected: [] } })
     wrap(
       <CheckReportDialog
         open
@@ -44,7 +44,14 @@ describe('CheckReportDialog', () => {
 
   it('конфиг собирается — вердикт и версия', async () => {
     mockRoutes({
-      'xray-test': { available: true, ok: true, version: '26.6.27', errors: [], injected: [] },
+      'xray-test': {
+        available: true,
+        ok: true,
+        version: '26.6.27',
+        errors: [],
+        warnings: [],
+        injected: [],
+      },
     })
     wrap(
       <CheckReportDialog
@@ -61,7 +68,7 @@ describe('CheckReportDialog', () => {
 
   it('подставленный пользователь отмечается в отчёте', async () => {
     mockRoutes({
-      'xray-test': { available: true, ok: true, errors: [], injected: ['vless-in'] },
+      'xray-test': { available: true, ok: true, errors: [], warnings: [], injected: ['vless-in'] },
     })
     wrap(
       <CheckReportDialog
@@ -87,6 +94,7 @@ describe('CheckReportDialog', () => {
             hint: 'Правило ссылается на тег, которого нет.',
           },
         ],
+        warnings: [],
         injected: [],
       },
     })
@@ -112,6 +120,7 @@ describe('CheckReportDialog', () => {
         errors: [
           { message: 'failed to open file: geosite.dat', hint: 'Загрузите базы', code: 'geo' },
         ],
+        warnings: [],
         injected: [],
       },
     })
@@ -130,7 +139,7 @@ describe('CheckReportDialog', () => {
 
   it('Reality-цель проверяется по кнопке и показывает вердикты', async () => {
     mockRoutes({
-      'xray-test': { available: true, ok: true, errors: [], injected: [] },
+      'xray-test': { available: true, ok: true, errors: [], warnings: [], injected: [] },
       'reality-target': {
         target: 'www.microsoft.com:443',
         reachable: true,
@@ -161,8 +170,46 @@ describe('CheckReportDialog', () => {
     expect(row.getByText(/похоже на cdn/i)).toBeInTheDocument()
   })
 
+  it('предупреждения ядра показываются даже при успешной проверке', async () => {
+    mockRoutes({
+      'xray-test': {
+        available: true,
+        ok: true,
+        errors: [],
+        warnings: ['common/errors: The feature Trojan is deprecated.'],
+        injected: [],
+      },
+    })
+    wrap(
+      <CheckReportDialog
+        open
+        config={{}}
+        targets={NO_TARGETS}
+        onClose={() => {}}
+        onOpenGeo={() => {}}
+      />,
+    )
+    expect(await screen.findByText(/Trojan is deprecated/)).toBeInTheDocument()
+  })
+
+  it('успешный вердикт оговаривает, чего ядро не проверяет', async () => {
+    mockRoutes({
+      'xray-test': { available: true, ok: true, errors: [], warnings: [], injected: [] },
+    })
+    wrap(
+      <CheckReportDialog
+        open
+        config={{}}
+        targets={NO_TARGETS}
+        onClose={() => {}}
+        onOpenGeo={() => {}}
+      />,
+    )
+    expect(await screen.findByText(/висячие теги|в рантайме/i)).toBeInTheDocument()
+  })
+
   it('без reality-целей — прямая формулировка', async () => {
-    mockRoutes({ 'xray-test': { available: true, ok: true, errors: [], injected: [] } })
+    mockRoutes({ 'xray-test': { available: true, ok: true, errors: [], warnings: [], injected: [] } })
     wrap(
       <CheckReportDialog
         open

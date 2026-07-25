@@ -35,10 +35,16 @@ function CoreReport({
   return (
     <>
       {result.ok ? (
-        <p className="check-verdict-ok">
-          Ядро собирает конфиг без ошибок
-          {result.version && <span className="metric">{`версия ${result.version}`}</span>}
-        </p>
+        <>
+          <p className="check-verdict-ok">
+            Ядро собирает конфиг без ошибок
+            {result.version && <span className="metric">{`версия ${result.version}`}</span>}
+          </p>
+          <p className="muted check-note">
+            Проверка отвечает только за сборку конфига. Ссылки на несуществующие теги ядро
+            резолвит в рантайме и здесь не ловит — их разбирает валидация редактора в статус-баре.
+          </p>
+        </>
       ) : (
         <ul className="check-list" aria-label="Ошибки ядра">
           {result.errors.map((err, i) => (
@@ -51,6 +57,15 @@ function CoreReport({
                   Geo-базы
                 </Button>
               )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {result.warnings.length > 0 && (
+        <ul className="check-list check-warnings" aria-label="Предупреждения ядра">
+          {result.warnings.map((warning, i) => (
+            <li key={i} className="check-item check-level-warn">
+              <span className="mono">{warning}</span>
             </li>
           ))}
         </ul>

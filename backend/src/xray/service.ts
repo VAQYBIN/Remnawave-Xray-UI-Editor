@@ -3,7 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { withDummyClients } from './dummyClient.js'
-import { parseXrayOutput, versionOf, type XrayTestError } from './parseOutput.js'
+import {
+  parseXrayOutput,
+  parseXrayWarnings,
+  versionOf,
+  type XrayTestError,
+} from './parseOutput.js'
 
 export interface XrayTestResult {
   /** false — бинаря нет; UI показывает «инструмент недоступен», а не ошибку */
@@ -11,6 +16,8 @@ export interface XrayTestResult {
   ok: boolean
   version?: string
   errors: XrayTestError[]
+  /** Предупреждения ядра: приходят и при успешной проверке */
+  warnings: string[]
   /** Теги inbound'ов, куда подставлен фиктивный пользователь */
   injected: string[]
 }
@@ -69,9 +76,17 @@ export class XrayService {
         timeoutMs: TIMEOUT_MS,
       })
 
-      if (res.error?.code === 'ENOENT') return { available: false, ok: false, errors: [], injected }
+      if (res.error?.code === 'ENOENT') {
+        return { available: false, ok: false, errors: [], warnings: [], injected }
+      }
       if (res.error) {
-        return { available: true, ok: false, errors: [{ message: res.error.message }], injected }
+        return {
+          available: true,
+          ok: false,
+          errors: [{ message: res.error.message }],
+          warnings: [],
+          injected,
+        }
       }
 
       // Ни строчки в ответ — процесс убит по таймауту (spawn делает это молча)
@@ -82,13 +97,21 @@ export class XrayService {
           errors: [
             { message: 'Ядро не вернуло вывода — возможно, проверка не успела за 10 секунд.' },
           ],
+          warnings: [],
           injected,
         }
       }
 
       const errors = parseXrayOutput(res.output, file)
       const ok = errors.length === 0 && /Configuration OK/i.test(res.output)
-      return { available: true, ok, version: versionOf(res.output), errors, injected }
+      return {
+        available: true,
+        ok,
+        version: versionOf(res.output),
+        errors,
+        warnings: parseXrayWarnings(res.output),
+        injected,
+      }
     } finally {
       await rm(file, { force: true })
     }

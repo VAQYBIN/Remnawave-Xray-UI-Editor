@@ -49,7 +49,7 @@ export async function mockApi(page: Page) {
     r.fulfill({ json: { loaded: false, answers: {}, missing: [] } }),
   )
   await page.route('**/api/tools/xray-test', (r) =>
-    r.fulfill({ json: { available: false, ok: false, errors: [], injected: [] } }),
+    r.fulfill({ json: { available: false, ok: false, errors: [], warnings: [], injected: [] } }),
   )
   await page.route(`**/api/profiles/${UUID}/inbounds`, (r) => r.fulfill({ json: { inbounds: [] } }))
   await page.route(`**/api/profiles/${UUID}/backups/b1.json`, (r) =>

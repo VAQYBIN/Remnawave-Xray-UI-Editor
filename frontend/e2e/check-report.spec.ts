@@ -24,6 +24,7 @@ test.describe('Проверка конфига', () => {
               hint: 'Правило ссылается на тег outbound, которого нет в конфиге.',
             },
           ],
+          warnings: [],
           injected: ['vless-in'],
         },
       }),
