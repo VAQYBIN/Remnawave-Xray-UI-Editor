@@ -11,6 +11,8 @@ export interface OutboundNodeData extends Record<string, unknown> {
 }
 export interface RuleNodeData extends Record<string, unknown> {
   kind: 'rule'; index: number; summary: string[]; allInbounds: boolean
+  /** Вердикт трассировки; 'winner' — правило, которое победило */
+  traceState?: 'yes' | 'no' | 'unknown' | 'winner'
 }
 export interface DnsNodeData extends Record<string, unknown> { kind: 'dns'; serversCount: number }
 export interface SquadNodeData extends Record<string, unknown> { kind: 'squad'; name: string }

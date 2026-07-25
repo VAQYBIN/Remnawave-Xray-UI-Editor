@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow, useReactFlow, ViewportPortal,
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import type { XrayConfig } from '../../entities/xray'
+import type { TraceResult, XrayConfig } from '../../entities/xray'
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
 import type { GraphContext } from '../../entities/graph/types'
 import {
@@ -22,6 +22,10 @@ interface Props {
   selectedId: string | null
   onSelect: (nodeId: string | null) => void
   onChangeConfig: (next: XrayConfig) => void
+  /** Результат трассировки: вердикты на узлах правил и подсветка победившего пути */
+  trace?: TraceResult
+  /** Дополнительные контролы в доке (строка трассировки) */
+  dockExtra?: ReactNode
 }
 
 // Индекс правила, зашитый в id ребра (`rule:{i}`), для сортировки перед батч-удалением.
@@ -106,28 +110,75 @@ const COLUMNS = [
   { kind: 'outbound', title: 'outbound', x: COLUMN_X.outbound },
 ] as const
 
-export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, onChangeConfig }: Props) {
+/** Состояние правила для бейджа на узле: победитель отделён от обычного совпадения */
+export function traceStateOf(
+  result: TraceResult | undefined,
+  ruleIndex: number,
+): 'yes' | 'no' | 'unknown' | 'winner' | undefined {
+  if (!result) return undefined
+  const shown = result.ipVerdicts ?? result.verdicts
+  const verdict = shown.find((v) => v.index === ruleIndex)
+  if (!verdict) return undefined
+  return result.winner?.ruleIndex === ruleIndex ? 'winner' : verdict.state
+}
+
+/** Кабели победившего пути: входы → правило → выход. Дефолтный маршрут правил не задействует. */
+export function tracedEdgeIds(result: TraceResult | undefined, config: XrayConfig): Set<string> {
+  const ids = new Set<string>()
+  const index = result?.winner?.ruleIndex
+  if (index === undefined || index === null) return ids
+  const rule = config.routing?.rules?.[index]
+  if (!rule) return ids
+  const inboundTags = (config.inbounds ?? []).map((i) => i.tag)
+  const scope = rule.inboundTag?.length
+    ? rule.inboundTag.filter((t) => inboundTags.includes(t))
+    : inboundTags
+  for (const tag of scope) ids.add(`e:in:${tag}->rule:${index}`)
+  if (rule.outboundTag) ids.add(`e:rule:${index}->out:${rule.outboundTag}`)
+  return ids
+}
+
+export function TopologyView({
+  profileUuid,
+  config,
+  ctx,
+  selectedId,
+  onSelect,
+  onChangeConfig,
+  trace,
+  dockExtra,
+}: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
   const resetPositions = usePositionsStore((s) => s.resetPositions)
 
   const computed = useMemo(() => {
     const g = buildGraph(config, ctx)
+    const traced = tracedEdgeIds(trace, config)
     const laid = layoutColumns(g.nodes).map((n) => ({
       ...n,
       deletable: false,
       position: saved?.[n.id] ?? n.position,
       selected: n.id === selectedId,
+      // buildGraph о трассировке не знает — вердикт доклеивается здесь
+      data:
+        n.data.kind === 'rule'
+          ? { ...n.data, traceState: traceStateOf(trace, n.data.index as number) }
+          : n.data,
     }))
-    // Кабели, касающиеся выбранного узла, подсвечиваются бегущим пунктиром —
-    // видно весь путь трафика от входа до выхода
+    // Кабели, касающиеся выбранного узла или лежащие на трассе, подсвечиваются
+    // бегущим пунктиром — видно весь путь трафика от входа до выхода
     const wired = g.edges.map((e) => ({
       ...e,
       type: 'signal',
-      data: { active: selectedId !== null && (e.source === selectedId || e.target === selectedId) },
+      data: {
+        active:
+          traced.has(e.id) ||
+          (selectedId !== null && (e.source === selectedId || e.target === selectedId)),
+      },
     }))
     return { nodes: laid, edges: wired }
-  }, [config, ctx, saved, selectedId])
+  }, [config, ctx, saved, selectedId, trace])
 
   // controlled-режим: drag применяется к локальному стейту, ресинк при пересборке графа
   const [nodes, setNodes] = useState<Node[]>(computed.nodes)
@@ -241,6 +292,8 @@ export function TopologyView({ profileUuid, config, ctx, selectedId, onSelect, o
           <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
           <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
           <span className="wb-dock-sep" aria-hidden="true" />
+          {dockExtra}
+          {dockExtra && <span className="wb-dock-sep" aria-hidden="true" />}
           <Button variant="ghost" onClick={() => resetPositions(profileUuid)}>
             Сбросить расположение
           </Button>

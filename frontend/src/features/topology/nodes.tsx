@@ -74,6 +74,17 @@ function RuleNode({ data, selected }: { data: RuleNodeData; selected?: boolean }
       <div className="fnode-head">
         <span className="fnode-kind">правило</span>
       </div>
+      {data.traceState && (
+        <span className={`trace-badge trace-badge-${data.traceState}`}>
+          {data.traceState === 'winner'
+            ? 'маршрут'
+            : data.traceState === 'yes'
+              ? 'совпало'
+              : data.traceState === 'no'
+                ? 'не совпало'
+                : 'нет данных'}
+        </span>
+      )}
       <div className="fnode-conds">
         {data.allInbounds && <span className="fnode-cond fnode-cond-all">все inbound</span>}
         {data.summary.map((s, i) => (

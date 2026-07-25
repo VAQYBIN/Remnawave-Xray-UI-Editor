@@ -1248,3 +1248,7 @@ p { margin: 0 0 10px; }
 .trace-bar-label { font-size: var(--t-xs); color: var(--ink-dim); white-space: nowrap; }
 .trace-bar .input { width: 9rem; }
 .trace-bar .input[inputmode='numeric'] { width: 4.5rem; }
+
+/* Бейдж вердикта на узле правила — тот же язык, что в панели разбора */
+.fnode .trace-badge { position: absolute; top: 6px; right: 8px; }
+.trace-badge-winner { color: var(--ember); border-color: var(--ember-line); background: var(--ember-soft); }
