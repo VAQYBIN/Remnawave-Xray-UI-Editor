@@ -11,6 +11,15 @@ const updateSchema = z.object({
   kinds: z.array(z.enum(['geosite', 'geoip'])).min(1).optional(),
 })
 
+const kindSchema = z.enum(['geosite', 'geoip'])
+const categoryParams = z.object({ kind: kindSchema, code: z.string().min(1) })
+const pageQuery = z.object({
+  q: z.string().optional(),
+  // Значения приходят строками из query — coerce приводит их к числам
+  offset: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(1000).default(200),
+})
+
 const matchSchema = z.object({
   domain: z.string().min(1).optional(),
   ip: z.string().min(1).optional(),
@@ -31,6 +40,31 @@ export const geoRoutes: FastifyPluginAsync = async (app) => {
       }
       throw err
     }
+  })
+
+  app.get('/api/geo/:kind/categories', async (req, reply) => {
+    const { kind } = z.object({ kind: kindSchema }).parse(req.params)
+    const categories = await app.geo.categories(kind)
+    if (categories === null) {
+      return reply
+        .status(404)
+        .send({ message: `База ${kind} не загружена — скачайте её на вкладке «Источники»` })
+    }
+    return { categories }
+  })
+
+  app.get('/api/geo/:kind/categories/:code', async (req, reply) => {
+    const { kind, code } = categoryParams.parse(req.params)
+    const result = await app.geo.categoryPage(kind, code, pageQuery.parse(req.query))
+    if (result.status === 'no-database') {
+      return reply
+        .status(404)
+        .send({ message: `База ${kind} не загружена — скачайте её на вкладке «Источники»` })
+    }
+    if (result.status === 'no-category') {
+      return reply.status(404).send({ message: `В базе ${kind} нет категории «${code}»` })
+    }
+    return result.page
   })
 
   app.post('/api/geo/update', async (req) => {

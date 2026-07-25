@@ -115,3 +115,56 @@ describe('POST /api/tools/geo/match', () => {
     expect((res.json() as { answers: Record<string, boolean> }).answers).toEqual({})
   })
 })
+
+describe('GET /api/geo/:kind/categories', () => {
+  it('отдаёт список категорий со счётчиками', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/geo/geosite/categories', headers: { cookie } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ categories: [{ code: 'GOOGLE', count: 1 }] })
+  })
+
+  it('незагруженная база — 404 с подсказкой, неизвестный вид — 400', async () => {
+    const missing = await app.inject({ method: 'GET', url: '/api/geo/geoip/categories', headers: { cookie } })
+    expect(missing.statusCode).toBe(404)
+    expect(missing.json().message).toMatch(/не загружена/)
+
+    const wrong = await app.inject({ method: 'GET', url: '/api/geo/geodns/categories', headers: { cookie } })
+    expect(wrong.statusCode).toBe(400)
+  })
+})
+
+describe('GET /api/geo/:kind/categories/:code', () => {
+  it('отдаёт страницу содержимого; регистр кода не важен', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/geo/geosite/categories/google?limit=10',
+      headers: { cookie },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      code: 'GOOGLE',
+      total: 1,
+      offset: 0,
+      domains: [{ type: 'domain', value: 'google.com', attributes: [] }],
+    })
+  })
+
+  it('неизвестная категория — 404 с её именем', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/geo/geosite/categories/nosuch',
+      headers: { cookie },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().message).toMatch(/nosuch/i)
+  })
+
+  it('limit выше максимума не проходит валидацию', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/geo/geosite/categories/google?limit=5000',
+      headers: { cookie },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+})
