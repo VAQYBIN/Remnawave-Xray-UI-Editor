@@ -61,6 +61,13 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - `entities/graph` — `buildGraph.ts` строит из конфига колоночный граф (squad → inbound → rule → outbound); `mutations.ts` — обратные правки конфига из графа. Дубликаты тегов пропускаются (иначе ломаются id узлов React Flow).
 - `features/editor` — `EditorPage` (вкладки: топология / JSON узла), `draftStore.ts` — zustand-persist черновики в localStorage по uuid профиля, хранят `baseUpdatedAt` для проверки конфликта при сохранении; `BackupsDialog`, `SaveDialog`, `IssueList`.
 - `features/topology` + `features/inspector` — граф и формы редактирования выбранного узла (InboundForm/OutboundForm/StreamForm; генератор ключей Reality дергает `/api/tools`).
+- Диагностики несут путь массивом (`ValidationIssue.parts`), а строковый `path` — производный
+  (`formatPath`). На `parts` завязаны три резолвера: `features/editor/jsonLocate.ts` (путь →
+  диапазон в документе, спуск по дереву CodeMirror — обратная задача к `intellisense/context.ts`;
+  используется `ensureSyntaxTree`, иначе хвост большого конфига не разобран),
+  `entities/graph/locate.ts` (путь → id узла и счётчики проблем), `entities/graph/search.ts`
+  (поиск узлов). Клик по проблеме зависит от вкладки: на топологии ведёт к узлу, в JSON —
+  прокручивает к месту; вкладку не переключаем, потому что у `log`/`policy` узла нет.
 - `features/diagnostics` — трассировщик (`TraceBar` в доке + `TracePanel` оверлеем), `GeoDataDialog`
   и `CheckReportDialog` (проверка ядром и Reality-целями). Логика трассировки живёт в
   `entities/xray/trace.ts`, бэкенд отвечает только на вопрос «входит ли домен/IP в geo-категорию».
