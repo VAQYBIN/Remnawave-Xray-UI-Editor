@@ -3,6 +3,7 @@ import {
   addBalancer, applyNodeJson, attachOutboundToBalancer, disconnectEdge, getNodeJson, removeNode,
   setRuleBalancer, setRuleOutbound,
 } from '../src/entities/graph/mutations'
+import { buildGraph, COLUMN_X, layoutColumns } from '../src/entities/graph/buildGraph'
 import type { XrayConfig } from '../src/entities/xray'
 
 const base = () =>
@@ -111,5 +112,82 @@ describe('мутации балансеров', () => {
     } as XrayConfig
     const next = disconnectEdge(cfg, 'e:bal:bal-eu->fb:direct')
     expect(next.routing!.balancers![0]!.fallbackTag).toBeUndefined()
+  })
+})
+
+const withRules = () =>
+  ({
+    inbounds: [{ tag: 'in', protocol: 'vless' }],
+    outbounds: [
+      { tag: 'proxy-de', protocol: 'vless' },
+      { tag: 'proxy-nl', protocol: 'vless' },
+      { tag: 'direct', protocol: 'freedom' },
+    ],
+    routing: {
+      rules: [{ inboundTag: ['in'], balancerTag: 'bal-eu' }, { outboundTag: 'direct' }],
+      balancers: [
+        { tag: 'bal-eu', selector: ['proxy-'], fallbackTag: 'direct', strategy: { type: 'leastPing' } },
+      ],
+    },
+    observatory: { subjectSelector: ['proxy-'] },
+  }) as XrayConfig
+
+describe('граф с балансерами', () => {
+  it('строит узлы балансера и обсерватории', () => {
+    const { nodes } = buildGraph(withRules())
+    expect(nodes.find((n) => n.id === 'bal:bal-eu')?.data).toMatchObject({
+      kind: 'balancer',
+      tag: 'bal-eu',
+      strategy: 'leastPing',
+      candidates: 2,
+    })
+    expect(nodes.find((n) => n.id === 'obs')?.data).toMatchObject({
+      kind: 'observatory',
+      hasObservatory: true,
+      hasBurst: false,
+      subjectsCount: 1,
+    })
+  })
+
+  it('строит все четыре вида рёбер', () => {
+    const ids = buildGraph(withRules()).edges.map((e) => e.id)
+    expect(ids).toContain('e:rule:0->bal:bal-eu')
+    expect(ids).toContain('e:bal:bal-eu->out:proxy-de')
+    expect(ids).toContain('e:bal:bal-eu->out:proxy-nl')
+    expect(ids).toContain('e:bal:bal-eu->fb:direct')
+    expect(ids).toContain('e:obs->bal:bal-eu')
+  })
+
+  it('ребро obs → балансер не рисуется для стратегий без замеров', () => {
+    const cfg = withRules()
+    cfg.routing!.balancers![0]!.strategy = { type: 'roundRobin' }
+    expect(buildGraph(cfg).edges.map((e) => e.id)).not.toContain('e:obs->bal:bal-eu')
+  })
+
+  it('ребро obs → балансер не рисуется без нужной секции', () => {
+    const cfg = withRules()
+    cfg.routing!.balancers![0]!.strategy = { type: 'leastLoad' } // нужна burstObservatory, её нет
+    expect(buildGraph(cfg).edges.map((e) => e.id)).not.toContain('e:obs->bal:bal-eu')
+  })
+
+  it('дубликат тега балансера пропускается — id узлов уникальны', () => {
+    const cfg = withRules()
+    cfg.routing!.balancers!.push({ tag: 'bal-eu', selector: ['direct'] })
+    expect(buildGraph(cfg).nodes.filter((n) => n.id === 'bal:bal-eu')).toHaveLength(1)
+  })
+
+  it('узла obs нет, когда обеих секций нет', () => {
+    const cfg = withRules()
+    delete cfg.observatory
+    expect(buildGraph(cfg).nodes.find((n) => n.id === 'obs')).toBeUndefined()
+  })
+
+  it('раскладка ставит балансеры в свою колонку, obs — под ними', () => {
+    const laid = layoutColumns(buildGraph(withRules()).nodes)
+    expect(laid.find((n) => n.id === 'bal:bal-eu')!.position.x).toBe(COLUMN_X.balancer)
+    expect(laid.find((n) => n.id === 'out:direct')!.position.x).toBe(COLUMN_X.outbound)
+    const obs = laid.find((n) => n.id === 'obs')!
+    expect(obs.position.x).toBe(COLUMN_X.balancer)
+    expect(obs.position.y).toBeGreaterThan(0)
   })
 })

@@ -1,7 +1,8 @@
 import type { XrayConfig } from '../xray'
+import { balancerCandidates } from '../xray/balancers'
 import type { FlowEdge, FlowNode, GraphContext } from './types'
 
-export const COLUMN_X = { squad: -380, inbound: 0, rule: 430, outbound: 860 } as const
+export const COLUMN_X = { squad: -380, inbound: 0, rule: 430, balancer: 860, outbound: 1290 } as const
 export const ROW_H = 130
 
 function ruleSummary(rule: Record<string, unknown>): string[] {
@@ -119,6 +120,84 @@ export function buildGraph(
     }
   })
 
+  // Балансеры: дубликаты тегов пропускаем — одинаковые id узлов ломают React Flow
+  const balancers = config.routing?.balancers ?? []
+  const seenBalancerTags = new Set<string>()
+  balancers.forEach((bal, index) => {
+    if (seenBalancerTags.has(bal.tag)) return
+    seenBalancerTags.add(bal.tag)
+    const candidates = balancerCandidates(config, bal)
+    nodes.push({
+      id: `bal:${bal.tag}`,
+      type: 'balancer',
+      position: { x: 0, y: 0 },
+      data: {
+        kind: 'balancer',
+        index,
+        tag: bal.tag,
+        strategy: bal.strategy?.type,
+        candidates: candidates.length,
+      },
+    })
+    for (const tag of candidates) {
+      edges.push({
+        id: `e:bal:${bal.tag}->out:${tag}`,
+        source: `bal:${bal.tag}`,
+        target: `out:${tag}`,
+      })
+    }
+    // Запасной выход — не кандидат балансировки: отдельный id ребра и свой стиль
+    if (bal.fallbackTag !== undefined && outboundTags.has(bal.fallbackTag)) {
+      edges.push({
+        id: `e:bal:${bal.tag}->fb:${bal.fallbackTag}`,
+        source: `bal:${bal.tag}`,
+        target: `out:${bal.fallbackTag}`,
+      })
+    }
+  })
+
+  rules.forEach((rule, index) => {
+    if (rule.balancerTag && seenBalancerTags.has(rule.balancerTag)) {
+      edges.push({
+        id: `e:rule:${index}->bal:${rule.balancerTag}`,
+        source: `rule:${index}`,
+        target: `bal:${rule.balancerTag}`,
+      })
+    }
+  })
+
+  // Обсерватория — глобальная секция, поэтому один узел на конфиг, как dns
+  const observatory = config.observatory
+  const burst = config.burstObservatory
+  if (observatory || burst) {
+    nodes.push({
+      id: 'obs',
+      type: 'observatory',
+      position: { x: 0, y: 0 },
+      data: {
+        kind: 'observatory',
+        hasObservatory: observatory !== undefined,
+        hasBurst: burst !== undefined,
+        subjectsCount: new Set([
+          ...(observatory?.subjectSelector ?? []),
+          ...(burst?.subjectSelector ?? []),
+        ]).size,
+      },
+    })
+    for (const bal of balancers) {
+      const type = bal.strategy?.type
+      const needed = type === 'leastPing' ? observatory : type === 'leastLoad' ? burst : undefined
+      if (!needed || !seenBalancerTags.has(bal.tag)) continue
+      // Зависимость, а не поток трафика: ребро нельзя разорвать кабелем
+      edges.push({
+        id: `e:obs->bal:${bal.tag}`,
+        source: 'obs',
+        target: `bal:${bal.tag}`,
+        deletable: false,
+      })
+    }
+  }
+
   if (config.dns) {
     const servers = (config.dns as { servers?: unknown[] }).servers
     nodes.push({
@@ -133,14 +212,21 @@ export function buildGraph(
 }
 
 export function layoutColumns(nodes: FlowNode[]): FlowNode[] {
-  const counters = { squad: 0, inbound: 0, rule: 0, outbound: 0 }
+  const counters = { squad: 0, inbound: 0, rule: 0, balancer: 0, outbound: 0 }
   let inboundTotal = 0
-  for (const n of nodes) if (n.data.kind === 'inbound') inboundTotal += 1
+  let balancerTotal = 0
+  for (const n of nodes) {
+    if (n.data.kind === 'inbound') inboundTotal += 1
+    if (n.data.kind === 'balancer') balancerTotal += 1
+  }
 
   return nodes.map((n) => {
-    const kind = n.data.kind as keyof typeof counters | 'dns'
+    const kind = n.data.kind as keyof typeof counters | 'dns' | 'observatory'
     if (kind === 'dns') {
       return { ...n, position: { x: COLUMN_X.inbound, y: (inboundTotal + 1) * ROW_H } }
+    }
+    if (kind === 'observatory') {
+      return { ...n, position: { x: COLUMN_X.balancer, y: (balancerTotal + 1) * ROW_H } }
     }
     const y = counters[kind] * ROW_H
     counters[kind] += 1
