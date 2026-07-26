@@ -38,7 +38,11 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - `server.ts` — `buildServer(config, deps)`: сборка приложения. Через `deps` инжектятся `RemnawavePort` и `BackupService` — так тесты подменяют панель стабом (`test/stub-remnawave.ts`).
 - `remnawave/client.ts` — `RemnawaveClient` (реализация `RemnawavePort`), все ошибки панели заворачиваются в `RemnawaveError` и превращаются глобальным error handler'ом в JSON-ответы с исходным статусом.
 - `routes/profiles.ts` — ключевой флоу сохранения: `PATCH /api/profiles/:uuid` требует `expectedUpdatedAt`; при расхождении — `409` с актуальным профилем (оптимистическая блокировка). Перед каждым обновлением текущая версия пишется в бэкап (`backups/service.ts`, каталог `DATA_DIR/backups/<uuid>/`).
-- `auth/*` — вход по паролю (`APP_PASSWORD` — plaintext или bcrypt-хэш), подписанная httpOnly-cookie, rate-limit на логин, guard закрывает все `/api/*` кроме auth/health.
+- `auth/*` — вход по паролю, подписанная httpOnly-cookie, guard закрывает все `/api/*` кроме
+  auth/health. В `.env` `APP_PASSWORD` может быть и открытым текстом, и bcrypt-хэшем, но
+  `loadConfig` хэширует открытый на старте — в `AppConfig.appPassword` всегда лежит хэш, и
+  `verifyPassword` знает единственный формат. Rate-limit двухуровневый: 5 попыток в минуту на
+  логине и глобальные 600 запросов в минуту на остальное.
 - `xray/*` — проверка конфига ядром: `dummyClient.ts` подставляет фиктивного пользователя
   (профили панели хранятся с `clients: []`), `service.ts` запускает `xray run -test` с
   `XRAY_LOCATION_ASSET` на geo-базы из `DATA_DIR`, `parseOutput.ts` переводит цепочки ошибок ядра
