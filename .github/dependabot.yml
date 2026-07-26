@@ -36,5 +36,13 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # Мажор базового образа — не автоматическая правка: node зашит ещё в
+    # --target node24 у tsup и в node-version у CI, а прыгать на релиз до его
+    # перехода в LTS проект не хочет. Обновляем осознанно, все места разом.
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+      - dependency-name: alpine
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: chore
