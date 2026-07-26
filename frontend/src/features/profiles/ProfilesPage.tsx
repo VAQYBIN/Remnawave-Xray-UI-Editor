@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { causeOf, useDeleteProfile, useLogout, useProfiles, type PanelInboundView, type Profile } from '../../shared/api'
+import { causeOf, hintOf, useDeleteProfile, useLogout, useProfiles, type PanelInboundView, type Profile } from '../../shared/api'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { useDraftStore } from '../editor/draftStore'
@@ -122,15 +122,11 @@ export function ProfilesPage() {
 
       {profiles.isPending && <p className="muted">Загрузка профилей…</p>}
       {profiles.isError && (
-        <p className="field-error">
-          {(profiles.error as Error).message}
-          {causeOf(profiles.error) && (
-            <>
-              <br />
-              <span className="muted">{causeOf(profiles.error)}</span>
-            </>
-          )}
-        </p>
+        <div className="field-error">
+          <p>{(profiles.error as Error).message}</p>
+          {hintOf(profiles.error) && <p className="field-hint">{hintOf(profiles.error)}</p>}
+          {causeOf(profiles.error) && <p className="muted">{causeOf(profiles.error)}</p>}
+        </div>
       )}
 
       {profiles.data && profiles.data.length === 0 && (
