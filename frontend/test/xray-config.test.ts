@@ -42,8 +42,34 @@ const fullConfig = {
 }
 
 describe('XrayConfigSchema', () => {
-  it('passthrough round-trip: parse возвращает deep-equal объект', () => {
+  it('round-trip: parse возвращает deep-equal объект', () => {
     expect(XrayConfigSchema.parse(fullConfig)).toEqual(fullConfig)
+  })
+
+  // Схемы объявлены через z.looseObject именно ради этого: чужой конфиг
+  // переживает редактирование, даже если поле нам незнакомо.
+  it('незнакомые ключи не теряются на всех уровнях вложенности', () => {
+    const exotic = {
+      inbounds: [
+        {
+          tag: 'in',
+          protocol: 'vless',
+          неизвестноеПоле: 1,
+          streamSettings: {
+            network: 'raw',
+            futureTransport: { mode: 'x' },
+            realitySettings: { dest: 'a:443', futureKnob: true },
+          },
+          sniffing: { enabled: true, futureSniff: 'y' },
+        },
+      ],
+      outbounds: [{ tag: 'out', protocol: 'freedom', futureOutboundOpt: [1, 2] }],
+      routing: {
+        rules: [{ type: 'field', outboundTag: 'out', futureMatcher: 'z' }],
+        balancers: [{ tag: 'bal', selector: ['out'], futureBalancerOpt: {} }],
+      },
+    }
+    expect(XrayConfigSchema.parse(exotic)).toEqual(exotic)
   })
 })
 

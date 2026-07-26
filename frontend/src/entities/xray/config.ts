@@ -9,10 +9,10 @@ import { OutboundSchema } from './outbounds'
 import { keywordEntries, portSpecError } from './rules'
 import { RoutingSchema } from './routing'
 
-const obj = () => z.object({}).passthrough()
+const obj = () => z.looseObject({})
 
-// Поднабор streamSettings, который читают проверки матрицы (схема — passthrough,
-// поэтому типизируем только нужные ключи)
+// Поднабор streamSettings, который читают проверки матрицы (схема пропускает
+// неизвестные поля, поэтому типизируем только нужные ключи)
 interface StreamSubset {
   network?: string
   security?: string
@@ -20,23 +20,21 @@ interface StreamSubset {
   sockopt?: { dialerProxy?: string }
 }
 
-export const XrayConfigSchema = z
-  .object({
-    log: LogSchema.optional(),
-    dns: DnsSchema.optional(),
-    inbounds: z.array(InboundSchema).optional(),
-    outbounds: z.array(OutboundSchema).optional(),
-    routing: RoutingSchema.optional(),
-    policy: obj().optional(),
-    transport: obj().optional(),
-    stats: obj().optional(),
-    reverse: obj().optional(),
-    fakedns: z.union([obj(), z.array(obj())]).optional(),
-    observatory: ObservatorySchema.optional(),
-    burstObservatory: BurstObservatorySchema.optional(),
-    api: obj().optional(),
-  })
-  .passthrough()
+export const XrayConfigSchema = z.looseObject({
+  log: LogSchema.optional(),
+  dns: DnsSchema.optional(),
+  inbounds: z.array(InboundSchema).optional(),
+  outbounds: z.array(OutboundSchema).optional(),
+  routing: RoutingSchema.optional(),
+  policy: obj().optional(),
+  transport: obj().optional(),
+  stats: obj().optional(),
+  reverse: obj().optional(),
+  fakedns: z.union([obj(), z.array(obj())]).optional(),
+  observatory: ObservatorySchema.optional(),
+  burstObservatory: BurstObservatorySchema.optional(),
+  api: obj().optional(),
+})
 
 export type XrayConfig = z.infer<typeof XrayConfigSchema>
 
