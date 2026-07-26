@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs'
 import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../src/config.js'
 
@@ -39,6 +40,13 @@ describe('loadConfig', () => {
   it('принимает целый bcrypt-хэш длиной 60', () => {
     const intact = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO7ZBpDvhpVghUlmxvIgGmXcSl7dcqrqq'
     expect(loadConfig({ ...validEnv, APP_PASSWORD: intact }).appPassword).toBe(intact)
+  })
+
+  it('открытый пароль превращается в bcrypt-хэш, а не едет дальше как есть', () => {
+    const { appPassword } = loadConfig(validEnv)
+    expect(appPassword).not.toBe(validEnv.APP_PASSWORD)
+    expect(appPassword.startsWith('$2')).toBe(true)
+    expect(bcrypt.compareSync(validEnv.APP_PASSWORD, appPassword)).toBe(true)
   })
 
   it('XRAY_BIN по умолчанию — xray в PATH', () => {

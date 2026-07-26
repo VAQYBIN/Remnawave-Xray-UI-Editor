@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 
 const envSchema = z.object({
@@ -33,6 +34,17 @@ export interface AppConfig {
   xrayBin: string
 }
 
+/**
+ * Открытый пароль хэшируется один раз на старте: дальше по приложению (и в
+ * сообщения об ошибках) уезжает уже хэш, а проверка входа знает единственный
+ * формат. Для оператора ничего не меняется — в `.env` по-прежнему кладётся
+ * либо открытый текст, либо готовый хэш.
+ */
+function toPasswordHash(value: string): string {
+  if (value.startsWith('$2')) return value
+  return bcrypt.hashSync(value, 12)
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(env)
   if (!parsed.success) {
@@ -55,7 +67,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: e.PORT,
     remnawaveUrl: e.REMNAWAVE_URL.replace(/\/+$/, ''),
     remnawaveToken: e.REMNAWAVE_TOKEN,
-    appPassword: e.APP_PASSWORD,
+    appPassword: toPasswordHash(e.APP_PASSWORD),
     sessionSecret: e.SESSION_SECRET,
     dataDir: e.DATA_DIR,
     staticDir: e.STATIC_DIR,
