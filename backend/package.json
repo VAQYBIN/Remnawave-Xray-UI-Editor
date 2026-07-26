@@ -15,7 +15,7 @@
     "@fastify/static": "^10.1.2",
     "bcryptjs": "^3.0.2",
     "fastify": "^5.10.0",
-    "zod": "^3.25.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
