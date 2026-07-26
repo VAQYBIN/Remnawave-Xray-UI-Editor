@@ -6,15 +6,15 @@
   <img src="docs/brand/logo.png" alt="Remnawave Xray UI Editor" width="560" />
 </picture>
 
-**Визуальный редактор Xray-конфигов для панели [Remnawave](https://remna.st) — топология трафика графом, формы вместо ручного JSON, сохранение прямо в панель по API.**
+**Визуальный редактор Xray-конфигов для панели [Remnawave](https://docs.rw) — топология трафика графом, формы вместо ручного JSON, сохранение прямо в панель по API.**
 
 [![Release](https://img.shields.io/github/v/release/VAQYBIN/Remnawave-Xray-UI-Editor?label=release&color=6E56CF)](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 ![Node](https://img.shields.io/badge/Node-24_LTS-339933?logo=node.js&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)
 ![Remnawave](https://img.shields.io/badge/Remnawave-2.8.0-6E56CF)
-![tests](https://img.shields.io/badge/tests-387_passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-890_passing-brightgreen)
 
 <img src="docs/screenshots/topology.png" width="900" alt="Топология трафика графом: сквады, три inbound'а, пять правил маршрутизации, балансер с обсерваторией и пять outbound'ов, соединённые цветными кабелями" />
 
@@ -273,10 +273,10 @@ docker compose -f docker-compose.build.yml up -d --build
 
 ```bash
 npm test                                    # тесты обоих workspace
-npm test -w backend                         # backend (vitest): 55 тестов
-npm test -w frontend                        # frontend (vitest, jsdom): 318 тестов
+npm test -w backend                         # backend (vitest): 214 тестов
+npm test -w frontend                        # frontend (vitest, jsdom): 676 тестов
 (cd frontend && npx playwright install chromium)   # один раз перед первым e2e
-npm run e2e -w frontend                     # Playwright: топология, коммутация, формы (14 сценариев)
+npm run e2e -w frontend                     # Playwright: 51 сценарий в 15 файлах
 ```
 
 Три контура тестов не пересекаются:
