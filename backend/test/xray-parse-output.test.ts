@@ -93,6 +93,13 @@ describe('parseXrayOutput', () => {
         'Failed to start: main: failed to load config files: [/x.json] > infra/conf: Failed to build REALITY config. > infra/conf: empty "serverNames"'
       expect(parseXrayOutput(out, '/x.json')[0]!.hint).toMatch(/serverNames/)
     })
+
+    // Дословный ответ ядра v26.6.27 на leastPing без observatory: ни имени
+    // балансера, ни имени секции — без подсказки текст ничего не говорит.
+    it('стратегия балансера без секции измерений — ядро отвечает про зависимости', () => {
+      const out = 'Failed to start: main: failed to create server > core: not all dependencies are resolved.'
+      expect(parseXrayOutput(out, '/x.json')[0]!.hint).toMatch(/observatory/)
+    })
   })
 })
 

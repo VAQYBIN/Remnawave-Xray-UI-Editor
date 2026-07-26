@@ -201,11 +201,14 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
       const kindKey = type === 'leastPing' ? 'observatory' : 'burstObservatory'
       const section = config[kindKey]
       if (section === undefined) {
+        // Не предупреждение: проверено на ядре v26.6.27 — без секции оно
+        // отказывается стартовать («not all dependencies are resolved»),
+        // то есть нода с таким конфигом просто не поднимется.
         issues.push(
           issue(
             ['routing', 'balancers', i, 'strategy'],
-            `Стратегия ${type} измеряет выходы через ${kindKey} — этой секции в конфиге нет`,
-            'warning',
+            `Стратегия ${type} измеряет выходы через ${kindKey} — без этой секции ядро не запустится`,
+            'error',
           ),
         )
       } else {

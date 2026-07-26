@@ -499,16 +499,18 @@ describe('валидация балансеров', () => {
     expect(found.some((m) => m.startsWith('warning:routing.balancers.0.fallbackTag'))).toBe(true)
   })
 
-  it('leastPing без observatory — предупреждение, с ней — нет', () => {
+  // Уровень проверен на ядре v26.6.27 (2026-07-26): без секции измерений оно
+  // отвечает «not all dependencies are resolved» и не стартует.
+  it('leastPing без observatory — ошибка, с ней — чисто', () => {
     const bal = [{ tag: 'bal', selector: ['proxy-'], strategy: { type: 'leastPing' } }]
-    expect(messages(cfg(bal)).some((m) => m.startsWith('warning:routing.balancers.0.strategy'))).toBe(true)
+    expect(messages(cfg(bal)).some((m) => m.startsWith('error:routing.balancers.0.strategy'))).toBe(true)
     const ok = messages(cfg(bal, { observatory: { subjectSelector: ['proxy-'] } }))
-    expect(ok.some((m) => m.startsWith('warning:routing.balancers.0.strategy'))).toBe(false)
+    expect(ok.some((m) => m.startsWith('error:routing.balancers.0.strategy'))).toBe(false)
   })
 
-  it('leastLoad без burstObservatory — предупреждение', () => {
+  it('leastLoad без burstObservatory — ошибка', () => {
     const found = messages(cfg([{ tag: 'bal', selector: ['proxy-'], strategy: { type: 'leastLoad' } }]))
-    expect(found.some((m) => m.startsWith('warning:routing.balancers.0.strategy'))).toBe(true)
+    expect(found.some((m) => m.startsWith('error:routing.balancers.0.strategy'))).toBe(true)
   })
 
   it('subjectSelector не покрывает кандидата — предупреждение', () => {
