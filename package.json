@@ -1,5 +1,6 @@
 {
   "name": "xray-ui-editor",
+  "version": "0.0.0",
   "private": true,
   "workspaces": ["backend", "frontend"],
   "scripts": {
