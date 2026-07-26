@@ -13,6 +13,7 @@ import {
   type SquadInfo,
 } from '../../shared/api'
 import {
+  ensureObservatorySection,
   geoKeysOf,
   realityTargetsOf,
   traceRoute,
@@ -144,7 +145,13 @@ export function escapeTarget(state: {
  * иначе инспектор закрывается прямо во время редактирования.
  */
 export function renamedNodeId(nodeId: string, value: unknown): string | null {
-  const prefix = nodeId.startsWith('in:') ? 'in:' : nodeId.startsWith('out:') ? 'out:' : null
+  const prefix = nodeId.startsWith('in:')
+    ? 'in:'
+    : nodeId.startsWith('out:')
+      ? 'out:'
+      : nodeId.startsWith('bal:')
+        ? 'bal:'
+        : null
   if (prefix === null) return null
   if (typeof value !== 'object' || value === null) return null
   const tag = (value as { tag?: unknown }).tag
@@ -504,6 +511,10 @@ function EditorInner({ profile }: { profile: Profile }) {
                 onRemove={() => {
                   changeConfig(removeNode(parsedConfig, selectedNode))
                   setSelectedNode(null)
+                }}
+                onSetupObservatory={(kind, subjects) => {
+                  changeConfig(ensureObservatorySection(parsedConfig, kind, subjects))
+                  setSelectedNode('obs')
                 }}
                 onClose={() => setSelectedNode(null)}
               />

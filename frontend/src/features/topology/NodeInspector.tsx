@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import CodeMirror, { EditorView } from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import type { XrayConfig } from '../../entities/xray'
+import { matchPrefixes, subjectCovers, type XrayConfig } from '../../entities/xray'
 import { getNodeJson } from '../../entities/graph/mutations'
 import { xrayIntellisense, type XrayRootKind } from '../editor/intellisense'
 import { Button, Dialog } from '../../shared/ui'
@@ -9,6 +9,8 @@ import { InboundForm } from '../inspector/InboundForm'
 import { OutboundForm } from '../inspector/OutboundForm'
 import { RuleForm } from '../inspector/RuleForm'
 import { DnsForm } from '../inspector/DnsForm'
+import { BalancerForm, type ObservatoryState } from '../inspector/BalancerForm'
+import { ObservatoryForm } from '../inspector/ObservatoryForm'
 
 const inspectorTheme = EditorView.theme({
   '&': { backgroundColor: 'var(--void)', fontSize: '12px', height: '100%' },
@@ -22,8 +24,28 @@ const KIND_LABEL: Record<string, string> = {
   inbound: 'вход',
   outbound: 'выход',
   rule: 'правило',
+  balancer: 'балансер',
   dns: 'резолвер',
+  observatory: 'проверка живости',
   other: 'узел',
+}
+
+/** Состояние глобальной обсерватории для карточки балансера */
+function observatoryState(config: XrayConfig, balancer: Obj): ObservatoryState | undefined {
+  const strategy = (balancer.strategy as { type?: string } | undefined)?.type
+  if (strategy !== 'leastPing' && strategy !== 'leastLoad') return undefined
+  const section = strategy === 'leastLoad' ? config.burstObservatory : config.observatory
+  const candidates = matchPrefixes(
+    (config.outbounds ?? []).map((o) => o.tag),
+    balancer.selector as string[] | undefined,
+  )
+  return {
+    present: section !== undefined,
+    missing:
+      section === undefined
+        ? []
+        : candidates.filter((t) => !subjectCovers(section.subjectSelector, t)),
+  }
 }
 
 interface Props {
@@ -35,6 +57,8 @@ interface Props {
   onClose: () => void
   /** Перестановка правила (только для rule-узлов); dir: -1 — выше, +1 — ниже */
   onMoveRule?: (dir: -1 | 1) => void
+  /** Завести глобальную секцию обсерватории по кнопке из карточки балансера */
+  onSetupObservatory?: (kind: 'observatory' | 'burst', subjects: string[]) => void
 }
 
 function parseNode(text: string): Obj | null {
@@ -46,7 +70,16 @@ function parseNode(text: string): Obj | null {
   }
 }
 
-export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove, onClose, onMoveRule }: Props) {
+export function NodeInspector({
+  config,
+  nodeId,
+  inboundSquads,
+  onApply,
+  onRemove,
+  onClose,
+  onMoveRule,
+  onSetupObservatory,
+}: Props) {
   const original = useMemo(() => JSON.stringify(getNodeJson(config, nodeId) ?? {}, null, 2), [config, nodeId])
   const [text, setText] = useState(original)
   const [parseError, setParseError] = useState<string | null>(null)
@@ -59,14 +92,25 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
       ? 'outbound'
       : nodeId.startsWith('rule:')
         ? 'rule'
-        : nodeId === 'dns'
-          ? 'dns'
-          : 'other'
-  // Автоподсказки/hover питаются от узла docSchema, с которого начинается документ;
-  // у «прочих» узлов схемы нет — там только подсветка JSON
+        : nodeId.startsWith('bal:')
+          ? 'balancer'
+          : nodeId === 'dns'
+            ? 'dns'
+            : nodeId === 'obs'
+              ? 'observatory'
+              : 'other'
+  // Автоподсказки/hover питаются от узла docSchema, с которого начинается документ.
+  // Узел obs — фрагмент корня конфига (две его секции), поэтому корень там 'config';
+  // у «прочих» узлов схемы нет — там только подсветка JSON.
+  const rootKind: XrayRootKind | null =
+    kind === 'inbound' || kind === 'outbound' || kind === 'rule' || kind === 'dns'
+      ? kind
+      : kind === 'observatory'
+        ? 'config'
+        : null
   const extensions = useMemo(
-    () => [json(), ...(kind === 'other' ? [] : [xrayIntellisense(kind as XrayRootKind)]), inspectorTheme],
-    [kind],
+    () => [json(), ...(rootKind ? [xrayIntellisense(rootKind)] : []), inspectorTheme],
+    [rootKind],
   )
   const [tab, setTab] = useState<'form' | 'json'>(kind === 'other' ? 'json' : 'form')
   const parsedNode = useMemo(() => parseNode(text), [text])
@@ -175,6 +219,22 @@ export function NodeInspector({ config, nodeId, inboundSquads, onApply, onRemove
             )}
             {parsedNode !== null && kind === 'dns' && (
               <DnsForm value={parsedNode} onChange={(next) => setText(JSON.stringify(next, null, 2))} />
+            )}
+            {parsedNode !== null && kind === 'balancer' && (
+              <BalancerForm
+                value={parsedNode}
+                onChange={(next) => setText(JSON.stringify(next, null, 2))}
+                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+                observatory={observatoryState(config, parsedNode)}
+                onSetupObservatory={onSetupObservatory}
+              />
+            )}
+            {parsedNode !== null && kind === 'observatory' && (
+              <ObservatoryForm
+                value={parsedNode}
+                onChange={(next) => setText(JSON.stringify(next, null, 2))}
+                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+              />
             )}
           </div>
         )}

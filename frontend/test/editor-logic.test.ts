@@ -144,6 +144,8 @@ describe('renamedNodeId', () => {
   it('смена тега даёт новый id узла', () => {
     expect(renamedNodeId('out:direct', { tag: 'wg' })).toBe('out:wg')
     expect(renamedNodeId('in:vless-in', { tag: 'vless-new' })).toBe('in:vless-new')
+    // Тег балансера — тоже id узла: выбор обязан ехать за ним
+    expect(renamedNodeId('bal:balancer', { tag: 'bal-eu' })).toBe('bal:bal-eu')
   })
 
   it('тот же тег, пустой тег и нестроковый тег — выбор не переносим', () => {
