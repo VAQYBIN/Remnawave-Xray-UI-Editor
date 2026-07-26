@@ -473,10 +473,12 @@ function EditorInner({ profile }: { profile: Profile }) {
                         if (traceOpen) setTraceTarget(null)
                       }}
                     >
-                      Трасса
+                      Куда пойдёт трафик
                     </Button>
-                    {traceOpen && <TraceBar value={traceTarget} onChange={setTraceTarget} />}
                   </>
+                }
+                dockRow={
+                  traceOpen ? <TraceBar value={traceTarget} onChange={setTraceTarget} /> : undefined
                 }
               />
             </div>

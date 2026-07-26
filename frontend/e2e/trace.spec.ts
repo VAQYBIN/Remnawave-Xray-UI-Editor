@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
 
 test('трассировка показывает победившее правило и подсвечивает его узел', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
-  await page.getByRole('button', { name: 'Трасса' }).click()
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
   await expect(page.locator('.react-flow__node[data-id="in:vless-in"]')).toBeVisible()
 
   await page.getByLabel('Адрес').fill('api.openai.com')
@@ -39,7 +39,7 @@ test('трассировка показывает победившее прав�
 
 test('geo-правила честно помечаются как неизвестные', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
-  await page.getByRole('button', { name: 'Трасса' }).click()
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
   await page.getByLabel('Адрес').fill('api.openai.com')
 
   const panel = page.locator('.trace-panel')
@@ -50,7 +50,7 @@ test('geo-правила честно помечаются как неизвес
 
 test('очистка адреса убирает панель разбора', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
-  await page.getByRole('button', { name: 'Трасса' }).click()
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
   const address = page.getByLabel('Адрес')
   await address.fill('api.openai.com')
   await expect(page.locator('.trace-panel')).toBeVisible()
@@ -65,7 +65,7 @@ test('печать не дёргает бэкенд на каждый симво
   })
 
   await page.goto(`/profiles/${UUID}`)
-  await page.getByRole('button', { name: 'Трасса' }).click()
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
   await page.getByLabel('Адрес').pressSequentially('api.openai.com', { delay: 30 })
 
   // Пока печатаем, за geo-ответами не ходим: иначе каждый символ пересчитывал бы граф
@@ -76,7 +76,7 @@ test('печать не дёргает бэкенд на каждый симво
 
 test('узлы графа не исчезают во время ввода', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
-  await page.getByRole('button', { name: 'Трасса' }).click()
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
   const before = await page.locator('.react-flow__node').count()
   expect(before).toBeGreaterThan(0)
 

@@ -26,8 +26,10 @@ interface Props {
   onChangeConfig: (next: XrayConfig) => void
   /** Результат трассировки: вердикты на узлах правил и подсветка победившего пути */
   trace?: TraceResult
-  /** Дополнительные контролы в доке (строка трассировки) */
+  /** Дополнительные контролы в первой строке дока (поиск, тумблеры инструментов) */
   dockExtra?: ReactNode
+  /** Раскрытый инструмент — вторая строка дока, чтобы он не растил его вширь */
+  dockRow?: ReactNode
   /** Счётчики проблем по id узла — рисуются значком */
   issues?: Record<string, IssueCount>
   /** Запрос центрирования на узле (из поиска) */
@@ -229,6 +231,7 @@ export function TopologyView({
   onChangeConfig,
   trace,
   dockExtra,
+  dockRow,
   issues,
   focus,
   onOpenRecipes,
@@ -404,18 +407,23 @@ export function TopologyView({
       )}
 
       <Panel position="bottom-center">
-        <div className="wb-dock">
-          <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
-          <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
-          <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
-          <Button onClick={() => onChangeConfig(addBalancer(config))}>+ Балансер</Button>
-          {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
-          <span className="wb-dock-sep" aria-hidden="true" />
-          {dockExtra}
-          {dockExtra && <span className="wb-dock-sep" aria-hidden="true" />}
-          <Button variant="ghost" onClick={() => resetPositions(profileUuid)}>
-            Сбросить расположение
-          </Button>
+        {/* Раскрытый инструмент уезжает во вторую строку: в одной он растягивал
+            док почти во всю ширину окна и накрывал правую колонку узлов */}
+        <div className={dockRow ? 'wb-dock wb-dock-stacked' : 'wb-dock'}>
+          <div className="wb-dock-row">
+            <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
+            <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
+            <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
+            <Button onClick={() => onChangeConfig(addBalancer(config))}>+ Балансер</Button>
+            {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
+            <span className="wb-dock-sep" aria-hidden="true" />
+            {dockExtra}
+            {dockExtra && <span className="wb-dock-sep" aria-hidden="true" />}
+            <Button variant="ghost" onClick={() => resetPositions(profileUuid)}>
+              Сбросить расположение
+            </Button>
+          </div>
+          {dockRow && <div className="wb-dock-row wb-dock-row-2">{dockRow}</div>}
         </div>
       </Panel>
 

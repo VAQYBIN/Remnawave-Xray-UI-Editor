@@ -33,7 +33,7 @@ test('пресет Loyalsoldier подставляет ссылки', async ({ p
 
 test('из caveat трассировки можно открыть диалог geo-баз', async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
-  await page.getByRole('button', { name: 'Трасса' }).click()
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
   await page.getByLabel('Адрес').fill('api.openai.com')
   await expect(page.locator('.trace-panel')).toContainText('Geo-базы не загружены')
   await page.locator('.trace-caveats').getByRole('button', { name: 'Geo-базы' }).click()

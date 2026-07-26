@@ -38,8 +38,8 @@ export function TraceBar({
 
   return (
     <div className="trace-bar">
-      {/* Без подписи поля в доке читались как непонятно чей ввод */}
-      <span className="trace-bar-title">Куда пойдёт трафик</span>
+      {/* Заголовка нет намеренно: строку открывает кнопка «Куда пойдёт трафик»,
+          и вторая такая же подпись рядом была бы дублем */}
       <label className="trace-bar-label" htmlFor={addressId}>
         Адрес
       </label>
