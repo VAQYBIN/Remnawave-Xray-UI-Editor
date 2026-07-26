@@ -12,7 +12,7 @@ RUN apk add --no-cache curl unzip \
  && chmod +x /usr/local/bin/xray \
  && rm /tmp/xray.zip
 
-FROM node:24-alpine AS backend-build
+FROM node:26-alpine AS backend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
@@ -20,7 +20,7 @@ RUN npm ci --workspace backend
 COPY backend backend
 RUN npm run build --workspace backend
 
-FROM node:24-alpine AS frontend-build
+FROM node:26-alpine AS frontend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/
@@ -28,7 +28,7 @@ RUN npm ci --workspace frontend
 COPY frontend frontend
 RUN npm run build --workspace frontend
 
-FROM node:24-alpine
+FROM node:26-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV STATIC_DIR=/app/frontend/dist
