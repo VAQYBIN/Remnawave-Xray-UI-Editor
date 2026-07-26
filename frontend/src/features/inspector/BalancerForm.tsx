@@ -101,7 +101,8 @@ export function BalancerForm({
           {observatory?.present !== true ? (
             <>
               <span className="field-warning">
-                Стратегия {strategy} измеряет выходы, а секции {sectionName} в конфиге нет
+                Стратегия {strategy} измеряет выходы через {sectionName} — без этой секции ядро не
+                запустится
               </span>
               {onSetupObservatory && (
                 <Button onClick={() => onSetupObservatory(kind, candidates)}>

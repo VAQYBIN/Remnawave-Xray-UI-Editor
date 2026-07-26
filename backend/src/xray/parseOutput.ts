@@ -41,6 +41,12 @@ const HINTS: { pattern: RegExp; hint: string; code?: 'geo' }[] = [
     pattern: /no such file or directory/i,
     hint: 'Конфиг ссылается на файл, которого нет на диске рядом с ядром (сертификат, ключ, лог).',
   },
+  {
+    // Ядро говорит об этом одной фразой без имён: проверено на v26.6.27 —
+    // так выглядит leastPing без observatory и leastLoad без burstObservatory.
+    pattern: /not all dependencies are resolved/i,
+    hint: 'Стратегия балансера требует секцию измерений: leastPing — observatory, leastLoad — burstObservatory. Без неё ядро не стартует.',
+  },
 ]
 
 /**
