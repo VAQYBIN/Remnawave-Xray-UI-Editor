@@ -9,7 +9,7 @@ const createSchema = z.object({
     .min(2)
     .max(30)
     .regex(/^[A-Za-z0-9_\s-]+$/, 'Имя: латиница, цифры, пробел, - и _'),
-  config: z.record(z.unknown()),
+  config: z.record(z.string(), z.unknown()),
 })
 
 const updateSchema = z.object({
@@ -19,7 +19,7 @@ const updateSchema = z.object({
     .max(30)
     .regex(/^[A-Za-z0-9_\s-]+$/, 'Имя: латиница, цифры, пробел, - и _')
     .optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
   expectedUpdatedAt: z.string().min(1),
 })
 

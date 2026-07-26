@@ -110,8 +110,8 @@ const OUTBOUND_SETTINGS_BY_PROTOCOL: Record<string, z.ZodTypeAny> = {
 
 export const OutboundSchema = z
   .object({
-    tag: z.string({ required_error: 'У outbound должен быть tag' }),
-    protocol: z.string({ required_error: 'У outbound должен быть protocol' }),
+    tag: z.string({ error: 'У outbound должен быть tag' }),
+    protocol: z.string({ error: 'У outbound должен быть protocol' }),
     settings: obj().optional(),
     streamSettings: StreamSettingsSchema.optional(),
     proxySettings: obj().optional(),

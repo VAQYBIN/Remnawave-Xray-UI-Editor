@@ -58,10 +58,10 @@ export const ShadowsocksInboundSettingsSchema = z
 
 export const InboundSchema = z
   .object({
-    tag: z.string({ required_error: 'У inbound должен быть tag' }),
+    tag: z.string({ error: 'У inbound должен быть tag' }),
     port: z.union([z.number(), z.string()]).optional(),
     listen: z.string().optional(),
-    protocol: z.string({ required_error: 'У inbound должен быть protocol' }),
+    protocol: z.string({ error: 'У inbound должен быть protocol' }),
     settings: obj().optional(),
     streamSettings: StreamSettingsSchema.optional(),
     sniffing: SniffingSchema.optional(),
