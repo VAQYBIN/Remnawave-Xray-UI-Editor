@@ -16,7 +16,7 @@ export const DnsServerSchema = z.union([z.string(), DnsServerObjectSchema])
 export const DnsSchema = z
   .object({
     servers: z.array(DnsServerSchema).optional(),
-    hosts: z.record(z.union([z.string(), z.array(z.string())])).optional(),
+    hosts: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
     clientIp: z.string().optional(),
     queryStrategy: z.string().optional(),
     tag: z.string().optional(),

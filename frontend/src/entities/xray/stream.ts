@@ -53,7 +53,7 @@ export const WsSettingsSchema = z
   .object({
     path: z.string().optional(),
     host: z.string().optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     heartbeatPeriod: z.number().optional(),
     acceptProxyProtocol: z.boolean().optional(),
   })
@@ -71,7 +71,7 @@ export const HttpupgradeSettingsSchema = z
   .object({
     path: z.string().optional(),
     host: z.string().optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     acceptProxyProtocol: z.boolean().optional(),
   })
   .passthrough()
