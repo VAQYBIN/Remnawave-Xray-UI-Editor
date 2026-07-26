@@ -250,6 +250,8 @@ npm run e2e -w frontend                     # Playwright: топология, к
 - Сессионная cookie без флага `secure` (TLS терминируется на reverse-proxy) — **не публикуйте
   порт приложения в интернет напрямую**, только через HTTPS-прокси (Caddy / nginx) или firewall.
 
+Модель угроз и приватный канал для отчётов об уязвимостях — в [SECURITY.md](./SECURITY.md).
+
 ## 📦 Стек
 
 `React 19` · `Vite` · `@xyflow/react` (React Flow) · `Zustand` · `CodeMirror` · `Zod` ·
