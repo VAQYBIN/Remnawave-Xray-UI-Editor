@@ -8,6 +8,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # Мажор @types/node описывает рантайм, которого у проекта нет: он держится
+    # на Node 24 LTS. Обновляем вместе с базовым образом, а не раньше.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     # Мелочь — одним PR, мажорные версии приходят по отдельности.
     groups:
       npm-minor-patch:
