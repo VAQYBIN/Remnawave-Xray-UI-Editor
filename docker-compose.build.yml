@@ -1,0 +1,25 @@
+# Сборка из исходников — для разработки и проверки образа перед релизом.
+# Пользователям нужен docker-compose.yml с готовым образом.
+services:
+  app:
+    build: .
+    image: xray-ui-editor:local
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file: .env
+    environment:
+      PORT: 3000
+      DATA_DIR: /data
+      STATIC_DIR: /app/frontend/dist
+    volumes:
+      # Здесь bind-mount намеренно: разработчику удобнее видеть бэкапы обычным
+      # ls. На Linux каталог нужно подготовить один раз:
+      #   mkdir -p data && sudo chown -R 1000:1000 data
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

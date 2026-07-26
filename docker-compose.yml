@@ -1,19 +1,28 @@
+# Готовый образ из GitHub Container Registry — исходники и сборка на машине
+# не нужны. Сборка из исходников: docker-compose.build.yml
 services:
   app:
-    build: .
+    image: ghcr.io/vaqybin/remnawave-xray-ui-editor:latest
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:3000"
     env_file: .env
+    # Приоритет выше, чем у env_file: пути внутри контейнера не должны
+    # зависеть от того, что пользователь напишет в .env
     environment:
       PORT: 3000
       DATA_DIR: /data
       STATIC_DIR: /app/frontend/dist
     volumes:
-      - ./data:/data
+      # Бэкапы конфигов и geo-базы. Именованный том, а не ./data: права на
+      # него выставляет сам образ, и chown руками не нужен.
+      - xray-editor-data:/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  xray-editor-data:
