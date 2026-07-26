@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RemnawaveClient, RemnawaveError } from '../src/remnawave/client.js'
+import { RemnawaveClient, RemnawaveError, describeCause } from '../src/remnawave/client.js'
 
 interface FakeCall { url: string; init: RequestInit }
 
@@ -110,6 +110,29 @@ describe('RemnawaveClient', () => {
     expect(err).toBeInstanceOf(RemnawaveError)
     expect(err.status).toBe(502)
     expect(err.message).toBe('Панель Remnawave недоступна')
+  })
+
+  // fetch в Node на любую сетевую беду отвечает одинаковым «fetch failed»,
+  // а настоящая причина лежит в cause. Без разворота диагностика упирается
+  // в сообщение, которое не называет ничего.
+  it('в details попадает вся цепочка cause, а не только верхняя ошибка', async () => {
+    const cause = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: (async () => {
+        throw Object.assign(new TypeError('fetch failed'), { cause })
+      }) as typeof fetch,
+    })
+    const err = await client.listProfiles().catch((e) => e)
+    expect(err.details).toBe('fetch failed ← other side closed (UND_ERR_SOCKET)')
+  })
+
+  it('цепочка cause не зацикливается и не дублирует одинаковые звенья', async () => {
+    const loop: { message: string; cause?: unknown } = { message: 'зациклено' }
+    loop.cause = loop
+    expect(describeCause(loop)).toBe('зациклено')
+    expect(describeCause('строка вместо ошибки')).toBe('строка вместо ошибки')
   })
 
   it('getSquads разворачивает internalSquads, getNodes — массив response', async () => {

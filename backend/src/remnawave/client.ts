@@ -11,6 +11,26 @@ export class RemnawaveError extends Error {
   }
 }
 
+/**
+ * Разворачивает цепочку `cause`. `fetch` в Node на любую сетевую беду отвечает
+ * одинаковым `TypeError: fetch failed`, а настоящая причина (ECONNREFUSED,
+ * EAI_AGAIN, обрыв TLS) лежит глубже. Без разворота диагностика упирается в
+ * сообщение, которое не говорит ничего.
+ */
+export function describeCause(err: unknown, depth = 4): string {
+  const parts: string[] = []
+  let cur: unknown = err
+  for (let i = 0; i <= depth && cur; i++) {
+    const e = cur as { message?: string; code?: string; cause?: unknown }
+    const text = e.message ?? String(cur)
+    const code = e.code ? ` (${e.code})` : ''
+    const line = `${text}${code}`
+    if (parts[parts.length - 1] !== line) parts.push(line)
+    cur = e.cause
+  }
+  return parts.join(' ← ')
+}
+
 interface ClientOptions {
   baseUrl: string
   token: string
@@ -33,7 +53,7 @@ export class RemnawaveClient implements RemnawavePort {
         body: body === undefined ? undefined : JSON.stringify(body),
       })
     } catch (err) {
-      throw new RemnawaveError(502, 'Панель Remnawave недоступна', String(err))
+      throw new RemnawaveError(502, 'Панель Remnawave недоступна', describeCause(err))
     }
     const text = await res.text()
     let json: unknown
