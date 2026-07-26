@@ -770,14 +770,23 @@ p { margin: 0 0 10px; }
 /* Плавающий док инструментов над канвасом (позиционирует React Flow Panel) */
 .wb-dock {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
   padding: 5px;
   background: color-mix(in srgb, var(--panel-2) 88%, transparent);
   backdrop-filter: blur(12px);
   border: 1px solid var(--rail-hi);
   border-radius: 999px;
   box-shadow: var(--shadow-2);
+}
+.wb-dock-row { display: flex; align-items: center; gap: 4px; }
+/* Капсула хороша для одной строки; на двух её торцы выглядят надувными */
+.wb-dock-stacked { border-radius: 22px; }
+.wb-dock-row-2 {
+  justify-content: center;
+  gap: 6px;
+  margin-top: 5px;
+  padding-top: 7px;
+  border-top: 1px solid var(--rail);
 }
 
 /* Подсказка на пустом канвасе — приглашение к действию, а не украшение */
@@ -1258,7 +1267,6 @@ p { margin: 0 0 10px; }
 /* Состояние geo-базы в диалоге */
 .geo-state { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .geo-state-name { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-dim); min-width: 4.5rem; }
-.trace-bar-title { font-size: var(--t-sm); color: var(--ink); white-space: nowrap; }
 .trace-caveats .btn { margin-left: 6px; padding: 0 6px; }
 
 /* Отчёт проверки конфига: две секции — ядро и Reality-цели */
