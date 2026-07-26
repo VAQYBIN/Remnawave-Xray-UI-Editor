@@ -9,8 +9,15 @@ const BASE: XrayConfig = {
 } as XrayConfig
 
 describe('реестр рецептов', () => {
-  it('содержит пять рецептов с непустыми заголовками и описаниями', () => {
-    expect(RECIPES.map((r) => r.id)).toEqual(['warp', 'torrent', 'ads', 'private', 'chain'])
+  it('содержит шесть рецептов с непустыми заголовками и описаниями', () => {
+    expect(RECIPES.map((r) => r.id)).toEqual([
+      'warp',
+      'torrent',
+      'ads',
+      'private',
+      'chain',
+      'balance',
+    ])
     expect(RECIPES.every((r) => r.title.length > 0 && r.summary.length > 0)).toBe(true)
   })
 

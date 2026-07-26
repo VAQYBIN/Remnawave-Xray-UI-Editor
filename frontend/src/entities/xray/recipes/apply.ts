@@ -2,6 +2,7 @@
 // и статус: 'add' — что-то добавили, 'exists' — такое уже есть, конфиг вернули как был
 // (по ссылке, вызывающий может сравнивать через ===).
 
+import type { Balancer } from '../balancers'
 import type { XrayConfig } from '../config'
 import type { Outbound } from '../outbounds'
 import type { Rule } from './types'
@@ -20,6 +21,36 @@ export function ensureOutbound(config: XrayConfig, outbound: Outbound): MergeRes
   const list = config.outbounds ?? []
   if (list.some((o) => o.tag === outbound.tag)) return { config, status: 'exists' }
   return { config: { ...config, outbounds: [...list, outbound] }, status: 'add' }
+}
+
+export function ensureBalancer(config: XrayConfig, balancer: Balancer): MergeResult {
+  const list = config.routing?.balancers ?? []
+  if (list.some((b) => b.tag === balancer.tag)) return { config, status: 'exists' }
+  return {
+    config: { ...config, routing: { ...(config.routing ?? {}), balancers: [...list, balancer] } },
+    status: 'add',
+  }
+}
+
+/**
+ * Переводит правила, ведущие в перечисленные outbound'ы, на балансер. outboundTag
+ * снимается: при обоих заданных тегах ядро берёт его, и балансер не сработал бы.
+ */
+export function repointRules(
+  config: XrayConfig,
+  outboundTags: string[],
+  balancerTag: string,
+): { config: XrayConfig; count: number } {
+  const rules = config.routing?.rules ?? []
+  let count = 0
+  const next = rules.map((rule) => {
+    if (rule.outboundTag === undefined || !outboundTags.includes(rule.outboundTag)) return rule
+    count += 1
+    const { outboundTag: _drop, ...rest } = rule
+    return { ...rest, balancerTag }
+  })
+  if (count === 0) return { config, count }
+  return { config: { ...config, routing: { ...(config.routing ?? {}), rules: next } }, count }
 }
 
 // Поля-множества: порядок значений в них для Xray не значим
