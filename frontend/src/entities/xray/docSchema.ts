@@ -161,8 +161,12 @@ export const NODES: Record<string, DocNode> = {
       stats: { doc: 'Включение сбора статистики', type: 'object' },
       reverse: { doc: 'Обратные туннели (reverse proxy)', type: 'object' },
       fakedns: { doc: 'FakeDNS-пул для сниффинга', type: 'object' },
-      observatory: { doc: 'Наблюдение за состоянием outbound-ов', type: 'object' },
-      burstObservatory: { doc: 'Наблюдение с конкурентными замерами', type: 'object' },
+      observatory: { doc: 'Наблюдение за состоянием outbound-ов', type: 'object', node: 'observatory' },
+      burstObservatory: {
+        doc: 'Наблюдение с конкурентными замерами',
+        type: 'object',
+        node: 'burstObservatory',
+      },
       api: { doc: 'gRPC API управления', type: 'object' },
       metrics: { doc: 'Метрики Prometheus', type: 'object' },
     },
@@ -523,7 +527,7 @@ export const NODES: Record<string, DocNode> = {
       domainStrategy: { doc: 'Когда резолвить домены в IP', type: 'string', enum: ROUTING_DOMAIN_STRATEGIES },
       domainMatcher: { doc: 'Алгоритм матчинга доменов', type: 'string', enum: ROUTING_DOMAIN_MATCHERS },
       rules: { doc: 'Правила маршрутизации (сверху вниз)', type: 'array', itemsNode: 'rule' },
-      balancers: { doc: 'Балансировщики outbound-ов', type: 'array' },
+      balancers: { doc: 'Балансировщики outbound-ов', type: 'array', itemsNode: 'balancer' },
     },
   },
   rule: {
@@ -542,6 +546,62 @@ export const NODES: Record<string, DocNode> = {
       source: { doc: 'IP/CIDR источника', type: 'array' },
       attrs: { doc: 'Атрибуты трафика (например http-заголовки)', type: 'object' },
       ruleTag: { doc: 'Тег правила (для API/логов)', type: 'string' },
+    },
+  },
+  balancer: {
+    fields: {
+      tag: { doc: 'Тег балансера — на него ссылается balancerTag правила', type: 'string' },
+      selector: {
+        doc: 'ПРЕФИКСЫ тегов outbound-ов: «proxy-» захватит proxy-de и proxy-nl',
+        type: 'array',
+      },
+      fallbackTag: { doc: 'Выход, когда все кандидаты недоступны', type: 'string' },
+      strategy: { doc: 'Как выбирать выход', type: 'object', node: 'balancerStrategy' },
+    },
+  },
+  balancerStrategy: {
+    fields: {
+      type: {
+        doc: 'Стратегия выбора',
+        type: 'string',
+        enum: [
+          { value: 'random', doc: 'Случайный выход' },
+          { value: 'roundRobin', doc: 'По кругу' },
+          { value: 'leastPing', doc: 'Самый быстрый; нужна секция observatory' },
+          { value: 'leastLoad', doc: 'Наименее загруженный; нужна секция burstObservatory' },
+        ],
+      },
+      settings: {
+        doc: 'Тонкая настройка leastLoad: expected, maxRTT, tolerance, baselines, costs',
+        type: 'object',
+      },
+    },
+  },
+  observatory: {
+    fields: {
+      subjectSelector: { doc: 'ПРЕФИКСЫ тегов наблюдаемых outbound-ов', type: 'array' },
+      probeUrl: { doc: 'URL пробы; должен отвечать 204', type: 'string' },
+      probeInterval: { doc: 'Интервал проб: 10s, 1m', type: 'string' },
+      enableConcurrency: { doc: 'Мерить выходы параллельно', type: 'boolean' },
+    },
+  },
+  burstObservatory: {
+    fields: {
+      subjectSelector: { doc: 'ПРЕФИКСЫ тегов наблюдаемых outbound-ов', type: 'array' },
+      pingConfig: { doc: 'Параметры замеров', type: 'object', node: 'pingConfig' },
+    },
+  },
+  pingConfig: {
+    fields: {
+      destination: { doc: 'Адрес проверки; должен отвечать HTTP 204', type: 'string' },
+      connectivity: {
+        doc: 'Адрес проверки локальной сети (только если основная проба упала)',
+        type: 'string',
+      },
+      interval: { doc: 'Средний интервал между проверками, минимум 10s', type: 'string' },
+      sampling: { doc: 'Сколько последних результатов хранить', type: 'number' },
+      timeout: { doc: 'Таймаут запроса проверки', type: 'string' },
+      httpMethod: { doc: 'Метод запроса проверки (HEAD, GET)', type: 'string' },
     },
   },
 }

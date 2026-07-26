@@ -3,6 +3,7 @@ import { json } from '@codemirror/lang-json'
 import { ensureSyntaxTree } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
+import { descend, nodeFields } from '../src/entities/xray/docSchema'
 import { makeCompletionSource } from '../src/features/editor/intellisense/complete'
 import { resolvePath, type XrayRootKind } from '../src/features/editor/intellisense/context'
 
@@ -134,5 +135,27 @@ describe('resolvePath — разрешение пути до узла', () => {
       `{ "outbounds": [ { "protocol": "wireguard", "settings": { "${CARET}" } } ] }`,
     )
     expect(resolvePath(state, pos, 'config')?.nodeName).toBe('wireguardOutboundSettings')
+  })
+})
+
+describe('словарь: балансеры и обсерватория', () => {
+  it('знает поля балансера и обеих обсерваторий', () => {
+    expect(Object.keys(nodeFields('balancer'))).toEqual(
+      expect.arrayContaining(['tag', 'selector', 'fallbackTag', 'strategy']),
+    )
+    expect(Object.keys(nodeFields('observatory'))).toEqual(
+      expect.arrayContaining(['subjectSelector', 'probeUrl', 'probeInterval', 'enableConcurrency']),
+    )
+    expect(Object.keys(nodeFields('pingConfig'))).toEqual(
+      expect.arrayContaining(['destination', 'interval', 'sampling', 'timeout']),
+    )
+  })
+
+  it('спуск по дереву доводит до нужных узлов', () => {
+    expect(descend('routing', 'balancers')).toBe('balancer')
+    expect(descend('balancer', 'strategy')).toBe('balancerStrategy')
+    expect(descend('config', 'observatory')).toBe('observatory')
+    expect(descend('config', 'burstObservatory')).toBe('burstObservatory')
+    expect(descend('burstObservatory', 'pingConfig')).toBe('pingConfig')
   })
 })

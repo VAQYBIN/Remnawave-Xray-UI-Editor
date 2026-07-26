@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { connect } from './helpers'
 import { UUID, mockApi } from './mocks'
 
 test.beforeEach(async ({ page }) => {
@@ -6,19 +7,6 @@ test.beforeEach(async ({ page }) => {
   await page.goto(`/profiles/${UUID}`)
   await expect(page.locator('.react-flow__node[data-id="in:vless-in"]')).toBeVisible()
 })
-
-/** Протягивает кабель между гнёздами узлов так же, как это делает мышь пользователя */
-async function connect(page: Page, from: string, to: string) {
-  const source = page.locator(`.react-flow__node[data-id="${from}"] .react-flow__handle-right`)
-  const target = page.locator(`.react-flow__node[data-id="${to}"] .react-flow__handle-left`)
-  const a = await source.boundingBox()
-  const b = await target.boundingBox()
-  if (!a || !b) throw new Error(`нет гнезда: ${from} → ${to}`)
-  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 })
-  await page.mouse.up()
-}
 
 test('inbound соединяется с правилом напрямую', async ({ page }) => {
   // Новое правило создаётся без условий — оно и принимает кабель от inbound

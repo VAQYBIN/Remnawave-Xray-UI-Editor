@@ -103,7 +103,11 @@ export function NodeInspector({
   // Узел obs — фрагмент корня конфига (две его секции), поэтому корень там 'config';
   // у «прочих» узлов схемы нет — там только подсветка JSON.
   const rootKind: XrayRootKind | null =
-    kind === 'inbound' || kind === 'outbound' || kind === 'rule' || kind === 'dns'
+    kind === 'inbound' ||
+    kind === 'outbound' ||
+    kind === 'rule' ||
+    kind === 'dns' ||
+    kind === 'balancer'
       ? kind
       : kind === 'observatory'
         ? 'config'
