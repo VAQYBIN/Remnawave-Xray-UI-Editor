@@ -29,6 +29,12 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - **Playwright** (`e2e/*.spec.ts`) поднимает собственный dev-сервер на `127.0.0.1:4173` и мокает API через `e2e/mocks.ts` — бэкенд не нужен;
 - `tsc --noEmit` не проверяет каталог `e2e` (не входит в `include` tsconfig).
 
+Четвёртый контур — **скриншоты** для README: `npm run screenshots -w frontend`
+(`screenshots/*.spec.ts`, свой `playwright.screenshots.config.ts` и порт 4175). Ничего не
+проверяет, пишет PNG в `docs/screenshots/` на витринном конфиге `screenshots/showcase.ts`;
+в `npm test` и `npm run e2e` не входит. Анимации там **не глушатся**: `RemeasureOnEnter`
+пересчитывает якоря рёбер по `animationend`, и без него рёбра уедут на 8px ниже гнёзд.
+
 ## Архитектура
 
 ### Backend (`backend/src`) — Fastify, ESM, Node 24
