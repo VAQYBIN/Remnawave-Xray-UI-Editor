@@ -1,0 +1,45 @@
+title = "xray-ui-editor"
+
+# Стандартный набор правил gitleaks плюс три своих. Секреты этого проекта не
+# подпадают ни под один провайдерский паттерн, а бесплатный secret scanning
+# GitHub на публичных репозиториях ловит только провайдерские: токен панели и
+# секрет сессии он пропустит.
+[extend]
+useDefault = true
+# JFrog в проекте не используется, а его правило срабатывает на sha256 архива
+# с ядром Xray (ARG XRAY_SHA256 в Dockerfile) — те же 64 hex-символа. Хэш
+# меняется при каждом обновлении ядра, поэтому исключение по значению пришлось
+# бы править каждый раз.
+disabledRules = ["jfrog-identity-token"]
+
+[allowlist]
+description = "Заведомо фальшивые значения из фикстур тестов и планов в docs/"
+regexTarget = "match"
+regexes = ['''0123456789abcdef0123456789abcdef''', '''super-secret-1''']
+
+[[rules]]
+id = "remnawave-panel-token"
+description = "Токен API панели Remnawave"
+regex = '''(?i)REMNAWAVE_TOKEN\s*[=:]\s*["']?[A-Za-z0-9._\-]{16,}'''
+tags = ["token", "remnawave"]
+  [rules.allowlist]
+  paths = ['''^\.env\.example$''']
+
+[[rules]]
+id = "app-session-secret"
+description = "Секрет подписи сессионных cookie"
+regex = '''(?i)SESSION_SECRET\s*[=:]\s*["']?[A-Za-z0-9+/=_\-]{24,}'''
+tags = ["secret"]
+  [rules.allowlist]
+  paths = ['''^\.env\.example$''']
+
+[[rules]]
+id = "app-password"
+description = "Пароль входа в редактор (открытый текст или bcrypt-хэш)"
+regex = '''(?i)APP_PASSWORD\s*[=:]\s*["']?\S{8,}'''
+tags = ["password"]
+  [rules.allowlist]
+  # README и .env.example разбирают на примерах гейтчу с "$" в bcrypt-хэше,
+  # а config.ts объявляет поле zod-схемой — это описание, а не значение.
+  paths = ['''^\.env\.example$''', '''^README\.md$''', '''^docs/''']
+  regexes = ['''z\.string''']
