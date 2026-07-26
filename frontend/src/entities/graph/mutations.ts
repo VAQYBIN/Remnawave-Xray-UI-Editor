@@ -72,7 +72,7 @@ function retagInPlace(
   for (const out of config.outbounds ?? []) {
     const sockopt = out.streamSettings?.sockopt
     if (sockopt?.dialerProxy === oldTag) sockopt.dialerProxy = newTag
-    // proxySettings хранится нетипизированным объектом (passthrough)
+    // proxySettings хранится нетипизированным объектом (схема его пропускает)
     const proxy = (out as { proxySettings?: { tag?: string } }).proxySettings
     if (proxy?.tag === oldTag) proxy.tag = newTag
   }

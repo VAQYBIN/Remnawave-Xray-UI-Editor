@@ -9,20 +9,17 @@ export const BALANCER_STRATEGIES = ['random', 'roundRobin', 'leastPing', 'leastL
 
 // strategy.type — строка, а не z.enum: незнакомая стратегия из чужого конфига должна
 // давать предупреждение (analyzeIntegrity), а не рушить разбор всего конфига
-export const BalancerSchema = z
-  .object({
-    tag: z.string(),
-    selector: z.array(z.string()).optional(),
-    fallbackTag: z.string().optional(),
-    strategy: z
-      .object({
-        type: z.string().optional(),
-        settings: z.object({}).passthrough().optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough()
+export const BalancerSchema = z.looseObject({
+  tag: z.string(),
+  selector: z.array(z.string()).optional(),
+  fallbackTag: z.string().optional(),
+  strategy: z
+    .looseObject({
+      type: z.string().optional(),
+      settings: z.looseObject({}).optional(),
+    })
+    .optional(),
+})
 
 export type Balancer = z.infer<typeof BalancerSchema>
 
