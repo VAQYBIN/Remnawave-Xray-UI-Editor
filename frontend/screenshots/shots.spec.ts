@@ -73,3 +73,43 @@ test('JSON узла — автоподсказки', async ({ page }) => {
     clip: { x: box.x, y: box.y, width: box.width, height: 340 },
   })
 })
+
+test('трассировка — куда пойдёт трафик', async ({ page }) => {
+  // Выше остальных кадров: панель разбора — оверлей, и на 920 её обрезает док
+  // ровно на строке победившего правила
+  await page.setViewportSize({ width: 1680, height: 1100 })
+  await mockShowcase(page)
+  await page.goto(`/profiles/${SHOWCASE_UUID}`)
+  await settle(page)
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
+  // По мокам geo `geosite:openai` отвечает true: побеждает правило WARP, а два
+  // блокирующих выше него честно не срабатывают — разбор выходит непустым
+  await page.getByLabel('Адрес').fill('chatgpt.com')
+  await page.locator('.trace-panel').waitFor({ state: 'visible' })
+  // Ввод проходит через useDebounced (600 мс) — снимать раньше нечего
+  await page.waitForTimeout(1_400)
+  // Срезаем топбар и пустую полосу над графом: на высоком вьюпорте fitView
+  // оставляет четверть кадра пустой, а кадр перевешивает свой бюджет по весу.
+  // Топбар показан на герой-кадре, дублировать его тут незачем.
+  await page.screenshot({
+    path: `${OUT}/trace.png`,
+    clip: { x: 0, y: 180, width: 1680, height: 920 },
+  })
+})
+
+test('рецепты — изменения до применения', async ({ page }) => {
+  await page.setViewportSize({ width: 1680, height: 1000 })
+  await mockShowcase(page)
+  await page.goto(`/profiles/${SHOWCASE_UUID}`)
+  await settle(page)
+  await page.getByRole('button', { name: '+ Рецепт' }).click()
+  // У цепочки есть и форма параметров, и список изменений — кадр показывает
+  // обе половины диалога сразу
+  await page.getByRole('button', { name: /Цепочка через другой сервер/ }).click()
+  // Форму заполняем: пустые обязательные поля читаются как недоделанный экран,
+  // а заполненные показывают, как список изменений отражает введённое
+  await page.getByLabel('Адрес сервера').fill('de2.example.com')
+  await page.getByLabel('UUID пользователя').fill('7c9e6679-7425-40de-944b-e07fc1f90ae7')
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: `${OUT}/recipes.png` })
+})
