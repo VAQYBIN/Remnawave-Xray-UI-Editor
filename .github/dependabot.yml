@@ -1,0 +1,40 @@
+version: 2
+updates:
+  # npm workspaces: корневого package-lock.json достаточно, backend и frontend
+  # подхватываются как workspaces.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # Мелочь — одним PR, мажорные версии приходят по отдельности.
+    groups:
+      npm-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Пины экшенов по SHA в .github/workflows обновляются здесь.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
+
+  # Базовые образы Dockerfile (alpine, node). Версия Xray задана ARG'ами
+  # вручную — её Dependabot не трогает.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: chore
