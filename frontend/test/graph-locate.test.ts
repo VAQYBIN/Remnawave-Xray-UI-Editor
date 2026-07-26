@@ -84,3 +84,18 @@ describe('issueCountsByNode', () => {
     expect(issueCountsByNode([], CONFIG)).toEqual({})
   })
 })
+
+describe('пути балансеров и обсерватории', () => {
+  const CFG = {
+    outbounds: [{ tag: 'proxy-de', protocol: 'vless' }],
+    routing: { rules: [], balancers: [{ tag: 'bal-eu', selector: ['proxy-'] }] },
+    observatory: { subjectSelector: ['proxy-'] },
+  } as XrayConfig
+
+  it('путь балансера и обсерватории ведёт к своим узлам', () => {
+    expect(nodeIdForPath(['routing', 'balancers', 0, 'selector'], CFG)).toBe('bal:bal-eu')
+    expect(nodeIdForPath(['observatory', 'subjectSelector'], CFG)).toBe('obs')
+    expect(nodeIdForPath(['burstObservatory', 'subjectSelector'], CFG)).toBe('obs')
+    expect(nodeIdForPath(['routing', 'balancers', 5, 'selector'], CFG)).toBeNull()
+  })
+})
