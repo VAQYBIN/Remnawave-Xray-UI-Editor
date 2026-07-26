@@ -1,11 +1,20 @@
 # Готовый образ из GitHub Container Registry — исходники и сборка на машине
 # не нужны. Сборка из исходников: docker-compose.build.yml
 services:
-  app:
+  remnawave-xray-ui-editor:
     image: ghcr.io/vaqybin/remnawave-xray-ui-editor:latest
+    container_name: remnawave-xray-ui-editor
+    hostname: remnawave-xray-ui-editor
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:3000"
+      # Порт открыт ТОЛЬКО на loopback: сессионная cookie идёт без флага
+      # secure, и на публичном порту по HTTP её видно в открытом виде.
+      # Снаружи редактор открывают через HTTPS-прокси или SSH-туннель —
+      # см. README, раздел «За reverse proxy».
+      # 5065, а не 3000: на 3000 обычно уже висит сама панель Remnawave.
+      # Слева порт хоста, справа порт внутри контейнера — внутренний менять
+      # не нужно, у каждого контейнера свой сетевой стек.
+      - "127.0.0.1:${PORT:-5065}:3000"
     env_file: .env
     # Приоритет выше, чем у env_file: пути внутри контейнера не должны
     # зависеть от того, что пользователь напишет в .env
@@ -23,6 +32,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    # Чтобы отдать редактор наружу через nginx самой Remnawave, раскомментируйте
+    # этот блок и одноимённый в конце файла, а ports можно убрать совсем.
+    # Имя сети проверьте у себя — оно зависит от установки:
+    #   docker inspect remnawave-nginx \
+    #     --format '{{range $$k,$$v := .NetworkSettings.Networks}}{{$$k}}{{"\n"}}{{end}}'
+    # networks:
+    #   - remnawave-network
 
 volumes:
   xray-editor-data:
+# networks:
+#   remnawave-network:
+#     external: true
