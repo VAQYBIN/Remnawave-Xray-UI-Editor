@@ -68,3 +68,39 @@ describe('tracedEdgeIds', () => {
     expect(tracedEdgeIds(undefined, config).size).toBe(0)
   })
 })
+
+describe('подсветка пути через балансер', () => {
+  it('подсвечивает правило, балансер и всех кандидатов', () => {
+    const config = {
+      inbounds: [{ tag: 'in', protocol: 'vless' }],
+      outbounds: [
+        { tag: 'proxy-de', protocol: 'vless' },
+        { tag: 'proxy-nl', protocol: 'vless' },
+      ],
+      routing: {
+        rules: [{ inboundTag: ['in'], balancerTag: 'bal-eu' }],
+        balancers: [{ tag: 'bal-eu', selector: ['proxy-'] }],
+      },
+    } as XrayConfig
+    const ids = tracedEdgeIds(
+      {
+        verdicts: [],
+        caveats: [],
+        winner: {
+          ruleIndex: 0,
+          balancerTag: 'bal-eu',
+          balancerCandidates: ['proxy-de', 'proxy-nl'],
+        },
+      },
+      config,
+    )
+    expect([...ids]).toEqual(
+      expect.arrayContaining([
+        'e:in:in->rule:0',
+        'e:rule:0->bal:bal-eu',
+        'e:bal:bal-eu->out:proxy-de',
+        'e:bal:bal-eu->out:proxy-nl',
+      ]),
+    )
+  })
+})

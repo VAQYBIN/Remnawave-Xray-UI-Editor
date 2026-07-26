@@ -210,6 +210,13 @@ export function tracedEdgeIds(result: TraceResult | undefined, config: XrayConfi
     : inboundTags
   for (const tag of scope) ids.add(`e:in:${tag}->rule:${index}`)
   if (rule.outboundTag) ids.add(`e:rule:${index}->out:${rule.outboundTag}`)
+  if (rule.balancerTag) {
+    ids.add(`e:rule:${index}->bal:${rule.balancerTag}`)
+    // Победителя среди кандидатов редактор не знает — подсвечиваем всех
+    for (const tag of result?.winner?.balancerCandidates ?? []) {
+      ids.add(`e:bal:${rule.balancerTag}->out:${tag}`)
+    }
+  }
   return ids
 }
 

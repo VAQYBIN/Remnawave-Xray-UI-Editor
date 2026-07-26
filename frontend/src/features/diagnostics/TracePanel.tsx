@@ -95,7 +95,16 @@ export function TracePanel({
           <>
             <span>{`Победило правило #${winner.ruleIndex + 1} →`}</span>
             {winner.outboundTag && <span className="metric metric-accent">{winner.outboundTag}</span>}
-            {winner.balancerTag && <span className="metric">{`балансер ${winner.balancerTag}`}</span>}
+            {winner.balancerTag && (
+              <span className="metric">
+                {`балансер ${winner.balancerTag} · ${winner.balancerStrategy ?? 'random'}`}
+              </span>
+            )}
+            {winner.balancerCandidates?.map((tag) => (
+              <span key={tag} className="metric metric-accent">
+                {tag}
+              </span>
+            ))}
           </>
         )}
       </div>
