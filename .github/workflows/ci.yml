@@ -111,3 +111,27 @@ jobs:
             echo "$tracked"
             exit 1
           fi
+
+  docker:
+    name: docker (build only)
+    # Только на PR: на push в main ту же сборку делает release.yml.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      # Одна архитектура и без пуша: задача джоба — поймать поломку Dockerfile
+      # на PR, а не собрать релиз. Экспорт кэша разрешён только своим веткам:
+      # у PR из форка нет прав на запись в кэш Actions, и безусловный cache-to
+      # ронял бы каждый внешний PR.
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=amd64
+          cache-to: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'type=gha,mode=max,scope=amd64' || '' }}
