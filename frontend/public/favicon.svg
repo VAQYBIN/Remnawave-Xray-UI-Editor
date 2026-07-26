@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Фавиконный оптический размер знака: штрихи тяжелее, чем в docs/brand/mark.svg,
+    иначе на 16 px дуги корпуса и кабель истончаются до серой каши.
+  -->
+  <defs>
+    <linearGradient id="xue-core" x1="23" y1="32" x2="41" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6e7bff"/>
+      <stop offset="1" stop-color="#f0a44a"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-linecap="round">
+    <path d="M54.8 24.5A24 24 0 0 0 9.2 24.5" stroke="#8593a6" stroke-width="4"/>
+    <path d="M9.2 39.5A24 24 0 0 0 54.8 39.5" stroke="#8593a6" stroke-width="4"/>
+    <path d="M2.5 32H25" stroke="#6e7bff" stroke-width="5"/>
+    <path d="M39 32H61.5" stroke="#f0a44a" stroke-width="5"/>
+  </g>
+  <circle cx="32" cy="32" r="11" fill="url(#xue-core)"/>
+</svg>

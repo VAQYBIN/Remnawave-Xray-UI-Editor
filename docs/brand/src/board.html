@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Xray UI Editor — brand board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&display=block" rel="stylesheet" />
+<style>
+  /* Палитра — подмножество frontend/src/shared/ui/tokens.css */
+  :root {
+    --void: #0a0d12;
+    --panel: #131922;
+    --panel-2: #1b222d;
+    --panel-3: #232c38;
+    --rail: #262f3b;
+    --rail-hi: #35404e;
+    --cable-steel: #6b7789;
+    --ink: #e6edf5;
+    --ink-dim: #7d8b9c;
+    --ink-faint: #55606e;
+    --flux: #6e7bff;
+    --ember: #f0a44a;
+    --sans: 'Golos Text', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 40px;
+    background: #4a4f57;
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Общий фон продукта: точечная сетка канваса + два свечения кабельной палитры */
+  .stage {
+    background-color: var(--void);
+    background-image:
+      radial-gradient(circle, var(--rail) 1px, transparent 1px),
+      radial-gradient(ellipse 52% 46% at 18% 22%, rgb(110 123 255 / 0.16), transparent 70%),
+      radial-gradient(ellipse 48% 44% at 88% 86%, rgb(240 164 74 / 0.11), transparent 72%);
+    background-size: 22px 22px, auto, auto;
+    color: var(--ink);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ---------- Знак ---------- */
+  .mark { display: block; flex: none; }
+
+  /* ---------- Вордмарк ---------- */
+  .wordmark {
+    font-family: var(--mono);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .wordmark .caret { color: var(--flux); }
+  .eyebrow {
+    font-family: var(--mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  /* ---------- Лок-ап для README ---------- */
+  .lockup {
+    display: inline-flex;
+    align-items: center;
+    gap: 40px;
+    padding: 56px 72px;
+  }
+  .lockup .wordmark { font-size: 92px; }
+  .lockup-text { display: flex; flex-direction: column; gap: 18px; }
+  .lockup .eyebrow { font-size: 21px; }
+  .lockup-light { background: #fff; }
+  .lockup-light .wordmark { color: #131922; }
+  .lockup-light .eyebrow { color: #6b7789; }
+
+  /* ---------- Аватар ---------- */
+  .avatar {
+    width: 512px;
+    height: 512px;
+    display: grid;
+    place-items: center;
+  }
+
+  /* Плитка iOS: сплошная подложка без точечной сетки — на 180 px она стала бы шумом */
+  .touch-icon {
+    width: 180px;
+    height: 180px;
+    display: grid;
+    place-items: center;
+    background: var(--panel);
+  }
+
+  /* ---------- Social preview ---------- */
+  .social {
+    width: 1280px;
+    height: 640px;
+    display: flex;
+    align-items: center;
+    padding: 0 64px;
+    gap: 48px;
+  }
+  /* Тонкая рамка-«кант» по краю: край карточки на GitHub не растворяется в ленте */
+  .social::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1px solid var(--rail);
+    pointer-events: none;
+  }
+
+  .social-left { width: 520px; flex: none; }
+  .social-brand { display: flex; align-items: center; gap: 18px; margin-bottom: 34px; }
+  .social-brand .wordmark { font-size: 34px; }
+  .social h1 {
+    margin: 0 0 18px;
+    font-size: 56px;
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+  }
+  .social h1 .accent {
+    background: linear-gradient(90deg, var(--flux) 10%, var(--ember) 92%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .social p {
+    margin: 0 0 28px;
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--ink-dim);
+    max-width: 520px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 4px 12px;
+    border: 1px solid var(--rail);
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--ink-dim);
+  }
+  .chip-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--cable-steel); }
+  .chip-in { color: var(--flux); border-color: rgb(110 123 255 / 0.45); background: rgb(110 123 255 / 0.14); }
+  .chip-in .chip-dot { background: var(--flux); }
+  .chip-out { color: var(--ember); border-color: rgb(240 164 74 / 0.42); background: rgb(240 164 74 / 0.13); }
+  .chip-out .chip-dot { background: var(--ember); }
+
+  /* ---------- Мини-граф: тот же язык, что у узлов React Flow ---------- */
+  .graph { position: relative; width: 592px; height: 400px; flex: none; }
+  .graph svg { position: absolute; inset: 0; overflow: visible; }
+
+  .col-label {
+    position: absolute;
+    top: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+
+  .fnode {
+    --hue: var(--rail-hi);
+    position: absolute;
+    padding: 9px 12px 11px;
+    background: var(--panel);
+    border: 1px solid var(--rail);
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  }
+  .fnode-in { --hue: var(--flux); }
+  .fnode-out { --hue: var(--ember); }
+  .fnode-in::before, .fnode-out::before {
+    content: '';
+    position: absolute;
+    top: 9px;
+    bottom: 9px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--hue);
+    opacity: 0.9;
+  }
+  .fnode-in::before { left: -1px; }
+  .fnode-out::before { right: -1px; }
+  .fnode-kind {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--hue);
+  }
+  .fnode-title {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-top: 2px;
+  }
+  .metrics {
+    display: flex;
+    margin-top: 8px;
+    border: 1px solid var(--rail);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--void);
+    width: fit-content;
+  }
+  .metric {
+    padding: 2px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink);
+    border-right: 1px solid var(--rail);
+    white-space: nowrap;
+  }
+  .metric:last-child { border-right: none; }
+  .metric-accent { color: var(--hue); }
+  .fnode-priority {
+    position: absolute;
+    top: 6px;
+    right: 14px;
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--ink);
+    opacity: 0.15;
+  }
+  /* Гнёзда коммутации по бокам узла */
+  .jack {
+    position: absolute;
+    top: 50%;
+    width: 11px;
+    height: 11px;
+    margin-top: -5.5px;
+    border: 2px solid var(--rail-hi);
+    background: var(--panel-3);
+    border-radius: 50%;
+  }
+  .jack-l { left: -6.5px; }
+  .jack-r { right: -6.5px; }
+  .fnode-in .jack-r, .fnode-out .jack-l { border-color: var(--hue); }
+
+  /* Выбранный узел: кольцо и свечение своего hue — как в редакторе */
+  .fnode-selected {
+    border-color: var(--hue);
+    box-shadow: 0 0 0 1px var(--hue), 0 0 28px -6px var(--hue), 0 8px 24px -8px rgb(0 0 0 / 0.6);
+  }
+
+  .edge-halo { fill: none; stroke-width: 7; stroke-linecap: round; opacity: 0.14; }
+  /* Путь выбранного узла подсвечен целиком — так же ведёт себя граф в приложении */
+  .edge-halo[data-active] { stroke-width: 10; opacity: 0.32; }
+  .edge { fill: none; stroke-width: 2; stroke-linecap: round; }
+  .edge[data-active] { stroke-width: 2.5; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ SOCIAL PREVIEW 1280×640 ══════════════════ -->
+<div class="stage social" id="social">
+  <div class="social-left">
+    <div class="social-brand">
+      <svg class="mark" width="46" height="46" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="c1" x1="24" y1="32" x2="40" y2="32" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#6e7bff"/><stop offset="1" stop-color="#f0a44a"/>
+          </linearGradient>
+        </defs>
+        <g fill="none" stroke-linecap="round">
+          <path d="M55.18 25.79A24 24 0 0 0 8.82 25.79" stroke="#6b7789" stroke-width="3"/>
+          <path d="M8.82 38.21A24 24 0 0 0 55.18 38.21" stroke="#6b7789" stroke-width="3"/>
+          <path d="M2 32H25" stroke="#6e7bff" stroke-width="4"/>
+          <path d="M39 32H62" stroke="#f0a44a" stroke-width="4"/>
+        </g>
+        <circle cx="32" cy="32" r="10" fill="url(#c1)"/>
+      </svg>
+      <span class="wordmark">Xray UI Editor<span class="caret">_</span></span>
+    </div>
+
+    <h1>Xray-конфиг —<br /><span class="accent">как топология</span></h1>
+    <p>Граф вместо JSON: формы на каждый узел, проверка ядром и сохранение
+       прямо в панель Remnawave.</p>
+
+    <div class="chips">
+      <span class="chip chip-in"><span class="chip-dot"></span>VLESS · Reality</span>
+      <span class="chip"><span class="chip-dot"></span>geosite / geoip</span>
+      <span class="chip chip-out"><span class="chip-dot"></span>WARP · рецепты</span>
+    </div>
+  </div>
+
+  <div class="graph">
+    <!-- Кабели: градиент от цвета источника к цвету приёмника -->
+    <svg viewBox="0 0 592 400">
+      <defs>
+        <linearGradient id="g-in" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#6e7bff"/><stop offset="1" stop-color="#6b7789"/>
+        </linearGradient>
+        <linearGradient id="g-out" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#6b7789"/><stop offset="1" stop-color="#f0a44a"/>
+        </linearGradient>
+      </defs>
+      <g class="edges">
+        <!-- inbound → правило -->
+        <path class="edge-halo" data-active stroke="url(#g-in)" d="M152 107.5C180 107.5 180 77 208 77"/>
+        <path class="edge-halo" data-active stroke="url(#g-in)" d="M152 107.5C180 107.5 180 201 208 201"/>
+        <path class="edge-halo" stroke="url(#g-in)" d="M152 267.5C180 267.5 180 201 208 201"/>
+        <path class="edge-halo" stroke="url(#g-in)" d="M152 267.5C180 267.5 180 325 208 325"/>
+        <path class="edge" data-active stroke="url(#g-in)" d="M152 107.5C180 107.5 180 77 208 77"/>
+        <path class="edge" data-active stroke="url(#g-in)" d="M152 107.5C180 107.5 180 201 208 201"/>
+        <path class="edge" stroke="url(#g-in)" d="M152 267.5C180 267.5 180 201 208 201"/>
+        <path class="edge" stroke="url(#g-in)" d="M152 267.5C180 267.5 180 325 208 325"/>
+        <!-- правило → outbound -->
+        <path class="edge-halo" data-active stroke="url(#g-out)" d="M392 77C420 77 420 65 448 65"/>
+        <path class="edge-halo" data-active stroke="url(#g-out)" d="M392 201C420 201 420 189 448 189"/>
+        <path class="edge-halo" stroke="url(#g-out)" d="M392 325C420 325 420 337 448 337"/>
+        <path class="edge" data-active stroke="url(#g-out)" d="M392 77C420 77 420 65 448 65"/>
+        <path class="edge" data-active stroke="url(#g-out)" d="M392 201C420 201 420 189 448 189"/>
+        <path class="edge" stroke="url(#g-out)" d="M392 325C420 325 420 337 448 337"/>
+      </g>
+    </svg>
+
+    <span class="col-label" style="left: 0">Inbound</span>
+    <span class="col-label" style="left: 208px">Правила</span>
+    <span class="col-label" style="left: 448px">Outbound</span>
+
+    <div class="fnode fnode-in fnode-selected" style="left: 0; top: 64px; width: 152px">
+      <div class="fnode-kind">Vless</div>
+      <div class="fnode-title">reality-in</div>
+      <div class="metrics"><span class="metric">:443</span><span class="metric metric-accent">tcp</span></div>
+      <span class="jack jack-r"></span>
+    </div>
+    <div class="fnode fnode-in" style="left: 0; top: 224px; width: 152px">
+      <div class="fnode-kind">Trojan</div>
+      <div class="fnode-title">trojan-ws</div>
+      <div class="metrics"><span class="metric">:8443</span><span class="metric metric-accent">ws</span></div>
+      <span class="jack jack-r"></span>
+    </div>
+
+    <div class="fnode" style="left: 208px; top: 48px; width: 184px">
+      <div class="fnode-priority">1</div>
+      <div class="fnode-kind">Правило</div>
+      <div class="fnode-title">geosite:ads</div>
+      <span class="jack jack-l"></span><span class="jack jack-r"></span>
+    </div>
+    <div class="fnode" style="left: 208px; top: 172px; width: 184px">
+      <div class="fnode-priority">2</div>
+      <div class="fnode-kind">Правило</div>
+      <div class="fnode-title">geoip:ru</div>
+      <span class="jack jack-l"></span><span class="jack jack-r"></span>
+    </div>
+    <div class="fnode" style="left: 208px; top: 296px; width: 184px">
+      <div class="fnode-priority">3</div>
+      <div class="fnode-kind">Правило</div>
+      <div class="fnode-title">domain:openai</div>
+      <span class="jack jack-l"></span><span class="jack jack-r"></span>
+    </div>
+
+    <div class="fnode fnode-out" style="left: 448px; top: 36px; width: 144px">
+      <div class="fnode-kind">Blackhole</div>
+      <div class="fnode-title">block</div>
+      <span class="jack jack-l"></span>
+    </div>
+    <div class="fnode fnode-out" style="left: 448px; top: 160px; width: 144px">
+      <div class="fnode-kind">Freedom</div>
+      <div class="fnode-title">direct</div>
+      <span class="jack jack-l"></span>
+    </div>
+    <div class="fnode fnode-out" style="left: 448px; top: 308px; width: 144px">
+      <div class="fnode-kind">Wireguard</div>
+      <div class="fnode-title">warp</div>
+      <span class="jack jack-l"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ ЛОК-АП НА ТЁМНОМ ══════════════════ -->
+<div class="stage lockup" id="logo-dark">
+  <svg class="mark" width="132" height="132" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="c2" x1="24" y1="32" x2="40" y2="32" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#6e7bff"/><stop offset="1" stop-color="#f0a44a"/>
+      </linearGradient>
+    </defs>
+    <g fill="none" stroke-linecap="round">
+      <path d="M55.18 25.79A24 24 0 0 0 8.82 25.79" stroke="#6b7789" stroke-width="3"/>
+      <path d="M8.82 38.21A24 24 0 0 0 55.18 38.21" stroke="#6b7789" stroke-width="3"/>
+      <path d="M2 32H25" stroke="#6e7bff" stroke-width="4"/>
+      <path d="M39 32H62" stroke="#f0a44a" stroke-width="4"/>
+    </g>
+    <circle cx="32" cy="32" r="10" fill="url(#c2)"/>
+  </svg>
+  <div class="lockup-text">
+    <span class="wordmark">Xray UI Editor<span class="caret">_</span></span>
+    <span class="eyebrow">remnawave · визуальный редактор конфигов</span>
+  </div>
+</div>
+
+<!-- ══════════════════ ЛОК-АП НА СВЕТЛОМ ══════════════════ -->
+<div class="lockup lockup-light" id="logo-light">
+  <svg class="mark" width="132" height="132" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="c3" x1="24" y1="32" x2="40" y2="32" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#5560e8"/><stop offset="1" stop-color="#e0902f"/>
+      </linearGradient>
+    </defs>
+    <g fill="none" stroke-linecap="round">
+      <path d="M55.18 25.79A24 24 0 0 0 8.82 25.79" stroke="#8894a5" stroke-width="3"/>
+      <path d="M8.82 38.21A24 24 0 0 0 55.18 38.21" stroke="#8894a5" stroke-width="3"/>
+      <path d="M2 32H25" stroke="#5560e8" stroke-width="4"/>
+      <path d="M39 32H62" stroke="#e0902f" stroke-width="4"/>
+    </g>
+    <circle cx="32" cy="32" r="10" fill="url(#c3)"/>
+  </svg>
+  <div class="lockup-text">
+    <span class="wordmark">Xray UI Editor<span class="caret" style="color:#5560e8">_</span></span>
+    <span class="eyebrow">remnawave · визуальный редактор конфигов</span>
+  </div>
+</div>
+
+<!-- ══════════════════ АВАТАР 512×512 ══════════════════ -->
+<div class="stage avatar" id="avatar">
+  <svg class="mark" width="300" height="300" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="c4" x1="24" y1="32" x2="40" y2="32" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#6e7bff"/><stop offset="1" stop-color="#f0a44a"/>
+      </linearGradient>
+    </defs>
+    <g fill="none" stroke-linecap="round">
+      <path d="M55.18 25.79A24 24 0 0 0 8.82 25.79" stroke="#6b7789" stroke-width="3"/>
+      <path d="M8.82 38.21A24 24 0 0 0 55.18 38.21" stroke="#6b7789" stroke-width="3"/>
+      <path d="M2 32H25" stroke="#6e7bff" stroke-width="4"/>
+      <path d="M39 32H62" stroke="#f0a44a" stroke-width="4"/>
+    </g>
+    <circle cx="32" cy="32" r="10" fill="url(#c4)"/>
+  </svg>
+</div>
+
+<!-- ══════════════════ ПЛИТКА iOS 180×180 ══════════════════ -->
+<div class="touch-icon" id="touch-icon">
+  <svg class="mark" width="112" height="112" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="c5" x1="23" y1="32" x2="41" y2="32" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#6e7bff"/><stop offset="1" stop-color="#f0a44a"/>
+      </linearGradient>
+    </defs>
+    <g fill="none" stroke-linecap="round">
+      <path d="M54.8 24.5A24 24 0 0 0 9.2 24.5" stroke="#8593a6" stroke-width="4"/>
+      <path d="M9.2 39.5A24 24 0 0 0 54.8 39.5" stroke="#8593a6" stroke-width="4"/>
+      <path d="M2.5 32H25" stroke="#6e7bff" stroke-width="5"/>
+      <path d="M39 32H61.5" stroke="#f0a44a" stroke-width="5"/>
+    </g>
+    <circle cx="32" cy="32" r="11" fill="url(#c5)"/>
+  </svg>
+</div>
+
+</body>
+</html>

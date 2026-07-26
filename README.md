@@ -1,6 +1,10 @@
 <div align="center">
 
-# 🛰️ Remnawave Xray UI Editor
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo.png" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/brand/logo-light.png" />
+  <img src="docs/brand/logo.png" alt="Remnawave Xray UI Editor" width="560" />
+</picture>
 
 **Визуальный редактор Xray-конфигов для панели [Remnawave](https://remna.st) — топология трафика графом, формы вместо ручного JSON, сохранение прямо в панель по API.**
 
