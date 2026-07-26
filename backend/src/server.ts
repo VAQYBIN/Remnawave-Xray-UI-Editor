@@ -47,8 +47,14 @@ export async function buildServer(
   const app = Fastify({ logger: process.env.NODE_ENV !== 'test' })
 
   await app.register(cookie, { secret: config.sessionSecret })
+  // Глобальный потолок — защита закрытых ручек от перебора cookie и от того,
+  // что один клиент займёт собой весь сервер. Он заведомо выше живого
+  // сценария (загрузка SPA — десятки запросов, вьюер geo-баз листает
+  // страницами), а жёсткий лимит на логине задан отдельно в его роуте.
   await app.register(rateLimit, {
-    global: false,
+    global: true,
+    max: 600,
+    timeWindow: '1 minute',
     errorResponseBuilder: (_req, context) => ({
       message: `Слишком много попыток. Повторите через ${context.after}`,
       statusCode: 429,
