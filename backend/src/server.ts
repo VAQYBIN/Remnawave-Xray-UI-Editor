@@ -77,8 +77,10 @@ export async function buildServer(
     if (err instanceof RemnawaveError) {
       // В лог — обязательно: связь с панелью чинят по логам, а раньше причина
       // уходила только в тело ответа и была видна лишь через DevTools.
-      req.log.warn({ status: err.status, details: err.details }, err.message)
-      return reply.status(err.status).send({ message: err.message, details: err.details })
+      req.log.warn({ status: err.status, details: err.details, hint: err.hint }, err.message)
+      return reply
+        .status(err.status)
+        .send({ message: err.message, details: err.details, hint: err.hint })
     }
     if (err instanceof ZodError) {
       return reply.status(400).send({ message: 'Некорректный запрос', issues: err.issues })

@@ -19,9 +19,21 @@ export class AuthError extends ApiError {}
  * проверять; причина отвечает на это — её и показываем рядом.
  */
 export function causeOf(err: unknown): string | undefined {
+  return fieldOf(err, 'details')
+}
+
+/**
+ * Подсказка «что делать», если бэкенд смог опознать ситуацию. Причина отвечает
+ * на «что сломалось», подсказка — на «что чинить».
+ */
+export function hintOf(err: unknown): string | undefined {
+  return fieldOf(err, 'hint')
+}
+
+function fieldOf(err: unknown, key: 'details' | 'hint'): string | undefined {
   if (!(err instanceof ApiError)) return undefined
-  const cause = (err.details as { details?: unknown } | undefined)?.details
-  return typeof cause === 'string' && cause.trim() !== '' ? cause : undefined
+  const value = (err.details as Record<string, unknown> | undefined)?.[key]
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined
 }
 
 export class ConflictError extends ApiError {

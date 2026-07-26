@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { RemnawaveClient, RemnawaveError, describeCause } from '../src/remnawave/client.js'
+import {
+  RemnawaveClient,
+  RemnawaveError,
+  describeCause,
+  hintForNetworkError,
+} from '../src/remnawave/client.js'
 
 interface FakeCall { url: string; init: RequestInit }
 
@@ -133,6 +138,32 @@ describe('RemnawaveClient', () => {
     loop.cause = loop
     expect(describeCause(loop)).toBe('зациклено')
     expect(describeCause('строка вместо ошибки')).toBe('строка вместо ошибки')
+  })
+
+  // Панель Remnawave отвечает только через свой reverse proxy: на прямое
+  // обращение к контейнеру она молча рвёт соединение. Симптом сам по себе на
+  // решение не наводит — подсказка называет его.
+  it('подсказывает про внутренний адрес, когда панель молча рвёт соединение', () => {
+    const cause = 'fetch failed ← other side closed (UND_ERR_SOCKET)'
+    expect(hintForNetworkError('http://remnawave:3000', cause)).toMatch(/публичный https-адрес/)
+    // По https подсказка неуместна: адрес уже правильный, причина другая
+    expect(hintForNetworkError('https://panel.example.com', cause)).toBeUndefined()
+    // И на другие сетевые беды тоже — они лечатся иначе
+    expect(hintForNetworkError('http://remnawave:3000', 'getaddrinfo ENOTFOUND')).toBeUndefined()
+  })
+
+  it('подсказка доезжает до RemnawaveError', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://remnawave:3000',
+      token: 't',
+      fetchImpl: (async () => {
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }),
+        })
+      }) as typeof fetch,
+    })
+    const err = await client.listProfiles().catch((e) => e)
+    expect(err.hint).toMatch(/reverse proxy/)
   })
 
   it('getSquads разворачивает internalSquads, getNodes — массив response', async () => {

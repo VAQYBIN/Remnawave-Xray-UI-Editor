@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, ApiError, AuthError, causeOf, ConflictError, useProfileInbounds, useSquads } from '../src/shared/api'
+import { apiFetch, ApiError, AuthError, causeOf, ConflictError, hintOf, useProfileInbounds, useSquads } from '../src/shared/api'
 
 function mockFetch(status: number, body: unknown) {
   const fn = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
@@ -85,5 +85,17 @@ describe('causeOf', () => {
     expect(causeOf(new ApiError(404, 'Не найдено'))).toBeUndefined()
     expect(causeOf(new ApiError(502, 'Недоступна', { details: '  ' }))).toBeUndefined()
     expect(causeOf(new Error('обычная ошибка'))).toBeUndefined()
+  })
+
+  // Причина отвечает на «что сломалось», подсказка — на «что чинить»;
+  // показываются они отдельными строками и живут независимо
+  it('hintOf достаёт подсказку и молчит без неё', () => {
+    const err = new ApiError(502, 'Панель Remnawave недоступна', {
+      details: 'fetch failed ← other side closed (UND_ERR_SOCKET)',
+      hint: 'Укажите публичный https-адрес панели',
+    })
+    expect(hintOf(err)).toBe('Укажите публичный https-адрес панели')
+    expect(hintOf(new ApiError(502, 'Недоступна', { details: 'что-то' }))).toBeUndefined()
+    expect(hintOf(new Error('обычная ошибка'))).toBeUndefined()
   })
 })
