@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, ApiError, AuthError, ConflictError, useProfileInbounds, useSquads } from '../src/shared/api'
+import { apiFetch, ApiError, AuthError, causeOf, ConflictError, useProfileInbounds, useSquads } from '../src/shared/api'
 
 function mockFetch(status: number, body: unknown) {
   const fn = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
@@ -66,5 +66,24 @@ describe('api hooks', () => {
   it('экспортирует хуки контекста панели', () => {
     expect(typeof useSquads).toBe('function')
     expect(typeof useProfileInbounds).toBe('function')
+  })
+})
+
+describe('causeOf', () => {
+  // Бэкенд заворачивает сетевую беду в 502 с человеческим сообщением, а
+  // машинную причину кладёт в details. Само сообщение называет симптом,
+  // причина — то, что надо чинить.
+  it('достаёт причину из тела ответа', () => {
+    const err = new ApiError(502, 'Панель Remnawave недоступна', {
+      message: 'Панель Remnawave недоступна',
+      details: 'fetch failed ← other side closed (UND_ERR_SOCKET)',
+    })
+    expect(causeOf(err)).toBe('fetch failed ← other side closed (UND_ERR_SOCKET)')
+  })
+
+  it('молчит, когда причины нет', () => {
+    expect(causeOf(new ApiError(404, 'Не найдено'))).toBeUndefined()
+    expect(causeOf(new ApiError(502, 'Недоступна', { details: '  ' }))).toBeUndefined()
+    expect(causeOf(new Error('обычная ошибка'))).toBeUndefined()
   })
 })

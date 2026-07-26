@@ -13,6 +13,17 @@ export class ApiError extends Error {
 
 export class AuthError extends ApiError {}
 
+/**
+ * Причина сбоя, которую бэкенд кладёт в `details` тела ответа. Само сообщение
+ * («Панель Remnawave недоступна») называет симптом, но не говорит, что
+ * проверять; причина отвечает на это — её и показываем рядом.
+ */
+export function causeOf(err: unknown): string | undefined {
+  if (!(err instanceof ApiError)) return undefined
+  const cause = (err.details as { details?: unknown } | undefined)?.details
+  return typeof cause === 'string' && cause.trim() !== '' ? cause : undefined
+}
+
 export class ConflictError extends ApiError {
   constructor(
     message: string,

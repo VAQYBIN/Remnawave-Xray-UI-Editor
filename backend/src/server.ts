@@ -75,6 +75,9 @@ export async function buildServer(
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err instanceof RemnawaveError) {
+      // В лог — обязательно: связь с панелью чинят по логам, а раньше причина
+      // уходила только в тело ответа и была видна лишь через DevTools.
+      req.log.warn({ status: err.status, details: err.details }, err.message)
       return reply.status(err.status).send({ message: err.message, details: err.details })
     }
     if (err instanceof ZodError) {
