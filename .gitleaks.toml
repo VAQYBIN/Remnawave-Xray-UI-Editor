@@ -15,7 +15,18 @@ disabledRules = ["jfrog-identity-token"]
 [allowlist]
 description = "Заведомо фальшивые значения из фикстур тестов и планов в docs/"
 regexTarget = "match"
-regexes = ['''0123456789abcdef0123456789abcdef''', '''super-secret-1''']
+# Исключения по КОНКРЕТНОМУ значению, а не по файлу и не ослаблением правила:
+# generic-api-key — главная сеть для настоящих утечек, и настоящий ключ,
+# случайно попавший в тот же файл, обязан быть пойман.
+regexes = [
+  '''0123456789abcdef0123456789abcdef''',
+  '''super-secret-1''',
+  # Витринный конфиг скриншотов README (frontend/screenshots/showcase.ts) и
+  # его листинг в docs/superpowers/plans/: Reality-ключ и ключ WARP выдуманы,
+  # но по форме неотличимы от настоящих — их видно на самих скриншотах.
+  '''wJPbBTQmXqLKgOSzWq3LRYLnCoRqLdYcOJhLm3PbXGM''',
+  '''yBt7BM8lLmQZ0nHrTMBrLZ5x9nZmZQ0JnQ0oNlDpXGo=''',
+]
 
 [[rules]]
 id = "remnawave-panel-token"
