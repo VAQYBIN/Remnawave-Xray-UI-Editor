@@ -8,6 +8,7 @@
 
 **Визуальный редактор Xray-конфигов для панели [Remnawave](https://remna.st) — топология трафика графом, формы вместо ручного JSON, сохранение прямо в панель по API.**
 
+[![Release](https://img.shields.io/github/v/release/VAQYBIN/Remnawave-Xray-UI-Editor?label=release&color=6E56CF)](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 ![Node](https://img.shields.io/badge/Node-24_LTS-339933?logo=node.js&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
@@ -98,23 +99,45 @@ Xray-конфиг — это большой вложенный JSON: inbound'ы,
 
 ## 🚀 Быстрый старт (VPS)
 
+Нужны только Docker и два файла — исходники и сборка на сервере не требуются.
+
 ```bash
-git clone https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor.git
-cd Remnawave-Xray-UI-Editor
-cp .env.example .env
-# заполнить .env: адрес панели, API-токен, пароль входа, секрет сессии
-docker compose up -d --build
+curl -fsSLO https://raw.githubusercontent.com/VAQYBIN/Remnawave-Xray-UI-Editor/main/docker-compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/VAQYBIN/Remnawave-Xray-UI-Editor/main/.env.example
+nano .env   # адрес панели, API-токен, пароль входа, секрет сессии
+docker compose up -d
 ```
 
-> [!IMPORTANT]
-> Контейнер работает от непривилегированного пользователя (uid 1000). Перед первым запуском
-> выдайте права на каталог бэкапов:
-> ```bash
-> mkdir -p data && sudo chown -R 1000:1000 data
-> ```
-
 Редактор доступен на `http://<host>:3000`. Проверка здоровья: `curl http://<host>:3000/health`.
-Бэкапы конфигов складываются в `./data/backups/<uuid-профиля>/` перед каждым сохранением.
+
+Образ мультиархитектурный: `linux/amd64` и `linux/arm64` — ARM-серверы (Oracle Ampere,
+Hetzner CAX) работают без оговорок.
+
+**Обновление:**
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+**Версии образа.** `:latest` — последний релиз, его и ставит `docker-compose.yml`. Закрепиться
+можно на `:1.2.3`, `:1.2` или `:1`. Тег `:edge` — сборка последнего коммита в `main`: свежая,
+но невыпущенная.
+
+**Бэкапы.** Перед каждым сохранением текущая версия профиля уходит в бэкап; лежат они в
+именованном томе `xray-editor-data`. Смотреть и восстанавливать их удобнее из диалога
+«Версии» в самом редакторе, но при желании можно достать файлами:
+
+```bash
+docker compose cp app:/data/backups ./backups
+```
+
+**Подлинность образа.** Каждая сборка подписана GitHub-аттестацией — можно убедиться, что
+образ собран этим репозиторием, а не подменён в реестре:
+
+```bash
+gh attestation verify oci://ghcr.io/vaqybin/remnawave-xray-ui-editor:latest \
+  --repo VAQYBIN/Remnawave-Xray-UI-Editor
+```
 
 ## 🔎 Диагностика конфига
 
@@ -132,7 +155,8 @@ IP назначения. Редактор проходит правила ров
 ### Geo-базы
 
 Кнопка «Geo-базы» в топбаре: ссылки на `geosite`/`geoip`, пресеты (v2fly и Loyalsoldier),
-загрузка одной кнопкой, дата файла и число категорий. Файлы кладутся в `./data/geodata/`.
+загрузка одной кнопкой, дата файла и число категорий. Файлы кладутся в `geodata/` того же
+тома, где лежат бэкапы.
 
 > [!IMPORTANT]
 > Держите списки теми же, что стоят на нодах. Трассировщик отвечает по загруженной базе —
@@ -220,6 +244,20 @@ npm run dev:frontend   # Vite на http://localhost:5173, проксирует /
 ```
 
 Для локальной разработки запустите бэкенд и фронтенд в двух терминалах.
+
+**Сборка образа из исходников** (проверить прод-сборку локально):
+
+```bash
+docker compose -f docker-compose.build.yml up -d --build
+```
+
+Здесь `./data` монтируется каталогом, чтобы бэкапы были видны обычным `ls`. На Linux каталог
+нужно подготовить один раз: `mkdir -p data && sudo chown -R 1000:1000 data`.
+
+**Выпуск релиза.** Версии ведёт Release Please по conventional-коммитам: после каждого мержа в
+`main` бот обновляет PR «chore: release X.Y.Z» с `CHANGELOG.md` и версией в `package.json`.
+Мерж этого PR создаёт тег, GitHub Release с описанием и публикует образ с тегами `:X.Y.Z`,
+`:X.Y`, `:X` и `:latest`. Отдельно ставить теги руками не нужно.
 
 ## 🧪 Тестирование
 

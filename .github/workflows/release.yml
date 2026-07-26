@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# В отличие от ci.yml этот workflow никогда не запускается на PR из форка —
+# только на push в main. Поэтому здесь допустимы права на запись в реестр и
+# доступ к секретам.
+permissions:
+  contents: read
+
+# Релизы не отменяют друг друга: отменённый прогон оставил бы в реестре
+# дайджесты без манифеста.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Литералом и в нижнем регистре: GHCR не принимает верхний, а
+  # github.repository даёт VAQYBIN/Remnawave-Xray-UI-Editor.
+  IMAGE: ghcr.io/vaqybin/remnawave-xray-ui-editor
+
+jobs:
+  release-please:
+    name: version & release notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      version: ${{ steps.rp.outputs.version }}
+      major: ${{ steps.rp.outputs.major }}
+      minor: ${{ steps.rp.outputs.minor }}
+    steps:
+      # PAT, а не GITHUB_TOKEN: события, порождённые GITHUB_TOKEN, не
+      # запускают workflow'ы, поэтому на релизном PR не появилось бы ни одной
+      # проверки — и required checks не дали бы его смержить.
+      - id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    name: build ${{ matrix.arch }}
+    # Намеренно без needs: сборка :edge не зависит от того, состоялся ли
+    # релиз, и ждать release-please незачем. Теги навешивает merge, который
+    # ждёт обоих.
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Здесь нужны только метки — теги вычисляет и вешает джоб merge. Среди
+      # меток приезжает org.opencontainers.image.source: она связывает пакет с
+      # репозиторием и даёт на странице пакета ссылку на исходники.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+
+      # push-by-digest: образ уезжает в реестр без единого тега. Так не
+      # возникает промежуточного состояния, где :latest указывает на одну
+      # платформу из двух.
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+          sbom: true
+          provenance: mode=max
+
+      # Имя файла — сам дайджест; содержимое не нужно, merge читает имена.
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: manifest & tags
+    needs: [release-please, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # edge и sha- — всегда; версионные теги и latest — только если
+      # release-please действительно выпустил релиз в этом же прогоне.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=edge
+            type=sha,prefix=sha-,format=short
+            type=raw,value=${{ needs.release-please.outputs.version }},enable=${{ needs.release-please.outputs.released == 'true' }}
+            type=raw,value=${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }},enable=${{ needs.release-please.outputs.released == 'true' }}
+            type=raw,value=${{ needs.release-please.outputs.major }},enable=${{ needs.release-please.outputs.released == 'true' }}
+            type=raw,value=latest,enable=${{ needs.release-please.outputs.released == 'true' }}
+
+      - name: Create manifest list
+        working-directory: /tmp/digests
+        run: |
+          # SC2046 здесь глушится намеренно: разбиение на слова — это и есть
+          # механизм. Первая подстановка разворачивается в несколько «-t тег»,
+          # вторая — в ссылку на каждый дайджест. Закавычить = сломать.
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - id: digest
+        name: Read index digest
+        run: |
+          digest=$(docker buildx imagetools inspect "${IMAGE}:edge" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "value=$digest" >> "$GITHUB_OUTPUT"
+          echo "манифест-индекс: $digest"
+
+      # Аттестация вешается на дайджест манифеста-индекса, а не отдельных
+      # платформ: иначе `gh attestation verify` по тегу её не найдёт.
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.digest.outputs.value }}
+          push-to-registry: true
+
+      - name: Show published tags
+        run: docker buildx imagetools inspect "${IMAGE}:edge"
