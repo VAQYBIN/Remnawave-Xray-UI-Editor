@@ -3,6 +3,7 @@ import { flowNetworkIssue, hysteriaCertificateIssue, securityNetworkIssue } from
 import { DnsSchema } from './dns'
 import { InboundSchema } from './inbounds'
 import { LogSchema } from './log'
+import { BurstObservatorySchema, ObservatorySchema } from './observatory'
 import { OutboundSchema } from './outbounds'
 import { keywordEntries, portSpecError } from './rules'
 import { RoutingSchema } from './routing'
@@ -30,8 +31,8 @@ export const XrayConfigSchema = z
     stats: obj().optional(),
     reverse: obj().optional(),
     fakedns: z.union([obj(), z.array(obj())]).optional(),
-    observatory: obj().optional(),
-    burstObservatory: obj().optional(),
+    observatory: ObservatorySchema.optional(),
+    burstObservatory: BurstObservatorySchema.optional(),
     api: obj().optional(),
   })
   .passthrough()

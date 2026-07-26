@@ -1,6 +1,5 @@
 import { z } from 'zod'
-
-const obj = () => z.object({}).passthrough()
+import { BalancerSchema } from './balancers'
 
 export const RoutingRuleSchema = z
   .object({
@@ -24,6 +23,6 @@ export const RoutingSchema = z
     domainStrategy: z.string().optional(),
     domainMatcher: z.string().optional(),
     rules: z.array(RoutingRuleSchema).optional(),
-    balancers: z.array(obj()).optional(),
+    balancers: z.array(BalancerSchema).optional(),
   })
   .passthrough()
