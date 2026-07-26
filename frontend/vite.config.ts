@@ -9,17 +9,23 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    // Vite 8 собирает через rolldown: карта «имя чанка → список пакетов»
+    // (manualChunks) им не принимается, разбиение задаётся группами с
+    // регуляркой по пути модуля.
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router', '@tanstack/react-query'],
-          codemirror: [
-            '@uiw/react-codemirror',
-            '@codemirror/lang-json',
-            '@codemirror/lint',
-            '@codemirror/merge',
+        advancedChunks: {
+          groups: [
+            {
+              name: 'react-vendor',
+              test: /node_modules[\\/](react|react-dom|react-router|@tanstack[\\/]react-query)[\\/]/,
+            },
+            {
+              name: 'codemirror',
+              test: /node_modules[\\/](@uiw[\\/]react-codemirror|@codemirror|@lezer|codemirror)[\\/]/,
+            },
+            { name: 'xyflow', test: /node_modules[\\/]@xyflow[\\/]/ },
           ],
-          xyflow: ['@xyflow/react'],
         },
       },
     },
