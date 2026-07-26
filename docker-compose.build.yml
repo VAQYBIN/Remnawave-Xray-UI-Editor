@@ -1,12 +1,16 @@
 # Сборка из исходников — для разработки и проверки образа перед релизом.
 # Пользователям нужен docker-compose.yml с готовым образом.
 services:
-  app:
+  remnawave-xray-ui-editor:
     build: .
     image: xray-ui-editor:local
+    container_name: remnawave-xray-ui-editor
+    hostname: remnawave-xray-ui-editor
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:3000"
+      # Слева порт хоста (5065 — на 3000 обычно уже висит панель Remnawave),
+      # справа порт внутри контейнера
+      - "127.0.0.1:${PORT:-5065}:3000"
     env_file: .env
     environment:
       PORT: 3000

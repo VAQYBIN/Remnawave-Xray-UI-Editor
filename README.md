@@ -114,7 +114,24 @@ nano .env   # адрес панели, API-токен, пароль входа, 
 docker compose up -d
 ```
 
-Редактор доступен на `http://<host>:3000`. Проверка здоровья: `curl http://<host>:3000/health`.
+Порт **открыт только на loopback** (`127.0.0.1:5065`) — это защита, а не недосмотр: сессионная
+cookie идёт без флага `secure`, и на публичном порту по HTTP её было бы видно в открытом виде.
+Проверить, что всё поднялось, можно прямо на сервере:
+
+```bash
+curl http://127.0.0.1:5065/health
+```
+
+Открыть редактор в браузере — двумя способами:
+
+- **быстро посмотреть** — SSH-туннель с вашей машины, дальше `http://127.0.0.1:5065`:
+  ```bash
+  ssh -N -L 5065:127.0.0.1:5065 root@<host>
+  ```
+- **для постоянной работы** — отдать через HTTPS-прокси, см. [«За reverse proxy»](#-за-reverse-proxy).
+
+Порт 5065, а не 3000, потому что на 3000 обычно уже висит сама панель Remnawave. Меняется
+переменной `PORT` в `.env`.
 
 Образ мультиархитектурный: `linux/amd64` и `linux/arm64` — ARM-серверы (Oracle Ampere,
 Hetzner CAX) работают без оговорок.
@@ -134,7 +151,7 @@ docker compose pull && docker compose up -d
 «Версии» в самом редакторе, но при желании можно достать файлами:
 
 ```bash
-docker compose cp app:/data/backups ./backups
+docker compose cp remnawave-xray-ui-editor:/data/backups ./backups
 ```
 
 **Подлинность образа.** Каждая сборка подписана GitHub-аттестацией — можно убедиться, что
@@ -144,6 +161,61 @@ docker compose cp app:/data/backups ./backups
 gh attestation verify oci://ghcr.io/vaqybin/remnawave-xray-ui-editor:latest \
   --repo VAQYBIN/Remnawave-Xray-UI-Editor
 ```
+
+## 🔀 За reverse proxy
+
+Штатный способ открыть редактор снаружи — отдать его через тот же nginx, что уже обслуживает
+панель. Два условия, и оба легко пропустить:
+
+**1. Общая сеть Docker.** По умолчанию Compose поднимает редактору собственную сеть, и nginx
+не увидит его по имени: встроенный DNS Docker разрешает имена только внутри общих сетей.
+Симптом характерный — nginx не просто не проксирует, а **отказывается стартовать**, потому что
+резолвит upstream'ы при загрузке конфига:
+
+```
+nginx: [emerg] host not found in upstream "remnawave-xray-ui-editor:3000"
+```
+
+Узнайте имя сети своего nginx и подставьте его:
+
+```bash
+docker inspect remnawave-nginx \
+  --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}'
+```
+
+В `docker-compose.yml` раскомментируйте два блока `networks` (в сервисе и в конце файла),
+подставьте имя, а `ports` можно убрать совсем — за nginx публикация на хост не нужна.
+
+**2. В upstream — внутренний порт, а не тот, что в `.env`.** Внутри сети Docker публикация
+портов не участвует: контейнер всегда слушает **3000**, каким бы ни был `PORT` на хосте.
+`PORT=5065` — это порт хоста и к nginx отношения не имеет.
+
+```nginx
+upstream remnawave-xray-ui-editor {
+    server remnawave-xray-ui-editor:3000;
+}
+
+server {
+    server_name conf-editor.example.com;
+    listen 443 ssl;
+    http2 on;
+
+    ssl_certificate "/etc/nginx/ssl/fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/privkey.key";
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_pass http://remnawave-xray-ui-editor;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Поднимайте в таком порядке: сначала редактор (`docker compose up -d`), потом перезапуск
+nginx — иначе он снова не найдёт хост и не стартует.
 
 ## 🔎 Диагностика конфига
 
@@ -303,8 +375,10 @@ npm run screenshots -w frontend
 
 - Токен Remnawave живёт только на сервере (`.env`), в браузер не передаётся.
 - Вход по паролю; сессия — подписанная httpOnly-cookie; rate-limit на логин.
-- Сессионная cookie без флага `secure` (TLS терминируется на reverse-proxy) — **не публикуйте
-  порт приложения в интернет напрямую**, только через HTTPS-прокси (Caddy / nginx) или firewall.
+- Сессионная cookie без флага `secure` (TLS терминируется на reverse-proxy). Поэтому
+  `docker-compose.yml` публикует порт **только на loopback** — так и оставьте: снаружи редактор
+  отдают через HTTPS-прокси ([раздел выше](#-за-reverse-proxy)) или SSH-туннель. Заменив
+  `127.0.0.1:5065:3000` на `5065:3000`, вы выставите в интернет сессию открытым текстом.
 
 Модель угроз и приватный канал для отчётов об уязвимостях — в [SECURITY.md](./SECURITY.md).
 
