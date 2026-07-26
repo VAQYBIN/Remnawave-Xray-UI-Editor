@@ -4,3 +4,13 @@ data/
 .env
 frontend/test-results/
 frontend/playwright-report/
+
+# Локальные инструменты разработки
+.claude/
+.impeccable/
+frontend/.impeccable/
+.superpowers/
+.codegraph/
+
+# Спека API панели — справочник, качается отдельно
+docs/Remnawave API/
