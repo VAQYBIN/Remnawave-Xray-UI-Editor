@@ -1,7 +1,7 @@
 # Ядро для проверки конфига (`xray run -test`). Версия совпадает с той, что
 # использует Remnawave: проверять конфиг чужим ядром бессмысленно. sha256 взят
 # из Xray-linux-64.zip.dgst того же релиза; при смене версии двигать оба ARG.
-FROM alpine:3.22 AS xray
+FROM alpine:3.24 AS xray
 ARG XRAY_VERSION=v26.6.27
 ARG XRAY_SHA256=b3e5902d06d6282fe53cfa2fc426058b9aeaa429b2c812e20887cd47f26d08bf
 RUN apk add --no-cache curl unzip \
