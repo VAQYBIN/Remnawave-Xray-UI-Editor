@@ -27,6 +27,18 @@ export interface DnsNodeData extends Record<string, unknown> {
   kind: 'dns'; serversCount: number
   issueCount?: IssueCount
 }
+export interface BalancerNodeData extends Record<string, unknown> {
+  kind: 'balancer'; index: number; tag: string
+  /** Строка стратегии как в конфиге; undefined — ядро возьмёт random */
+  strategy?: string
+  /** Сколько outbound'ов попало под selector */
+  candidates: number
+  issueCount?: IssueCount
+}
+export interface ObservatoryNodeData extends Record<string, unknown> {
+  kind: 'observatory'; hasObservatory: boolean; hasBurst: boolean; subjectsCount: number
+  issueCount?: IssueCount
+}
 export interface SquadNodeData extends Record<string, unknown> { kind: 'squad'; name: string }
 
 export type FlowNode = Node

@@ -12,6 +12,8 @@ import {
   validateBlock,
 } from './block'
 import type { BlockParams, TorrentParams } from './block'
+import { BALANCE_DEFAULTS, planBalance, validateBalance } from './balance'
+import type { BalanceParams } from './balance'
 import { CHAIN_DEFAULTS, planChain, validateChain } from './chain'
 import type { ChainParams } from './chain'
 import { WARP_DEFAULTS, planWarp, validateWarp } from './warp'
@@ -20,11 +22,12 @@ import type { RecipePlan } from './types'
 
 export * from './types'
 export * from './apply'
+export * from './balance'
 export * from './block'
 export * from './chain'
 export * from './warp'
 
-export type RecipeId = 'warp' | 'torrent' | 'ads' | 'private' | 'chain'
+export type RecipeId = 'warp' | 'torrent' | 'ads' | 'private' | 'chain' | 'balance'
 
 export interface AllParams {
   warp: WarpParams
@@ -32,6 +35,7 @@ export interface AllParams {
   ads: BlockParams
   private: BlockParams
   chain: ChainParams
+  balance: BalanceParams
 }
 
 export const DEFAULT_PARAMS: AllParams = {
@@ -40,6 +44,7 @@ export const DEFAULT_PARAMS: AllParams = {
   ads: BLOCK_DEFAULTS,
   private: BLOCK_DEFAULTS,
   chain: CHAIN_DEFAULTS,
+  balance: BALANCE_DEFAULTS,
 }
 
 export const RECIPES: { id: RecipeId; title: string; summary: string }[] = [
@@ -68,6 +73,11 @@ export const RECIPES: { id: RecipeId; title: string; summary: string }[] = [
     title: 'Цепочка через другой сервер',
     summary: 'Outbound на второй сервер и маршрут в него',
   },
+  {
+    id: 'balance',
+    title: 'Балансировка',
+    summary: 'Объединяет несколько выходов в балансер и переводит на него правила',
+  },
 ]
 
 export function planFor(config: XrayConfig, id: RecipeId, all: AllParams): RecipePlan {
@@ -82,6 +92,8 @@ export function planFor(config: XrayConfig, id: RecipeId, all: AllParams): Recip
       return planPrivate(config, all.private)
     case 'chain':
       return planChain(config, all.chain)
+    case 'balance':
+      return planBalance(config, all.balance)
   }
 }
 
@@ -97,5 +109,7 @@ export function validateFor(id: RecipeId, all: AllParams): string | null {
       return validateBlock(all.private)
     case 'chain':
       return validateChain(all.chain)
+    case 'balance':
+      return validateBalance(all.balance)
   }
 }

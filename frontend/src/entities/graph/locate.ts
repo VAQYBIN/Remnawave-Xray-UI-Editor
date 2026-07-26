@@ -23,6 +23,16 @@ export function nodeIdForPath(parts: PathParts, config: XrayConfig): string | nu
     return config.routing?.rules?.[third] ? `rule:${third}` : null
   }
 
+  if (head === 'routing' && second === 'balancers' && typeof third === 'number') {
+    const tag = config.routing?.balancers?.[third]?.tag
+    return tag ? `bal:${tag}` : null
+  }
+
+  // Обе секции обсерватории живут в одном узле графа
+  if (head === 'observatory' || head === 'burstObservatory') {
+    return config.observatory || config.burstObservatory ? 'obs' : null
+  }
+
   return null
 }
 

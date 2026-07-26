@@ -1,6 +1,7 @@
 // Куда уйдёт трафик: правила проверяются сверху вниз, побеждает первое полностью
 // совпавшее. Поля внутри правила соединяются через И, значения внутри поля — через ИЛИ.
 
+import { balancerCandidates, findBalancer } from './balancers'
 import type { XrayConfig } from './config'
 import {
   isIpAddress,
@@ -29,6 +30,9 @@ export interface TraceWinner {
   ruleIndex: number | null
   outboundTag?: string
   balancerTag?: string
+  /** Выходы, между которыми балансер будет выбирать; сам выбор — за ядром */
+  balancerCandidates?: string[]
+  balancerStrategy?: string
 }
 
 export interface TraceResult {
@@ -121,10 +125,25 @@ function judgeAll(
   )
 }
 
+/** Доклеивает к победителю кандидатов балансера; без балансера возвращает ТОТ ЖЕ объект */
+function withBalancer(winner: TraceWinner, config: XrayConfig): TraceWinner {
+  if (!winner.balancerTag) return winner
+  const balancer = findBalancer(config, winner.balancerTag)
+  if (!balancer) return winner
+  return {
+    ...winner,
+    balancerCandidates: balancerCandidates(config, balancer),
+    balancerStrategy: balancer.strategy?.type ?? 'random',
+  }
+}
+
 function pickWinner(verdicts: RuleVerdict[], config: XrayConfig): TraceWinner | undefined {
   const hit = verdicts.find((v) => v.state === 'yes')
   if (hit) {
-    return { ruleIndex: hit.index, outboundTag: hit.outboundTag, balancerTag: hit.balancerTag }
+    return withBalancer(
+      { ruleIndex: hit.index, outboundTag: hit.outboundTag, balancerTag: hit.balancerTag },
+      config,
+    )
   }
   // Ни одно правило не совпало — ядро отправляет трафик в первый outbound
   const fallback = config.outbounds?.[0]?.tag
@@ -194,6 +213,20 @@ function collectCaveats(
     caveats.push(
       'Стратегия IPIfNonMatch делает второй проход по разрешённому адресу — укажите IP назначения, чтобы увидеть его.',
     )
+  }
+
+  // Балансер выбирает выход по замерам в рантайме — редактор знает только список
+  if (winner?.balancerTag) {
+    const candidates = winner.balancerCandidates ?? []
+    if (candidates.length === 0) {
+      caveats.push(
+        `У балансера «${winner.balancerTag}» нет кандидатов: трафик уйдёт в запасной выход либо будет отброшен.`,
+      )
+    } else {
+      caveats.push(
+        `Балансер «${winner.balancerTag}» (${winner.balancerStrategy}) выберет один из выходов: ${candidates.join(', ')} — конкретный выбирает ядро в рантайме по замерам.`,
+      )
+    }
   }
 
   return caveats

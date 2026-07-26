@@ -6,7 +6,7 @@ import type { GraphContext } from './types'
 
 export interface SearchHit {
   nodeId: string
-  kind: 'inbound' | 'outbound' | 'rule' | 'squad' | 'dns'
+  kind: 'inbound' | 'outbound' | 'rule' | 'squad' | 'dns' | 'balancer'
   title: string
   /** Чем совпало — иначе в списке правил непонятно, почему они там */
   matchedOn: string
@@ -61,6 +61,17 @@ export function searchNodes(config: XrayConfig, ctx: GraphContext, query: string
     ])
     if (matched) {
       push({ nodeId: `out:${out.tag}`, kind: 'outbound', title: out.tag, matchedOn: matched })
+    }
+  }
+
+  for (const bal of config.routing?.balancers ?? []) {
+    const matched = firstMatch(needle, [
+      { label: 'тег', value: bal.tag },
+      { label: 'стратегия', value: bal.strategy?.type },
+      { label: 'селектор', value: bal.selector },
+    ])
+    if (matched) {
+      push({ nodeId: `bal:${bal.tag}`, kind: 'balancer', title: bal.tag, matchedOn: matched })
     }
   }
 

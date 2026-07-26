@@ -66,3 +66,18 @@ describe('searchNodes', () => {
     expect(searchNodes(many, {}, 'in-')).toHaveLength(20)
   })
 })
+
+describe('поиск балансеров', () => {
+  const CFG = {
+    outbounds: [{ tag: 'proxy-de', protocol: 'vless' }],
+    routing: {
+      rules: [],
+      balancers: [{ tag: 'bal-eu', selector: ['proxy-'], strategy: { type: 'leastPing' } }],
+    },
+  } as XrayConfig
+
+  it('находит балансер по тегу и по стратегии', () => {
+    expect(searchNodes(CFG, {}, 'bal-eu')[0]).toMatchObject({ nodeId: 'bal:bal-eu', kind: 'balancer' })
+    expect(searchNodes(CFG, {}, 'leastping')[0]).toMatchObject({ nodeId: 'bal:bal-eu' })
+  })
+})

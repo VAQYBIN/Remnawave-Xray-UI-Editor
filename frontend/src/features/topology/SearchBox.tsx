@@ -8,6 +8,7 @@ const KIND_LABEL: Record<SearchHit['kind'], string> = {
   rule: 'правило',
   squad: 'сквад',
   dns: 'dns',
+  balancer: 'балансер',
 }
 
 export function SearchBox({

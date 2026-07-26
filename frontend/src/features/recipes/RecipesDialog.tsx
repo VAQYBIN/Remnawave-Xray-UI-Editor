@@ -10,6 +10,7 @@ import {
 } from '../../entities/xray'
 import { Button, Dialog } from '../../shared/ui'
 import { DiffView } from '../editor/DiffView'
+import { BalanceForm } from './forms/BalanceForm'
 import { BlockForm } from './forms/BlockForm'
 import { ChainForm } from './forms/ChainForm'
 import { TorrentForm } from './forms/TorrentForm'
@@ -113,6 +114,13 @@ export function RecipesDialog({ open, config, onApply, onOpenGeo, onClose }: Pro
                   value={params.chain}
                   outboundTags={outboundTags}
                   onChange={(chain) => setParams({ ...params, chain })}
+                />
+              )}
+              {id === 'balance' && (
+                <BalanceForm
+                  value={params.balance}
+                  outboundTags={outboundTags}
+                  onChange={(balance) => setParams({ ...params, balance })}
                 />
               )}
 

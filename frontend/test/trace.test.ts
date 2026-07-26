@@ -221,3 +221,38 @@ describe('traceRoute: причина отказа ip-условия зависи
     expect(reason).toMatch(/втор|IP назначения/i)
   })
 })
+
+describe('трассировка через балансер', () => {
+  const balanced = (selector: string[], strategy = 'leastPing'): XrayConfig =>
+    ({
+      outbounds: [
+        { tag: 'proxy-de', protocol: 'vless' },
+        { tag: 'proxy-nl', protocol: 'vless' },
+        { tag: 'direct', protocol: 'freedom' },
+      ],
+      routing: {
+        rules: [{ domain: ['domain:openai.com'], balancerTag: 'bal-eu' }],
+        balancers: [{ tag: 'bal-eu', selector, strategy: { type: strategy } }],
+      },
+    }) as XrayConfig
+
+  it('победитель несёт кандидатов и стратегию', () => {
+    const res = traceRoute(balanced(['proxy-']), TARGET, NO_GEO)
+    expect(res.winner).toMatchObject({
+      ruleIndex: 0,
+      balancerTag: 'bal-eu',
+      balancerStrategy: 'leastPing',
+      balancerCandidates: ['proxy-de', 'proxy-nl'],
+    })
+  })
+
+  it('оговорка про непредсказуемость конкретного выхода', () => {
+    const res = traceRoute(balanced(['proxy-']), TARGET, NO_GEO)
+    expect(res.caveats.some((c) => c.includes('выбирает ядро в рантайме'))).toBe(true)
+  })
+
+  it('пустой балансер — отдельная оговорка', () => {
+    const res = traceRoute(balanced(['нет-такого-']), TARGET, NO_GEO)
+    expect(res.caveats.some((c) => c.includes('нет кандидатов'))).toBe(true)
+  })
+})

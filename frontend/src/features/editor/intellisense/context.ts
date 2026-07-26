@@ -12,7 +12,7 @@ import type { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { descend, type Props } from '../../../entities/xray/docSchema'
 
-export type XrayRootKind = 'config' | 'inbound' | 'outbound' | 'rule' | 'dns'
+export type XrayRootKind = 'config' | 'inbound' | 'outbound' | 'rule' | 'dns' | 'balancer'
 
 export function stripQuotes(text: string): string {
   return text.replace(/^"|"$/g, '')

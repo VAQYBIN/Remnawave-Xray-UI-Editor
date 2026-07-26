@@ -5,13 +5,14 @@ import {
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import type { TraceResult, XrayConfig } from '../../entities/xray'
+import { expandSelector, type TraceResult, type XrayConfig } from '../../entities/xray'
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import {
-  addInbound, addOutbound, addRule, attachInboundToRule, connectRule, disconnectEdge, setRuleOutbound,
+  addBalancer, addInbound, addOutbound, addRule, attachInboundToRule, attachOutboundToBalancer,
+  connectRule, disconnectEdge, setRuleBalancer, setRuleOutbound,
 } from '../../entities/graph/mutations'
-import { Button } from '../../shared/ui'
+import { Button, Dialog } from '../../shared/ui'
 import { edgeTypes } from './edges'
 import { nodeTypes } from './nodes'
 import { usePositionsStore } from './positionsStore'
@@ -38,6 +39,7 @@ interface Props {
 // Индекс правила, зашитый в id ребра (`rule:{i}`), для сортировки перед батч-удалением.
 // Рёбра без индекса правила (например squad->inbound) сохраняют относительный порядок в конце.
 const RULE_INDEX = /rule:(\d+)/
+const EDGE_BAL_OUT = /^e:bal:(.+)->out:(.+)$/
 
 function ruleIndexOf(edgeId: string): number {
   const m = RULE_INDEX.exec(edgeId)
@@ -52,15 +54,17 @@ export function resyncEdges(prev: Edge[], next: Edge[]): Edge[] {
 
 /**
  * Что можно коммутировать: inbound уходит в правило или напрямую в outbound
- * (тогда правило создаётся само), правило — только в outbound. Гнёзда сквадов
- * закрыты: привязку сквадов задаёт панель Remnawave, не редактор.
+ * (тогда правило создаётся само), правило — в балансер либо в outbound, балансер —
+ * в outbound. Гнёзда сквадов и обсерватории закрыты: привязку сквадов задаёт панель
+ * Remnawave, а связь обсерватории с балансером выводится из его стратегии.
  */
 export function isValidConnection(conn: { source?: string | null; target?: string | null }): boolean {
   const source = conn.source ?? ''
   const target = conn.target ?? ''
   if (source === target) return false
   if (source.startsWith('in:')) return target.startsWith('rule:') || target.startsWith('out:')
-  if (source.startsWith('rule:')) return target.startsWith('out:')
+  if (source.startsWith('rule:')) return target.startsWith('out:') || target.startsWith('bal:')
+  if (source.startsWith('bal:')) return target.startsWith('out:')
   return false
 }
 
@@ -79,6 +83,12 @@ export function applyConnection(
   }
   if (source.startsWith('rule:') && target.startsWith('out:')) {
     return setRuleOutbound(config, Number(source.slice(5)), target.slice(4))
+  }
+  if (source.startsWith('rule:') && target.startsWith('bal:')) {
+    return setRuleBalancer(config, Number(source.slice(5)), target.slice(4))
+  }
+  if (source.startsWith('bal:') && target.startsWith('out:')) {
+    return attachOutboundToBalancer(config, source.slice(4), target.slice(4))
   }
   return config
 }
@@ -159,6 +169,7 @@ const COLUMNS = [
   { kind: 'squad', title: 'сквады', x: COLUMN_X.squad },
   { kind: 'inbound', title: 'inbound', x: COLUMN_X.inbound },
   { kind: 'rule', title: 'правила', x: COLUMN_X.rule },
+  { kind: 'balancer', title: 'балансеры', x: COLUMN_X.balancer },
   { kind: 'outbound', title: 'outbound', x: COLUMN_X.outbound },
 ] as const
 
@@ -199,6 +210,13 @@ export function tracedEdgeIds(result: TraceResult | undefined, config: XrayConfi
     : inboundTags
   for (const tag of scope) ids.add(`e:in:${tag}->rule:${index}`)
   if (rule.outboundTag) ids.add(`e:rule:${index}->out:${rule.outboundTag}`)
+  if (rule.balancerTag) {
+    ids.add(`e:rule:${index}->bal:${rule.balancerTag}`)
+    // Победителя среди кандидатов редактор не знает — подсвечиваем всех
+    for (const tag of result?.winner?.balancerCandidates ?? []) {
+      ids.add(`e:bal:${rule.balancerTag}->out:${tag}`)
+    }
+  }
   return ids
 }
 
@@ -271,6 +289,9 @@ export function TopologyView({
   const [edges, setEdges] = useState<Edge[]>(computed.edges)
   useEffect(() => setEdges((prev) => resyncEdges(prev, computed.edges)), [computed.edges])
 
+  // Запрос на разворот префикса selector — ставится при разрыве префиксного ребра
+  const [expand, setExpand] = useState<{ balancerTag: string; outboundTag: string } | null>(null)
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       setNodes((nds) => applyNodeChanges(changes, nds))
@@ -312,9 +333,18 @@ export function TopologyView({
         if (byIndex !== 0) return byIndex
         return isRuleOut(a.id) - isRuleOut(b.id)
       })
+      // Ребро балансер → выход, кандидат которого пришёл из префикса, disconnectEdge
+      // не трогает: убрать одного, не переписав selector, нельзя. Спрашиваем разрешение.
+      let pending: { balancerTag: string; outboundTag: string } | null = null
       let next = config
-      for (const edge of sorted) next = disconnectEdge(next, edge.id)
+      for (const edge of sorted) {
+        const before = next
+        next = disconnectEdge(next, edge.id)
+        const m = EDGE_BAL_OUT.exec(edge.id)
+        if (next === before && m) pending = { balancerTag: m[1]!, outboundTag: m[2]! }
+      }
       if (next !== config) onChangeConfig(next)
+      if (pending) setExpand(pending)
     },
     [config, onChangeConfig],
   )
@@ -378,6 +408,7 @@ export function TopologyView({
           <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
           <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
           <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
+          <Button onClick={() => onChangeConfig(addBalancer(config))}>+ Балансер</Button>
           {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
           <span className="wb-dock-sep" aria-hidden="true" />
           {dockExtra}
@@ -387,6 +418,30 @@ export function TopologyView({
           </Button>
         </div>
       </Panel>
+
+      <Dialog open={expand !== null} title="Убрать выход из балансера" onClose={() => setExpand(null)}>
+        <p>
+          Кандидат «{expand?.outboundTag}» попал в балансер «{expand?.balancerTag}» по префиксу.
+          Чтобы убрать только его, селектор придётся переписать точными тегами остальных кандидатов.
+        </p>
+        <div className="row">
+          <span className="spacer" />
+          <Button variant="ghost" onClick={() => setExpand(null)}>
+            Отмена
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              if (expand) {
+                onChangeConfig(expandSelector(config, expand.balancerTag, expand.outboundTag))
+              }
+              setExpand(null)
+            }}
+          >
+            Развернуть префикс
+          </Button>
+        </div>
+      </Dialog>
     </ReactFlow>
   )
 }

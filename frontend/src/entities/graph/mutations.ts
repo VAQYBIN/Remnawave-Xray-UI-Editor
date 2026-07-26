@@ -1,4 +1,5 @@
 import type { XrayConfig } from '../xray'
+import { balancerCandidates } from '../xray/balancers'
 
 function clone(config: XrayConfig): XrayConfig {
   return structuredClone(config)
@@ -9,6 +10,9 @@ function inboundIndex(config: XrayConfig, tag: string): number {
 }
 function outboundIndex(config: XrayConfig, tag: string): number {
   return (config.outbounds ?? []).findIndex((o) => o.tag === tag)
+}
+function balancerIndex(config: XrayConfig, tag: string): number {
+  return (config.routing?.balancers ?? []).findIndex((b) => b.tag === tag)
 }
 
 // Возвращает живую ссылку внутрь config — НЕ мутируйте результат, используйте applyNodeJson
@@ -25,6 +29,18 @@ export function getNodeJson(config: XrayConfig, nodeId: string): unknown | undef
   if (nodeId.startsWith('rule:')) {
     return config.routing?.rules?.[Number(nodeId.slice(5))]
   }
+  if (nodeId.startsWith('bal:')) {
+    const i = balancerIndex(config, nodeId.slice(4))
+    return i === -1 ? undefined : config.routing!.balancers![i]
+  }
+  // Узел obs представляет ДВЕ глобальные секции сразу — в JSON-вкладке видно и
+  // правится ровно то, что уйдёт в конфиг
+  if (nodeId === 'obs') {
+    const value: Record<string, unknown> = {}
+    if (config.observatory) value.observatory = config.observatory
+    if (config.burstObservatory) value.burstObservatory = config.burstObservatory
+    return value
+  }
   return undefined
 }
 
@@ -34,10 +50,16 @@ export function getNodeJson(config: XrayConfig, nodeId: string): unknown | undef
 // вызывается только на свежем клоне внутри applyNodeJson.
 function retagInPlace(
   config: XrayConfig,
-  kind: 'inbound' | 'outbound',
+  kind: 'inbound' | 'outbound' | 'balancer',
   oldTag: string,
   newTag: string,
 ): void {
+  if (kind === 'balancer') {
+    for (const rule of config.routing?.rules ?? []) {
+      if (rule.balancerTag === oldTag) rule.balancerTag = newTag
+    }
+    return
+  }
   for (const rule of config.routing?.rules ?? []) {
     if (kind === 'inbound') {
       if (rule.inboundTag) rule.inboundTag = rule.inboundTag.map((t) => (t === oldTag ? newTag : t))
@@ -105,6 +127,28 @@ export function applyNodeJson(config: XrayConfig, nodeId: string, value: unknown
     }
     return next
   }
+  if (nodeId.startsWith('bal:')) {
+    const oldTag = nodeId.slice(4)
+    const i = balancerIndex(next, oldTag)
+    if (i !== -1) {
+      next.routing!.balancers![i] = value as NonNullable<
+        NonNullable<XrayConfig['routing']>['balancers']
+      >[number]
+    }
+    const newTag = tagOf(value)
+    if (i !== -1 && newTag !== undefined && newTag !== oldTag) {
+      retagInPlace(next, 'balancer', oldTag, newTag)
+    }
+    return next
+  }
+  if (nodeId === 'obs') {
+    const obj = (value ?? {}) as { observatory?: unknown; burstObservatory?: unknown }
+    if (obj.observatory === undefined) delete next.observatory
+    else next.observatory = obj.observatory as XrayConfig['observatory']
+    if (obj.burstObservatory === undefined) delete next.burstObservatory
+    else next.burstObservatory = obj.burstObservatory as XrayConfig['burstObservatory']
+    return next
+  }
   return next
 }
 
@@ -127,6 +171,16 @@ export function removeNode(config: XrayConfig, nodeId: string): XrayConfig {
   if (nodeId.startsWith('rule:')) {
     const i = Number(nodeId.slice(5))
     next.routing?.rules?.splice(i, 1)
+    return next
+  }
+  if (nodeId.startsWith('bal:')) {
+    const i = balancerIndex(next, nodeId.slice(4))
+    if (i !== -1) next.routing!.balancers!.splice(i, 1)
+    return next
+  }
+  if (nodeId === 'obs') {
+    delete next.observatory
+    delete next.burstObservatory
     return next
   }
   return next
@@ -160,6 +214,15 @@ export function addOutbound(config: XrayConfig): XrayConfig {
   const tag = uniqueTag(new Set(next.outbounds.map((o) => o.tag)), 'direct')
   // uniqueTag сам подберёт свободный суффикс
   next.outbounds.push({ tag, protocol: 'freedom', settings: {} })
+  return next
+}
+
+export function addBalancer(config: XrayConfig): XrayConfig {
+  const next = clone(config)
+  next.routing = next.routing ?? {}
+  next.routing.balancers = next.routing.balancers ?? []
+  const tag = uniqueTag(new Set(next.routing.balancers.map((b) => b.tag)), 'balancer')
+  next.routing.balancers.push({ tag, selector: [], strategy: { type: 'roundRobin' } })
   return next
 }
 
@@ -211,11 +274,45 @@ export function attachInboundToRule(config: XrayConfig, inboundTag: string, rule
 
 // Ребро правило → outbound: назначает правилу точку выхода.
 // Правило имеет ровно один outboundTag, поэтому прежний перезаписывается.
+// balancerTag снимаем: при обоих заданных тегах ядро берёт outboundTag, и
+// оставшийся балансер выглядел бы работающим, не будучи им.
 export function setRuleOutbound(config: XrayConfig, ruleIndex: number, outboundTag: string): XrayConfig {
   const rule = config.routing?.rules?.[ruleIndex]
-  if (!rule || rule.outboundTag === outboundTag) return config
+  if (!rule) return config
+  if (rule.outboundTag === outboundTag && rule.balancerTag === undefined) return config
   const next = clone(config)
-  next.routing!.rules![ruleIndex]!.outboundTag = outboundTag
+  const target = next.routing!.rules![ruleIndex]!
+  target.outboundTag = outboundTag
+  delete target.balancerTag
+  return next
+}
+
+// Ребро правило → балансер. outboundTag снимаем по той же причине, что и выше.
+export function setRuleBalancer(config: XrayConfig, ruleIndex: number, balancerTag: string): XrayConfig {
+  const rule = config.routing?.rules?.[ruleIndex]
+  if (!rule) return config
+  if (rule.balancerTag === balancerTag && rule.outboundTag === undefined) return config
+  const next = clone(config)
+  const target = next.routing!.rules![ruleIndex]!
+  target.balancerTag = balancerTag
+  delete target.outboundTag
+  return next
+}
+
+// Ребро балансер → outbound: в selector уходит ТОЧНЫЙ тег. Уже покрытый префиксом
+// кандидат не дублируется — возвращается тот же конфиг.
+export function attachOutboundToBalancer(
+  config: XrayConfig,
+  balancerTag: string,
+  outboundTag: string,
+): XrayConfig {
+  const i = balancerIndex(config, balancerTag)
+  if (i === -1) return config
+  const balancer = config.routing!.balancers![i]!
+  if (balancerCandidates(config, balancer).includes(outboundTag)) return config
+  const next = clone(config)
+  const target = next.routing!.balancers![i]!
+  target.selector = [...(target.selector ?? []), outboundTag]
   return next
 }
 
@@ -252,6 +349,11 @@ export function appendGeoKey(
 
 const EDGE_IN_RULE = /^e:in:(.+)->rule:(\d+)$/
 const EDGE_RULE_OUT = /^e:rule:(\d+)->out:(.+)$/
+const EDGE_RULE_BAL = /^e:rule:(\d+)->bal:(.+)$/
+// Запасной выход помечен своим префиксом: тег может быть одновременно кандидатом
+// и fallback'ом, а два ребра с одинаковым id ломают React Flow
+const EDGE_BAL_FB = /^e:bal:(.+)->fb:(.+)$/
+const EDGE_BAL_OUT = /^e:bal:(.+)->out:(.+)$/
 
 export function disconnectEdge(config: XrayConfig, edgeId: string): XrayConfig {
   const inRule = EDGE_IN_RULE.exec(edgeId)
@@ -267,6 +369,33 @@ export function disconnectEdge(config: XrayConfig, edgeId: string): XrayConfig {
   if (ruleOut) {
     const next = clone(config)
     next.routing?.rules?.splice(Number(ruleOut[1]), 1)
+    return next
+  }
+  // Правило без назначения бессмысленно — удаляем целиком, как и для ребра rule→out
+  const ruleBal = EDGE_RULE_BAL.exec(edgeId)
+  if (ruleBal) {
+    const next = clone(config)
+    next.routing?.rules?.splice(Number(ruleBal[1]), 1)
+    return next
+  }
+  const balFb = EDGE_BAL_FB.exec(edgeId)
+  if (balFb) {
+    const i = balancerIndex(config, balFb[1]!)
+    if (i === -1) return config
+    const next = clone(config)
+    delete next.routing!.balancers![i]!.fallbackTag
+    return next
+  }
+  const balOut = EDGE_BAL_OUT.exec(edgeId)
+  if (balOut) {
+    const i = balancerIndex(config, balOut[1]!)
+    if (i === -1) return config
+    const selector = config.routing!.balancers![i]!.selector ?? []
+    // Кандидат пришёл из префикса: убрать одного, не переписав selector, нельзя —
+    // возвращаем тот же конфиг, TopologyView спросит про разворот префикса
+    if (!selector.includes(balOut[2]!)) return config
+    const next = clone(config)
+    next.routing!.balancers![i]!.selector = selector.filter((s) => s !== balOut[2])
     return next
   }
   return config

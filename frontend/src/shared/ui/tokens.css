@@ -1006,6 +1006,8 @@ p { margin: 0 0 10px; }
 .fnode-in { --node-hue: var(--flux); --node-select: var(--flux); }
 .fnode-out { --node-hue: var(--ember); --node-select: var(--ember); }
 .fnode-squad { --node-hue: var(--flux); --node-select: var(--flux); }
+/* Балансер — переключатель без своего hue, как правило: сталь, акцент на выходе */
+.fnode-bal { --node-hue: var(--cable-steel); --node-select: var(--ember); }
 
 /* Торцевая марка — цветной корешок со стороны, откуда приходит/уходит сигнал */
 .fnode-in::before, .fnode-out::before, .fnode-squad::before {

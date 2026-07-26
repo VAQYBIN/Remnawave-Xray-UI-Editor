@@ -433,3 +433,80 @@ describe('путь диагностики', () => {
     expect(formatPath([])).toBe('')
   })
 })
+
+describe('валидация балансеров', () => {
+  const cfg = (balancers: unknown[], extra: Record<string, unknown> = {}) =>
+    ({
+      outbounds: [
+        { tag: 'proxy-de', protocol: 'vless' },
+        { tag: 'direct', protocol: 'freedom' },
+      ],
+      routing: { rules: [], balancers },
+      ...extra,
+    }) as XrayConfig
+
+  const messages = (config: XrayConfig) =>
+    analyzeIntegrity(config).map((i) => `${i.level}:${i.path}:${i.message}`)
+
+  it('дубликат тега балансера — ошибка', () => {
+    const found = messages(
+      cfg([
+        { tag: 'bal', selector: ['proxy-'] },
+        { tag: 'bal', selector: ['proxy-'] },
+      ]),
+    )
+    expect(found.some((m) => m.startsWith('error:routing.balancers.1.tag'))).toBe(true)
+  })
+
+  it('селектор без совпадений — ошибка', () => {
+    const found = messages(cfg([{ tag: 'bal', selector: ['нет-такого-'] }]))
+    expect(found.some((m) => m.startsWith('error:routing.balancers.0.selector'))).toBe(true)
+  })
+
+  it('пустой селектор — ошибка', () => {
+    const found = messages(cfg([{ tag: 'bal', selector: [] }]))
+    expect(found.some((m) => m.startsWith('error:routing.balancers.0.selector'))).toBe(true)
+  })
+
+  it('висячий fallbackTag — предупреждение', () => {
+    const found = messages(cfg([{ tag: 'bal', selector: ['proxy-'], fallbackTag: 'нет' }]))
+    expect(found.some((m) => m.startsWith('warning:routing.balancers.0.fallbackTag'))).toBe(true)
+  })
+
+  it('leastPing без observatory — предупреждение, с ней — нет', () => {
+    const bal = [{ tag: 'bal', selector: ['proxy-'], strategy: { type: 'leastPing' } }]
+    expect(messages(cfg(bal)).some((m) => m.startsWith('warning:routing.balancers.0.strategy'))).toBe(true)
+    const ok = messages(cfg(bal, { observatory: { subjectSelector: ['proxy-'] } }))
+    expect(ok.some((m) => m.startsWith('warning:routing.balancers.0.strategy'))).toBe(false)
+  })
+
+  it('leastLoad без burstObservatory — предупреждение', () => {
+    const found = messages(cfg([{ tag: 'bal', selector: ['proxy-'], strategy: { type: 'leastLoad' } }]))
+    expect(found.some((m) => m.startsWith('warning:routing.balancers.0.strategy'))).toBe(true)
+  })
+
+  it('subjectSelector не покрывает кандидата — предупреждение', () => {
+    const found = messages(
+      cfg([{ tag: 'bal', selector: ['proxy-'], strategy: { type: 'leastPing' } }], {
+        observatory: { subjectSelector: ['другое-'] },
+      }),
+    )
+    expect(found.some((m) => m.includes('observatory.subjectSelector') && m.includes('proxy-de'))).toBe(true)
+  })
+
+  it('неизвестная стратегия — предупреждение', () => {
+    const found = messages(cfg([{ tag: 'bal', selector: ['proxy-'], strategy: { type: 'wat' } }]))
+    expect(found.some((m) => m.startsWith('warning:routing.balancers.0.strategy'))).toBe(true)
+  })
+
+  it('правило с обоими тегами — предупреждение про приоритет outboundTag', () => {
+    const config = {
+      outbounds: [{ tag: 'proxy-de', protocol: 'vless' }],
+      routing: {
+        rules: [{ outboundTag: 'proxy-de', balancerTag: 'bal' }],
+        balancers: [{ tag: 'bal', selector: ['proxy-'] }],
+      },
+    } as XrayConfig
+    expect(messages(config).some((m) => m.startsWith('warning:routing.rules.0.balancerTag'))).toBe(true)
+  })
+})

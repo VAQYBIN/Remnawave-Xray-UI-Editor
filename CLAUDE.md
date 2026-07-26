@@ -71,6 +71,18 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 
 - `entities/xray` — типы и чистая логика Xray-конфига: схемы inbound/outbound/stream/routing, генерация (`generate.ts`). Всё реэкспортируется через `entities/xray/index.ts`.
 - `entities/graph` — `buildGraph.ts` строит из конфига колоночный граф (squad → inbound → rule → outbound); `mutations.ts` — обратные правки конфига из графа. Дубликаты тегов пропускаются (иначе ломаются id узлов React Flow).
+- **Балансеры.** `routing.balancers` — своя колонка графа между правилами и outbound'ами
+  (`COLUMN_X.balancer`, outbound уехал на 1290), узел `bal:<tag>`. `selector` матчит теги
+  outbound'ов **по префиксу**; единственная реализация — `entities/xray/balancers.ts`
+  (`matchPrefixes`/`balancerCandidates`), её зовут граф, форма, валидации, трассировка и рецепт.
+  Разрыв ребра «балансер → выход», заданного префиксом, `disconnectEdge` не выполняет (возвращает
+  тот же конфиг) — `TopologyView` спрашивает подтверждение и вызывает `expandSelector`. У ребра
+  запасного выхода свой префикс id (`e:bal:<tag>->fb:<out>`): тег может быть и кандидатом, и
+  fallback'ом, а одинаковые id ломают React Flow. `observatory`/`burstObservatory` — глобальные
+  секции (по одной на конфиг), живут в узле `obs` под колонкой балансеров; `leastPing` требует
+  первую, `leastLoad` — вторую, заводит их кнопка в форме балансера через
+  `ensureObservatorySection`. При заданных сразу `outboundTag` и `balancerTag` ядро берёт
+  `outboundTag`, поэтому мутации графа снимают парный тег.
 - `features/editor` — `EditorPage` (вкладки: топология / JSON узла), `draftStore.ts` — zustand-persist черновики в localStorage по uuid профиля, хранят `baseUpdatedAt` для проверки конфликта при сохранении; `VersionsDialog`, `SaveDialog`, `IssueList`.
 - Все записи черновика в `EditorPage` идут через одну функцию `writeDraft(text, {history})`;
   `historyStore.ts` — стеки `past`/`future` в памяти (без persist: 50 снимков конфига вытеснили бы

@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { nodeTypes } from '../src/features/topology/nodes'
-import type { InboundNodeData, OutboundNodeData, RuleNodeData } from '../src/entities/graph/types'
+import { edgeHues, isDashedEdge } from '../src/features/topology/edges'
+import type {
+  BalancerNodeData, InboundNodeData, ObservatoryNodeData, OutboundNodeData, RuleNodeData,
+} from '../src/entities/graph/types'
 
 const InboundNode = nodeTypes.inbound as unknown as ComponentType<{ data: InboundNodeData; selected?: boolean }>
 const OutboundNode = nodeTypes.outbound as unknown as ComponentType<{ data: OutboundNodeData; selected?: boolean }>
@@ -68,5 +71,51 @@ describe('узел правила: вердикт трассировки', () =>
       />,
     )
     expect(screen.queryByText('маршрут')).not.toBeInTheDocument()
+  })
+})
+
+const BalancerNode = nodeTypes.balancer as unknown as ComponentType<{ data: BalancerNodeData; selected?: boolean }>
+const ObservatoryNode = nodeTypes.observatory as unknown as ComponentType<{ data: ObservatoryNodeData; selected?: boolean }>
+
+describe('узлы балансера и обсерватории', () => {
+  it('узел балансера показывает стратегию и число кандидатов', () => {
+    wrap(
+      <BalancerNode
+        data={{ kind: 'balancer' as const, index: 0, tag: 'bal-eu', strategy: 'leastPing', candidates: 2 }}
+        selected={false}
+      />,
+    )
+    expect(screen.getByText('bal-eu')).toBeInTheDocument()
+    expect(screen.getByText('leastPing')).toBeInTheDocument()
+    expect(screen.getByText('кандидатов: 2')).toBeInTheDocument()
+  })
+
+  it('балансер без стратегии показывает подразумеваемый random', () => {
+    wrap(<BalancerNode data={{ kind: 'balancer' as const, index: 0, tag: 'b', candidates: 0 }} selected={false} />)
+    expect(screen.getByText('random')).toBeInTheDocument()
+  })
+
+  it('узел обсерватории показывает включённые секции', () => {
+    wrap(
+      <ObservatoryNode
+        data={{ kind: 'observatory' as const, hasObservatory: true, hasBurst: false, subjectsCount: 1 }}
+        selected={false}
+      />,
+    )
+    expect(screen.getByText('observatory')).toBeInTheDocument()
+    expect(screen.getByText('целей: 1')).toBeInTheDocument()
+  })
+})
+
+describe('кабели балансеров', () => {
+  it('правило → балансер стальной, балансер → выход уходит в янтарь', () => {
+    expect(edgeHues('e:rule:0->bal:bal-eu')).toEqual(['var(--cable-steel)', 'var(--cable-steel)'])
+    expect(edgeHues('e:bal:bal-eu->out:proxy-de')).toEqual(['var(--cable-steel)', 'var(--ember)'])
+  })
+
+  it('fallback и зависимость обсерватории рисуются пунктиром', () => {
+    expect(isDashedEdge('e:bal:bal-eu->fb:direct')).toBe(true)
+    expect(isDashedEdge('e:obs->bal:bal-eu')).toBe(true)
+    expect(isDashedEdge('e:bal:bal-eu->out:proxy-de')).toBe(false)
   })
 })

@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type {
-  DnsNodeData, InboundNodeData, IssueCount, OutboundNodeData, RuleNodeData, SquadNodeData,
+  BalancerNodeData, DnsNodeData, InboundNodeData, IssueCount, ObservatoryNodeData, OutboundNodeData,
+  RuleNodeData, SquadNodeData,
 } from '../../entities/graph/types'
 
 function frame(kind: string, selected: boolean | undefined): string {
@@ -9,6 +10,7 @@ function frame(kind: string, selected: boolean | undefined): string {
     kind === 'inbound' ? 'fnode-in' : '',
     kind === 'outbound' ? 'fnode-out' : '',
     kind === 'squad' ? 'fnode-squad' : '',
+    kind === 'balancer' ? 'fnode-bal' : '',
     selected ? 'fnode-selected' : '',
   ]
     .filter(Boolean)
@@ -17,7 +19,9 @@ function frame(kind: string, selected: boolean | undefined): string {
 
 // Узлы появляются волной слева направо — в порядке движения сигнала по патчбею.
 // Задержку отдаём CSS-переменной, саму анимацию держит .fnode в tokens.css.
-const ENTER_DELAY: Record<string, number> = { squad: 0, inbound: 70, dns: 70, rule: 140, outbound: 210 }
+const ENTER_DELAY: Record<string, number> = {
+  squad: 0, inbound: 70, dns: 70, rule: 140, balancer: 210, observatory: 210, outbound: 280,
+}
 function enter(kind: string): React.CSSProperties {
   return { '--enter-delay': `${ENTER_DELAY[kind] ?? 0}ms` } as React.CSSProperties
 }
@@ -149,10 +153,50 @@ function SquadNode({ data, selected }: { data: SquadNodeData; selected?: boolean
   )
 }
 
+function BalancerNode({ data, selected }: { data: BalancerNodeData; selected?: boolean }) {
+  return (
+    <div className={frame('balancer', selected)} style={enter('balancer')}>
+      <Handle type="target" position={Position.Left} />
+      <div className="fnode-head">
+        <span className="fnode-kind">балансер</span>
+        <IssueBadge count={data.issueCount} />
+      </div>
+      <div className="fnode-title">{data.tag}</div>
+      <div className="metrics">
+        {/* Стратегии по умолчанию в конфиге нет — ядро берёт random */}
+        <Metric accent>{data.strategy ?? 'random'}</Metric>
+        <Metric>{`кандидатов: ${data.candidates}`}</Metric>
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  )
+}
+
+function ObservatoryNode({ data, selected }: { data: ObservatoryNodeData; selected?: boolean }) {
+  return (
+    <div className={frame('observatory', selected)} style={enter('observatory')}>
+      <div className="fnode-head">
+        <span className="fnode-kind">проверка живости</span>
+        <IssueBadge count={data.issueCount} />
+      </div>
+      <div className="fnode-title">Обсерватория</div>
+      <div className="metrics">
+        {data.hasObservatory && <Metric>observatory</Metric>}
+        {data.hasBurst && <Metric>burst</Metric>}
+        <Metric>{`целей: ${data.subjectsCount}`}</Metric>
+      </div>
+      {/* Связь с балансером выводится из его стратегии, кабелем её не задают */}
+      <Handle type="source" position={Position.Right} isConnectable={false} />
+    </div>
+  )
+}
+
 export const nodeTypes = {
   inbound: InboundNode,
   outbound: OutboundNode,
   rule: RuleNode,
   dns: DnsNode,
   squad: SquadNode,
+  balancer: BalancerNode,
+  observatory: ObservatoryNode,
 } as unknown as Record<string, React.ComponentType<NodeProps>>
