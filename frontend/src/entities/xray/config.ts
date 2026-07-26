@@ -1,9 +1,10 @@
 import { z } from 'zod'
+import { BALANCER_STRATEGIES, balancerCandidates } from './balancers'
 import { flowNetworkIssue, hysteriaCertificateIssue, securityNetworkIssue } from './compat'
 import { DnsSchema } from './dns'
 import { InboundSchema } from './inbounds'
 import { LogSchema } from './log'
-import { BurstObservatorySchema, ObservatorySchema } from './observatory'
+import { BurstObservatorySchema, ObservatorySchema, subjectCovers } from './observatory'
 import { OutboundSchema } from './outbounds'
 import { keywordEntries, portSpecError } from './rules'
 import { RoutingSchema } from './routing'
@@ -97,11 +98,8 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   const inboundTags = new Set(inbounds.map((x) => x.tag))
   const outboundTags = new Set(outbounds.map((x) => x.tag))
   const rules = config.routing?.rules ?? []
-  const balancerTags = new Set(
-    (config.routing?.balancers ?? [])
-      .map((b) => (b as { tag?: unknown }).tag)
-      .filter((t): t is string => typeof t === 'string'),
-  )
+  const balancers = config.routing?.balancers ?? []
+  const balancerTags = new Set(balancers.map((b) => b.tag))
   rules.forEach((rule, i) => {
     if (rule.outboundTag && !outboundTags.has(rule.outboundTag)) {
       issues.push(
@@ -123,12 +121,21 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
         )
       }
     }
-    // Балансеры редактируются только в JSON, но висячая ссылка должна быть видна
     if (rule.balancerTag && !balancerTags.has(rule.balancerTag)) {
       issues.push(
         issue(
           ['routing', 'rules', i, 'balancerTag'],
           `Правило ссылается на несуществующий балансер «${rule.balancerTag}»`,
+          'warning',
+        ),
+      )
+    }
+    // При обоих заданных тегах ядро берёт outboundTag — балансер просто не работает
+    if (rule.balancerTag && rule.outboundTag) {
+      issues.push(
+        issue(
+          ['routing', 'rules', i, 'balancerTag'],
+          `У правила заданы и outboundTag «${rule.outboundTag}», и балансер «${rule.balancerTag}» — ядро возьмёт outboundTag, балансер не сработает`,
           'warning',
         ),
       )
@@ -148,6 +155,73 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
     const sourcePortErr = portSpecError(rule.sourcePort)
     if (sourcePortErr) {
       issues.push(issue(['routing', 'rules', i, 'sourcePort'], sourcePortErr, 'error'))
+    }
+  })
+
+  // Балансер выбирает outbound по ПРЕФИКСУ тега, а стратегии leastPing/leastLoad
+  // работают только вместе с глобальной секцией обсерватории
+  const seenBalancerTags = new Set<string>()
+  balancers.forEach((bal, i) => {
+    if (seenBalancerTags.has(bal.tag)) {
+      issues.push(
+        issue(['routing', 'balancers', i, 'tag'], `Дубликат тега балансера «${bal.tag}»`, 'error'),
+      )
+    }
+    seenBalancerTags.add(bal.tag)
+
+    const candidates = balancerCandidates(config, bal)
+    if (candidates.length === 0) {
+      issues.push(
+        issue(
+          ['routing', 'balancers', i, 'selector'],
+          'Селектор не совпал ни с одним outbound — балансеру не из чего выбирать',
+          'error',
+        ),
+      )
+    }
+    if (bal.fallbackTag !== undefined && !outboundTags.has(bal.fallbackTag)) {
+      issues.push(
+        issue(
+          ['routing', 'balancers', i, 'fallbackTag'],
+          `Запасной выход «${bal.fallbackTag}» не найден среди outbound'ов`,
+          'warning',
+        ),
+      )
+    }
+
+    const type = bal.strategy?.type
+    if (type !== undefined && !(BALANCER_STRATEGIES as readonly string[]).includes(type)) {
+      issues.push(
+        issue(
+          ['routing', 'balancers', i, 'strategy'],
+          `Неизвестная стратегия «${type}»; ядро знает: ${BALANCER_STRATEGIES.join(', ')}`,
+          'warning',
+        ),
+      )
+    }
+    if (type === 'leastPing' || type === 'leastLoad') {
+      const kindKey = type === 'leastPing' ? 'observatory' : 'burstObservatory'
+      const section = config[kindKey]
+      if (section === undefined) {
+        issues.push(
+          issue(
+            ['routing', 'balancers', i, 'strategy'],
+            `Стратегия ${type} измеряет выходы через ${kindKey} — этой секции в конфиге нет`,
+            'warning',
+          ),
+        )
+      } else {
+        const missed = candidates.filter((tag) => !subjectCovers(section.subjectSelector, tag))
+        if (missed.length > 0) {
+          issues.push(
+            issue(
+              [kindKey, 'subjectSelector'],
+              `Обсерватория не покрывает ${missed.join(', ')} — ядро не будет их мерить`,
+              'warning',
+            ),
+          )
+        }
+      }
     }
   })
 
