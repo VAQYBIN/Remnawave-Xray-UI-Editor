@@ -11,9 +11,18 @@ const STEEL = 'var(--cable-steel)'
  */
 export function edgeHues(id: string): [string, string] {
   if (id.startsWith('e:squad:')) return [FLUX, FLUX]
+  if (id.startsWith('e:obs')) return [STEEL, STEEL]
+  // Балансер — такой же переключатель, как правило: сталь на входе, янтарь на выходе
+  if (id.startsWith('e:bal:')) return [STEEL, EMBER]
+  if (id.includes('->bal:')) return [STEEL, STEEL]
   if (id.startsWith('e:rule:')) return [STEEL, EMBER]
   if (id.startsWith('e:in:')) return [FLUX, id.includes('->out:') ? EMBER : STEEL]
   return [STEEL, STEEL]
+}
+
+/** Пунктир — то, что не является потоком трафика: запасной выход и зависимость от обсерватории */
+export function isDashedEdge(id: string): boolean {
+  return id.includes('->fb:') || id.startsWith('e:obs')
 }
 
 /** id ребра содержит `:`, `>` и точки — в id градиента их держать нельзя */
@@ -37,6 +46,7 @@ function SignalEdge({
   const gid = gradientId(id)
   // Подсветка потока: ребро выделено само либо касается выбранного узла
   const active = selected || data?.active === true
+  const dash = isDashedEdge(id) ? '7 6' : undefined
 
   return (
     <>
@@ -48,8 +58,17 @@ function SignalEdge({
         </linearGradient>
       </defs>
       {/* Гало-подложка — вес кабеля на почти-чёрном фоне */}
-      <path className="edge-halo" d={path} style={{ stroke: `url(#${gid})` }} data-active={active || undefined} />
-      <BaseEdge id={id} path={path} style={{ stroke: `url(#${gid})`, opacity: active ? 1 : 0.85 }} />
+      <path
+        className="edge-halo"
+        d={path}
+        style={{ stroke: `url(#${gid})`, strokeDasharray: dash }}
+        data-active={active || undefined}
+      />
+      <BaseEdge
+        id={id}
+        path={path}
+        style={{ stroke: `url(#${gid})`, opacity: active ? 1 : 0.85, strokeDasharray: dash }}
+      />
       {/* Бегущая искра только по активному пути; currentColor красит и её свечение */}
       {active && <path className="edge-flow" d={path} style={{ stroke: to, color: to }} />}
     </>
