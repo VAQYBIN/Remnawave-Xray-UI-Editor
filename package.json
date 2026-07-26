@@ -1,8 +1,11 @@
 {
   "name": "xray-ui-editor",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
-  "workspaces": ["backend", "frontend"],
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
     "test": "npm test --workspace backend && npm test --workspace frontend",
     "dev": "npm run dev --workspace backend",
