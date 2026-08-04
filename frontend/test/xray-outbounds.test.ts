@@ -99,4 +99,27 @@ describe('MuxSchema', () => {
     const res = OutboundSchema.safeParse({ tag: 'x', protocol: 'vless', mux: { enabled: 'yes' } })
     expect(res.success).toBe(false)
   })
+
+  it('vless: плоская форма settings парсится наравне с vnext', () => {
+    const parsed = OutboundSchema.parse({
+      tag: 'chain',
+      protocol: 'vless',
+      settings: { address: 'node2.example.com', port: 443, id: 'uuid', encryption: 'none', seed: 's' },
+    })
+    const settings = parsed.settings as { address: string; seed: string }
+    expect(settings.address).toBe('node2.example.com')
+    expect(settings.seed).toBe('s')
+  })
+
+  it('trojan: обе формы парсятся, servers не-массивом — ошибка с путём', () => {
+    expect(() =>
+      OutboundSchema.parse({ tag: 't', protocol: 'trojan', settings: { address: 'a.test', port: 443, password: 'p' } }),
+    ).not.toThrow()
+    expect(() =>
+      OutboundSchema.parse({ tag: 't', protocol: 'trojan', settings: { servers: [{ address: 'a.test', port: 443, password: 'p' }] } }),
+    ).not.toThrow()
+    const res = OutboundSchema.safeParse({ tag: 't', protocol: 'trojan', settings: { servers: 'nope' } })
+    expect(res.success).toBe(false)
+    expect(res.error!.issues[0]!.path).toEqual(['settings', 'servers'])
+  })
 })

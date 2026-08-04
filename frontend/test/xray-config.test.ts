@@ -538,3 +538,63 @@ describe('валидация балансеров', () => {
     expect(messages(config).some((m) => m.startsWith('warning:routing.rules.0.balancerTag'))).toBe(true)
   })
 })
+
+describe('outbound без шифрования на публичный адрес', () => {
+  const cfg = (out: Record<string, unknown>) =>
+    ({ inbounds: [], outbounds: [out], routing: { rules: [] } }) as unknown as XrayConfig
+
+  it('плоский VLESS без security и без encryption — ошибка', () => {
+    const issues = analyzeIntegrity(
+      cfg({ tag: 'chain', protocol: 'vless', settings: { address: 'example.com', port: 443, id: 'u' } }),
+    )
+    const hit = issues.find((i) => i.path === 'outbounds.0.settings.address')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('VLESS')
+  })
+
+  it('security tls снимает вопрос', () => {
+    const issues = analyzeIntegrity(
+      cfg({
+        tag: 'chain',
+        protocol: 'vless',
+        settings: { address: 'example.com', port: 443, id: 'u' },
+        streamSettings: { network: 'tcp', security: 'tls' },
+      }),
+    )
+    expect(issues.some((i) => i.path === 'outbounds.0.settings.address')).toBe(false)
+  })
+
+  it('encryption снимает вопрос у VLESS, но не у Trojan', () => {
+    const vless = analyzeIntegrity(
+      cfg({ tag: 'c', protocol: 'vless', settings: { address: 'example.com', port: 443, encryption: 'mlkem768x25519plus.native.0rtt.abc' } }),
+    )
+    expect(vless.some((i) => i.path === 'outbounds.0.settings.address')).toBe(false)
+
+    const trojan = analyzeIntegrity(
+      cfg({ tag: 'c', protocol: 'trojan', settings: { address: 'example.com', port: 443, password: 'p', encryption: 'x' } }),
+    )
+    const hit = trojan.find((i) => i.path === 'outbounds.0.settings.address')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('Trojan')
+  })
+
+  it('приватный адрес разрешён — ядро тоже его пропускает', () => {
+    const issues = analyzeIntegrity(
+      cfg({ tag: 'c', protocol: 'vless', settings: { address: '10.0.0.5', port: 443, id: 'u' } }),
+    )
+    expect(issues.some((i) => i.path === 'outbounds.0.settings.address')).toBe(false)
+  })
+
+  // vnext/servers ядро не проверяет: validateOutboundTransportSecurity читает
+  // плоский Address, а у классической формы он nil
+  it('классическая форма vnext под запрет не попадает', () => {
+    const issues = analyzeIntegrity(
+      cfg({
+        tag: 'c',
+        protocol: 'vless',
+        settings: { vnext: [{ address: 'example.com', port: 443, users: [{ id: 'u', encryption: 'none' }] }] },
+      }),
+    )
+    expect(issues.some((i) => i.path.startsWith('outbounds.0.settings'))).toBe(false)
+  })
+})

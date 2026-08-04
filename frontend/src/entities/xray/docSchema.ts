@@ -126,6 +126,7 @@ const OUTBOUND_PROTOCOLS: DocEnum[] = [
   { value: 'socks', doc: 'Внешний SOCKS-прокси' },
   { value: 'http', doc: 'Внешний HTTP-прокси' },
   { value: 'vless', doc: 'Цепочка на другой VLESS-сервер' },
+  { value: 'trojan', doc: 'Цепочка на Trojan-сервер' },
 ]
 
 // ── реестр узлов дерева ────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ const outboundSettingsNode = (p: Props): string | undefined =>
     blackhole: 'blackholeOutboundSettings',
     wireguard: 'wireguardOutboundSettings',
     vless: 'vlessOutboundSettings',
+    trojan: 'trojanOutboundSettings',
     socks: 'proxyOutboundSettings',
     http: 'proxyOutboundSettings',
   })[p.protocol ?? 'freedom']
@@ -481,7 +483,31 @@ export const NODES: Record<string, DocNode> = {
   },
   vlessOutboundSettings: {
     fields: {
-      vnext: { doc: 'Серверы назначения', type: 'array', itemsNode: 'vlessVnext' },
+      vnext: { doc: 'Серверы назначения (классическая форма)', type: 'array', itemsNode: 'vlessVnext' },
+      address: { doc: 'Адрес сервера (плоская форма)', type: 'string' },
+      port: { doc: 'Порт сервера (плоская форма)', type: 'number' },
+      id: { doc: 'UUID пользователя (плоская форма)', type: 'string' },
+      flow: { doc: 'Flow (плоская форма)', type: 'string', enum: FLOW },
+      encryption: { doc: 'Шифрование VLESS: none либо строка mlkem768x25519plus…', type: 'string' },
+      seed: { doc: 'Seed для VLESS Seed', type: 'string' },
+    },
+  },
+  trojanOutboundSettings: {
+    fields: {
+      servers: { doc: 'Серверы назначения (классическая форма)', type: 'array', itemsNode: 'trojanServer' },
+      address: { doc: 'Адрес сервера (плоская форма)', type: 'string' },
+      port: { doc: 'Порт сервера (плоская форма)', type: 'number' },
+      password: { doc: 'Пароль (плоская форма)', type: 'string' },
+      flow: { doc: 'Flow', type: 'string', enum: FLOW },
+    },
+  },
+  trojanServer: {
+    fields: {
+      address: { doc: 'Адрес сервера', type: 'string' },
+      port: { doc: 'Порт сервера', type: 'number' },
+      password: { doc: 'Пароль', type: 'string' },
+      email: { doc: 'Идентификатор', type: 'string' },
+      flow: { doc: 'Flow', type: 'string', enum: FLOW },
     },
   },
   vlessVnext: {

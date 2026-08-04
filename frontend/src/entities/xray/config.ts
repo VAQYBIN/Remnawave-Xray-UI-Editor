@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isPrivateAddress } from './address'
 import { BALANCER_STRATEGIES, balancerCandidates } from './balancers'
 import {
   flowNetworkIssue,
@@ -262,6 +263,32 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
             ['outbounds', i, 'streamSettings', 'sockopt', 'dialerProxy'],
             `dialerProxy ссылается на несуществующий outbound «${dialer}»`,
             'warning',
+          ),
+        )
+      }
+    }
+    // Xray v26.7.28 (PR #6303) отказывается собирать VLESS и Trojan без
+    // шифрования на публичный адрес. Проверка ядра читает плоский settings.address —
+    // у классических vnext[]/servers[] он nil, поэтому их не трогаем.
+    if (out.protocol === 'vless' || out.protocol === 'trojan') {
+      const flat = out.settings as { address?: string; encryption?: string } | undefined
+      const address = flat?.address
+      const secured = (stream?.security ?? 'none') !== 'none'
+      const encrypted = out.protocol === 'vless' && (flat?.encryption ?? 'none') !== 'none'
+      if (
+        typeof address === 'string' &&
+        address !== '' &&
+        !secured &&
+        !encrypted &&
+        !isPrivateAddress(address)
+      ) {
+        issues.push(
+          issue(
+            ['outbounds', i, 'settings', 'address'],
+            out.protocol === 'vless'
+              ? 'Ядро 26.7.28+ не соберёт VLESS без TLS/Reality и без encryption на публичный адрес — включите security или задайте encryption'
+              : 'Ядро 26.7.28+ не соберёт Trojan без TLS на публичный адрес — включите security',
+            'error',
           ),
         )
       }
