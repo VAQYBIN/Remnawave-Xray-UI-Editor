@@ -39,4 +39,5 @@ export interface RemnawavePort {
   getNodes(): Promise<unknown[]>
   getSquads(): Promise<unknown[]>
   getProfileInbounds(uuid: string): Promise<PanelInboundDetail[]>
+  getComputedConfig(uuid: string): Promise<unknown>
 }

@@ -3,6 +3,7 @@ import {
   RemnawaveClient,
   RemnawaveError,
   describeCause,
+  describePanelError,
   hintForNetworkError,
 } from '../src/remnawave/client.js'
 
@@ -16,7 +17,9 @@ function fakeFetch(
     const url = String(input)
     calls.push({ url, init: init ?? {} })
     const r = handler(url, init ?? {})
-    return new Response(r.body === undefined ? '' : JSON.stringify(r.body), {
+    // 204 не может нести тело — конструктор Response отвергает даже пустую строку
+    const body = r.body === undefined ? null : JSON.stringify(r.body)
+    return new Response(body, {
       status: r.status,
       headers: { 'content-type': 'application/json' },
     })
@@ -177,6 +180,77 @@ describe('RemnawaveClient', () => {
     })
     expect(await client.getNodes()).toEqual([{ uuid: 'n1' }])
     expect(await client.getSquads()).toEqual([{ uuid: 's1' }])
+  })
+
+  // v3.0.0 отвечает на DELETE 204 без тела, 2.8.x — 200 с {response:{isDeleted}}.
+  // Метод обязан пережить оба: редактор поддерживает обе версии панели.
+  it('deleteProfile переживает и 204 без тела, и 200 с телом', async () => {
+    const calls: FakeCall[] = []
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: fakeFetch(() => ({ status: 204 }), calls),
+    })
+    await expect(client.deleteProfile(profile.uuid)).resolves.toBeUndefined()
+    expect(calls[0]!.url).toBe(`http://panel.test/api/config-profiles/${profile.uuid}`)
+    expect(calls[0]!.init.method).toBe('DELETE')
+
+    const old = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: fakeFetch(() => ({ status: 200, body: { response: { isDeleted: true } } })),
+    })
+    await expect(old.deleteProfile(profile.uuid)).resolves.toBeUndefined()
+  })
+
+  it('getComputedConfig отдаёт config профиля, вычисленный панелью', async () => {
+    const calls: FakeCall[] = []
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: fakeFetch(
+        () => ({
+          status: 200,
+          body: { response: { ...profile, config: { inbounds: [{ tag: 'vless-in' }] } } },
+        }),
+        calls,
+      ),
+    })
+    expect(await client.getComputedConfig('p1')).toEqual({ inbounds: [{ tag: 'vless-in' }] })
+    expect(calls[0]!.url).toBe('http://panel.test/api/config-profiles/p1/computed-config')
+  })
+
+  // Панель v3 валидирует конфиг сама и кладёт разбор в errors[]. Верхнеуровневый
+  // message при этом ничего не называет — без разбора пользователь не поймёт, где чинить.
+  it('валидационная ошибка панели разворачивается в перечень полей', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: fakeFetch(() => ({
+        status: 400,
+        body: {
+          message: 'Validation failed',
+          statusCode: 400,
+          errors: [
+            { validation: 'array', code: 'too_small', message: 'Outbounds cannot be empty', path: ['config', 'outbounds'] },
+            { validation: 'string', code: 'invalid_string', message: 'Invalid key', path: ['config', 'inbounds', '0', 'settings', 'password'] },
+          ],
+        },
+      })),
+    })
+    const err = await client.updateProfile({ uuid: 'p1', config: {} }).catch((e) => e)
+    expect(err.status).toBe(400)
+    expect(err.message).toBe(
+      'config.outbounds — Outbounds cannot be empty; config.inbounds.0.settings.password — Invalid key',
+    )
+  })
+
+  it('describePanelError без errors[] отдаёт message, а на мусоре — undefined', () => {
+    expect(describePanelError({ message: 'Config profile not found' })).toBe('Config profile not found')
+    expect(describePanelError({ message: 'Validation failed', errors: [] })).toBe('Validation failed')
+    expect(describePanelError({ errors: 'не массив' })).toBeUndefined()
+    expect(describePanelError(undefined)).toBeUndefined()
+    expect(describePanelError('строка')).toBeUndefined()
   })
 
   it('getProfileInbounds разворачивает inbounds с activeSquads', async () => {
