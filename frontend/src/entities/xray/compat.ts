@@ -10,6 +10,22 @@ export function normalizeNetwork(network: string | undefined): string {
   return n === 'raw' ? 'tcp' : n
 }
 
+/** Поля streamSettings, из которых читается транспорт */
+export interface StreamNetworkSource {
+  network?: string
+  method?: string
+}
+
+/**
+ * Транспорт узла. Xray v26.7.28 переименовал `network` в `method` (PR #6426) и
+ * оставил старое имя алиасом, но в StreamConfig.Build действует
+ * `if c.Method != nil { c.Network = c.Method }` — при обоих ключах слушается
+ * `method`. Читать транспорт где-либо ещё, кроме этой функции, нельзя.
+ */
+export function streamNetwork(stream: StreamNetworkSource | undefined): string | undefined {
+  return stream?.method ?? stream?.network
+}
+
 export const ALL_NETWORKS = ['tcp', 'ws', 'grpc', 'httpupgrade', 'xhttp', 'hysteria']
 
 const REALITY_NETWORKS = ['tcp', 'xhttp', 'grpc']

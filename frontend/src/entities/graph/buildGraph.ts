@@ -1,5 +1,6 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates } from '../xray/balancers'
+import { streamNetwork } from '../xray/compat'
 import type { FlowEdge, FlowNode, GraphContext } from './types'
 
 export const COLUMN_X = { squad: -380, inbound: 0, rule: 430, balancer: 860, outbound: 1290 } as const
@@ -67,7 +68,7 @@ export function buildGraph(
         tag: inb.tag,
         protocol: inb.protocol,
         port: inb.port,
-        network: inb.streamSettings?.network,
+        network: streamNetwork(inb.streamSettings),
         security: inb.streamSettings?.security,
         squadsCount: squadUuids.length,
       },

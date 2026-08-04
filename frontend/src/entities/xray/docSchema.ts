@@ -279,6 +279,11 @@ export const NODES: Record<string, DocNode> = {
   streamSettings: {
     fields: {
       network: { doc: 'Транспорт', type: 'string', enum: NETWORKS },
+      method: {
+        doc: 'Транспорт — новое имя network (Xray ≥26.7.28); при обоих ключах ядро берёт method',
+        type: 'string',
+        enum: NETWORKS,
+      },
       security: { doc: 'Шифрование транспорта', type: 'string', enum: SECURITIES },
       realitySettings: { doc: 'Настройки Reality', type: 'object', node: 'realitySettings' },
       tlsSettings: { doc: 'Настройки TLS', type: 'object', node: 'tlsSettings' },

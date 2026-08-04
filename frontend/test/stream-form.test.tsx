@@ -107,6 +107,19 @@ describe('StreamForm', () => {
     const next = onChange.mock.lastCall![0] as { wsSettings: Record<string, unknown> }
     expect(next.wsSettings.path).toBe('/ws')
   })
+
+  it('транспорт читается из method', async () => {
+    wrap(<StreamForm value={{ method: 'ws', security: 'none' }} onChange={vi.fn()} />)
+    expect(selectedValue('Транспорт')).toBe('ws')
+  })
+
+  it('смена транспорта пишет network и убирает method', async () => {
+    const onChange = vi.fn()
+    wrap(<StreamForm value={{ method: 'ws', security: 'none' }} onChange={onChange} />)
+    await selectOption('Транспорт', 'grpc')
+    // method перебивает network в ядре: оставить старый ключ — значит потерять правку
+    expect(onChange).toHaveBeenLastCalledWith({ network: 'grpc', security: 'none' })
+  })
 })
 
 describe('StreamForm — транспорты полностью', () => {

@@ -2,6 +2,7 @@
 // прокрутка — единственный способ найти нужный, и это плохой способ.
 
 import type { XrayConfig } from '../xray'
+import { streamNetwork } from '../xray/compat'
 import type { GraphContext } from './types'
 
 export interface SearchHit {
@@ -48,7 +49,7 @@ export function searchNodes(config: XrayConfig, ctx: GraphContext, query: string
       { label: 'тег', value: inb.tag },
       { label: 'протокол', value: inb.protocol },
       { label: 'порт', value: inb.port },
-      { label: 'транспорт', value: inb.streamSettings?.network },
+      { label: 'транспорт', value: streamNetwork(inb.streamSettings) },
       { label: 'security', value: inb.streamSettings?.security },
     ])
     if (matched) push({ nodeId: `in:${inb.tag}`, kind: 'inbound', title: inb.tag, matchedOn: matched })

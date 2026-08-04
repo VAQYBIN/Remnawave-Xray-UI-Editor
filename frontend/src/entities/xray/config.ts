@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { BALANCER_STRATEGIES, balancerCandidates } from './balancers'
-import { flowNetworkIssue, hysteriaCertificateIssue, securityNetworkIssue } from './compat'
+import {
+  flowNetworkIssue,
+  hysteriaCertificateIssue,
+  securityNetworkIssue,
+  streamNetwork,
+} from './compat'
 import { DnsSchema } from './dns'
 import { InboundSchema } from './inbounds'
 import { LogSchema } from './log'
@@ -15,6 +20,7 @@ const obj = () => z.looseObject({})
 // неизвестные поля, поэтому типизируем только нужные ключи)
 interface StreamSubset {
   network?: string
+  method?: string
   security?: string
   tlsSettings?: { certificates?: unknown[] }
   sockopt?: { dialerProxy?: string }
@@ -231,15 +237,15 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   inbounds.forEach((inb, i) => {
     const stream = inb.streamSettings as StreamSubset | undefined
     if (stream) {
-      const secNet = securityNetworkIssue(stream.security, stream.network)
+      const secNet = securityNetworkIssue(stream.security, streamNetwork(stream))
       if (secNet) issues.push(issue(['inbounds', i, 'streamSettings'], secNet, 'error'))
-      const cert = hysteriaCertificateIssue(stream.network, stream.security, stream.tlsSettings)
+      const cert = hysteriaCertificateIssue(streamNetwork(stream), stream.security, stream.tlsSettings)
       if (cert) issues.push(issue(['inbounds', i, 'streamSettings'], cert, 'error'))
     }
     if (inb.protocol === 'vless') {
       // Панель Remnawave применяет flow из settings ко всем пользователям inbound'а
       const flow = (inb.settings as { flow?: string } | undefined)?.flow
-      const flowIssue = flowNetworkIssue(flow, stream?.network)
+      const flowIssue = flowNetworkIssue(flow, streamNetwork(stream))
       if (flowIssue) issues.push(issue(['inbounds', i, 'settings', 'flow'], flowIssue, 'error'))
     }
   })
@@ -247,7 +253,7 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   outbounds.forEach((out, i) => {
     const stream = out.streamSettings as StreamSubset | undefined
     if (stream) {
-      const secNet = securityNetworkIssue(stream.security, stream.network)
+      const secNet = securityNetworkIssue(stream.security, streamNetwork(stream))
       if (secNet) issues.push(issue(['outbounds', i, 'streamSettings'], secNet, 'error'))
       const dialer = stream.sockopt?.dialerProxy
       if (dialer !== undefined && dialer !== '' && !outboundTags.has(dialer)) {
@@ -264,7 +270,7 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
       const vnext = (out.settings as { vnext?: { users?: { flow?: string }[] }[] } | undefined)?.vnext ?? []
       vnext.forEach((server, si) => {
         for (const [ui, user] of (server.users ?? []).entries()) {
-          const flowIssue = flowNetworkIssue(user.flow, stream?.network)
+          const flowIssue = flowNetworkIssue(user.flow, streamNetwork(stream))
           if (flowIssue) {
             issues.push(
               issue(

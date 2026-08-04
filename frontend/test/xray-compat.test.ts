@@ -6,7 +6,28 @@ import {
   hysteriaCertificateIssue,
   normalizeNetwork,
   securityNetworkIssue,
+  streamNetwork,
 } from '../src/entities/xray'
+
+describe('streamNetwork', () => {
+  it('читает network, когда method не задан', () => {
+    expect(streamNetwork({ network: 'ws' })).toBe('ws')
+  })
+
+  it('читает method, когда network не задан', () => {
+    expect(streamNetwork({ method: 'xhttp' })).toBe('xhttp')
+  })
+
+  // Xray v26.7.28: StreamConfig.Build перезаписывает Network значением Method
+  it('при обоих ключах побеждает method — так делает ядро', () => {
+    expect(streamNetwork({ network: 'ws', method: 'grpc' })).toBe('grpc')
+  })
+
+  it('нет ни одного ключа — undefined, дефолт остаётся за вызывающим', () => {
+    expect(streamNetwork({})).toBeUndefined()
+    expect(streamNetwork(undefined)).toBeUndefined()
+  })
+})
 
 describe('normalizeNetwork', () => {
   it('raw → tcp, отсутствие → tcp, остальное как есть', () => {

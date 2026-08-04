@@ -101,6 +101,8 @@ export const SockoptSchema = z.looseObject({
 
 export const StreamSettingsSchema = z.looseObject({
   network: z.string().optional(),
+  /** Новое имя network (Xray ≥26.7.28); при обоих ключах ядро слушает method */
+  method: z.string().optional(),
   security: z.string().optional(),
   realitySettings: RealitySettingsSchema.optional(),
   tlsSettings: TlsSettingsSchema.optional(),
