@@ -680,3 +680,16 @@ describe('запреты панели v3 и умолчания ядра v26.7.28
     expect(issues.some((i) => i.path === 'inbounds.0.settings.password')).toBe(false)
   })
 })
+
+describe('корневой env (Xray ≥26.7.28)', () => {
+  it('проходит схему и не даёт диагностик', () => {
+    const res = validateXrayConfig(
+      JSON.stringify({
+        env: { XRAY_VMESS_AEAD_FORCED: 'false' },
+        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.issues).toEqual([])
+  })
+})

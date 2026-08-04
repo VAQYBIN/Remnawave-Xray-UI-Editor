@@ -171,6 +171,7 @@ export const NODES: Record<string, DocNode> = {
       },
       api: { doc: 'gRPC API управления', type: 'object' },
       metrics: { doc: 'Метрики Prometheus', type: 'object' },
+      env: { doc: 'Переменные окружения ядра (Xray ≥26.7.28)', type: 'object' },
     },
   },
 
@@ -331,6 +332,12 @@ export const NODES: Record<string, DocNode> = {
       minVersion: { doc: 'Минимальная версия TLS', type: 'string', enum: TLS_VERSIONS },
       maxVersion: { doc: 'Максимальная версия TLS', type: 'string', enum: TLS_VERSIONS },
       fingerprint: { doc: 'uTLS-профиль (клиент)', type: 'string', enum: FINGERPRINTS },
+      cipherSuites: { doc: 'Наборы шифров — только для unsafe (golang) fingerprint', type: 'string' },
+      pinnedPeerCertSha256: {
+        doc: 'Пиннинг сертификата; требует serverName, verifyPeerCertByName или адрес outbound-а',
+        type: 'array',
+      },
+      verifyPeerCertByName: { doc: 'Имя, по которому проверяется сертификат пира', type: 'string' },
     },
   },
   certificate: {
@@ -399,6 +406,7 @@ export const NODES: Record<string, DocNode> = {
   finalmask: {
     fields: {
       quicParams: { doc: 'Параметры QUIC', type: 'object', node: 'quicParams' },
+      xmc: { doc: 'Маскировка под Minecraft (TCP) — Xray ≥26.7.28', type: 'object' },
     },
   },
   quicParams: {

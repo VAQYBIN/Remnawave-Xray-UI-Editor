@@ -159,3 +159,37 @@ describe('словарь: балансеры и обсерватория', () =>
     expect(descend('burstObservatory', 'pingConfig')).toBe('pingConfig')
   })
 })
+
+// Схемы объявлены через looseObject, поэтому новое поле не ловится ни парсингом,
+// ни tsc — единственное наблюдаемое следствие правки docSchema — сами подсказки
+describe('подсказки полей, добавленных в Xray v26.7.28', () => {
+  it('корень предлагает env', () => {
+    expect(labels(`{ "${CARET}" }`)).toContain('env')
+  })
+
+  it('streamSettings предлагает method рядом с network', () => {
+    const got = labels(`{ "inbounds": [ { "streamSettings": { "${CARET}" } } ] }`)
+    expect(got).toEqual(expect.arrayContaining(['network', 'method']))
+  })
+
+  it('tlsSettings предлагает cipherSuites и пиннинг', () => {
+    const got = labels(
+      `{ "inbounds": [ { "streamSettings": { "tlsSettings": { "${CARET}" } } } ] }`,
+    )
+    expect(got).toEqual(
+      expect.arrayContaining(['cipherSuites', 'pinnedPeerCertSha256', 'verifyPeerCertByName']),
+    )
+  })
+
+  it('realitySettings предлагает minClientVer', () => {
+    const got = labels(
+      `{ "inbounds": [ { "streamSettings": { "realitySettings": { "${CARET}" } } } ] }`,
+    )
+    expect(got).toEqual(expect.arrayContaining(['minClientVer', 'maxClientVer']))
+  })
+
+  it('finalmask предлагает xmc рядом с quicParams', () => {
+    const got = labels(`{ "inbounds": [ { "streamSettings": { "finalmask": { "${CARET}" } } } ] }`)
+    expect(got).toEqual(expect.arrayContaining(['quicParams', 'xmc']))
+  })
+})

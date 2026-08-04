@@ -113,3 +113,16 @@ describe('StreamSettingsSchema — транспорты', () => {
     expect(StreamSettingsSchema.safeParse({ sockopt: { tcpFastOpen: 'yes' } }).success).toBe(false)
   })
 })
+
+describe('TlsSettingsSchema — поля Xray v26.7.28', () => {
+  it('знает cipherSuites, pinnedPeerCertSha256 и verifyPeerCertByName', () => {
+    const parsed = TlsSettingsSchema.parse({
+      cipherSuites: 'TLS_AES_128_GCM_SHA256',
+      pinnedPeerCertSha256: ['abc='],
+      verifyPeerCertByName: 'example.com',
+    })
+    expect(parsed.cipherSuites).toBe('TLS_AES_128_GCM_SHA256')
+    expect(parsed.pinnedPeerCertSha256).toEqual(['abc='])
+    expect(parsed.verifyPeerCertByName).toBe('example.com')
+  })
+})

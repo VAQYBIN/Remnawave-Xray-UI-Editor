@@ -41,6 +41,8 @@ export const XrayConfigSchema = z.looseObject({
   observatory: ObservatorySchema.optional(),
   burstObservatory: BurstObservatorySchema.optional(),
   api: obj().optional(),
+  /** Переменные окружения ядра — корневая секция Xray ≥26.7.28 (PR #6400) */
+  env: obj().optional(),
 })
 
 export type XrayConfig = z.infer<typeof XrayConfigSchema>

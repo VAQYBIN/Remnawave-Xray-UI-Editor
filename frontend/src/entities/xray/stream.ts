@@ -37,6 +37,11 @@ export const TlsSettingsSchema = z.looseObject({
   certificates: z.array(CertificateSchema).optional(),
   minVersion: z.string().optional(),
   maxVersion: z.string().optional(),
+  // Xray v26.7.28: наборы шифров для unsafe-fingerprint (#6450) и пиннинг
+  // сертификата пира, требующий имени (#6472)
+  cipherSuites: z.string().optional(),
+  pinnedPeerCertSha256: z.array(z.string()).optional(),
+  verifyPeerCertByName: z.string().optional(),
   fingerprint: z.string().optional(),
 })
 
