@@ -218,10 +218,10 @@ export function useUpdateGeo() {
 
 export function useXrayTest() {
   return useMutation({
-    mutationFn: (config: unknown) =>
+    mutationFn: (input: { config: unknown; profileUuid?: string }) =>
       apiFetch<XrayTestResult>('/api/tools/xray-test', {
         method: 'POST',
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(input),
       }),
   })
 }

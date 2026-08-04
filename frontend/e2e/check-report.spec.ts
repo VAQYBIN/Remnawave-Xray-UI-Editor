@@ -25,7 +25,7 @@ test.describe('Проверка конфига', () => {
             },
           ],
           warnings: [],
-          injected: ['vless-in'],
+          injected: [{ tag: 'vless-in', source: 'dummy' }],
         },
       }),
     )
@@ -33,7 +33,7 @@ test.describe('Проверка конфига', () => {
     await page.getByRole('button', { name: 'Проверить конфиг' }).click()
     await expect(page.getByText('unable to find outbound tag: proxy')).toBeVisible()
     await expect(page.getByText(/которого нет в конфиге/)).toBeVisible()
-    await expect(page.getByText(/подставным пользователем/i)).toBeVisible()
+    await expect(page.getByText(/подставлены фиктивные клиенты/i)).toBeVisible()
   })
 
   test('Reality-цель проверяется по кнопке', async ({ page }) => {

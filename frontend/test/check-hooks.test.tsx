@@ -29,10 +29,13 @@ describe('useXrayTest', () => {
   it('отправляет конфиг в теле запроса', async () => {
     const fn = mockFetch({ available: true, ok: true, errors: [], injected: [] })
     const { result } = renderHook(() => useXrayTest(), { wrapper: withClient() })
-    result.current.mutate({ outbounds: [] })
+    result.current.mutate({ config: { outbounds: [] }, profileUuid: 'p1' })
     await waitFor(() => expect(result.current.data?.ok).toBe(true))
     const [, init] = fn.mock.calls[0]! as unknown as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).toEqual({ config: { outbounds: [] } })
+    expect(JSON.parse(init.body as string)).toEqual({
+      config: { outbounds: [] },
+      profileUuid: 'p1',
+    })
   })
 })
 

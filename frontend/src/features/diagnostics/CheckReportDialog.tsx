@@ -32,6 +32,9 @@ function CoreReport({
     )
   }
 
+  const fromPanel = result.injected.filter((i) => i.source === 'panel').map((i) => i.tag)
+  const fromDummy = result.injected.filter((i) => i.source === 'dummy').map((i) => i.tag)
+
   return (
     <>
       {result.ok ? (
@@ -70,11 +73,16 @@ function CoreReport({
           ))}
         </ul>
       )}
-      {result.injected.length > 0 && (
+      {fromPanel.length > 0 && (
         <p className="muted check-note">
-          Проверялся конфиг с подставным пользователем в inbound&#39;ах:{' '}
-          <span className="mono">{result.injected.join(', ')}</span>. Панель инжектит реальных
-          пользователей сама, поэтому в профиле их нет.
+          Клиенты взяты из панели: <span className="mono">{fromPanel.join(', ')}</span> — проверялся
+          ровно тот пользователь, которого панель инжектит на ноды.
+        </p>
+      )}
+      {fromDummy.length > 0 && (
+        <p className="muted check-note">
+          Подставлены фиктивные клиенты: <span className="mono">{fromDummy.join(', ')}</span>. Панель
+          инжектит реальных пользователей сама, поэтому в профиле их нет.
         </p>
       )}
     </>
@@ -120,12 +128,15 @@ function TargetRow({
 export function CheckReportDialog({
   open,
   config,
+  profileUuid,
   targets,
   onClose,
   onOpenGeo,
 }: {
   open: boolean
   config: unknown
+  /** Профиль панели: из его computed-config берутся настоящие клиенты */
+  profileUuid: string
   targets: RealityTargetRef[]
   onClose: () => void
   onOpenGeo: () => void
@@ -140,7 +151,7 @@ export function CheckReportDialog({
   useEffect(() => {
     if (!open) return
     setProbes({})
-    test.mutate(config)
+    test.mutate({ config, profileUuid })
     // config пересобирается на каждый рендер редактора — перезапускать проверку не нужно
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])

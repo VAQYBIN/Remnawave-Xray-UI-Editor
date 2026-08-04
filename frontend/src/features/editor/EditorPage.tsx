@@ -671,6 +671,7 @@ function EditorInner({ profile }: { profile: Profile }) {
       <CheckReportDialog
         open={checkOpen}
         config={validation.config}
+        profileUuid={profile.uuid}
         targets={realityTargets}
         onClose={() => setCheckOpen(false)}
         onOpenGeo={() => {
