@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.0](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/compare/v1.1.0...v1.2.0) (2026-08-04)
+
+
+### Features
+
+* **backend:** check the config with real panel clients from computed-config ([6f3ad14](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/6f3ad14ff246418eff75645fc66fe36459ddd0d3))
+* **backend:** support panel v3 delete semantics and computed-config ([b9d9760](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/b9d9760fda559fca1ab5ea62235ecdff241e532b))
+* **backend:** translate the new core refusals into Russian hints ([1e62f75](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/1e62f75b4f76d80944fb6dc21d36e89771f5d617))
+* **frontend:** cover env, XMC and TLS pinning added in Xray v26.7.28 ([f7d37e1](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/f7d37e1c96bd50c485644dfeba5aab5295c0c791))
+* **frontend:** edit reality minClientVer so old clients can be let back in ([1579053](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/157905383bea27cdd310428870d37fbe6de6b8cf))
+* **frontend:** flag VLESS and Trojan outbounds the core now refuses ([4489313](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/44893137943b4ebee15c45168d0b961d9a51d137))
+* **frontend:** read streamSettings.method as the new name of network ([25e52d5](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/25e52d5c3e1bcac149c4b3a3224d13dd41c63fba))
+* **frontend:** show whether check clients came from the panel ([44a7cde](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/44a7cdef968b909c5c383c1a028b3d2c1c1202fd))
+* **frontend:** warn about empty outbounds, reality minClientVer and ss2022 keys ([d6b2e76](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/d6b2e76a964eda66fe1a7ca04992bf9ea29cee31))
+* support Remnawave panel 3.x and Xray-core v26.7.28 ([aa36d8a](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/aa36d8a07196329df2223fca097d7b8f5d74f1de))
+
 ## [1.1.0](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/compare/v1.0.0...v1.1.0) (2026-07-26)
 
 
