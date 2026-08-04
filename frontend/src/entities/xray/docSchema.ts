@@ -315,6 +315,11 @@ export const NODES: Record<string, DocNode> = {
       serverName: { doc: 'SNI (клиент) — одно из serverNames сервера', type: 'string' },
       shortId: { doc: 'Короткий ID (клиент)', type: 'string' },
       password: { doc: 'Публичный ключ сервера (pbk) — в свежих ядрах поле password', type: 'string' },
+      minClientVer: {
+        doc: 'Минимальная версия клиента. С Xray 26.7.11 умолчание — 26.3.27: Mihomo, Sing-Box и старые Xray не подключатся. «0.0.0» снимает ограничение',
+        type: 'string',
+      },
+      maxClientVer: { doc: 'Максимальная версия клиента', type: 'string' },
     },
   },
   tlsSettings: {

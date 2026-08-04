@@ -16,6 +16,10 @@ export const RealitySettingsSchema = z.looseObject({
   serverName: z.string().optional(),
   shortId: z.string().optional(),
   password: z.string().optional(),
+  // С Xray 26.7.11 умолчание minClientVer — 26.3.27: Mihomo, Sing-Box и старые
+  // Xray отваливаются молча, пока не поставить «0.0.0»
+  minClientVer: z.string().optional(),
+  maxClientVer: z.string().optional(),
 })
 
 export const CertificateSchema = z.looseObject({

@@ -45,6 +45,12 @@ describe('RealitySettingsSchema', () => {
     expect(parsed.shortId).toBe('ab12')
     expect(parsed.password).toBe('PUBKEY_BASE64URL')
   })
+
+  it('знает minClientVer и maxClientVer', () => {
+    const parsed = RealitySettingsSchema.parse({ minClientVer: '0.0.0', maxClientVer: '99.0.0' })
+    expect(parsed.minClientVer).toBe('0.0.0')
+    expect(parsed.maxClientVer).toBe('99.0.0')
+  })
 })
 
 describe('SniffingSchema', () => {

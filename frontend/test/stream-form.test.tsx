@@ -108,6 +108,32 @@ describe('StreamForm', () => {
     expect(next.wsSettings.path).toBe('/ws')
   })
 
+  it('кнопка ставит minClientVer 0.0.0 — так пускают Mihomo и Sing-Box', async () => {
+    const onChange = vi.fn()
+    wrap(
+      <StreamForm
+        value={{ network: 'tcp', security: 'reality', realitySettings: { target: 'x.com:443' } }}
+        onChange={onChange}
+      />,
+    )
+    await userEvent.click(screen.getByText('Продвинутые (Reality)'))
+    await userEvent.click(screen.getByText(/0\.0\.0 — пустить/))
+    const next = onChange.mock.lastCall![0] as { realitySettings: Record<string, unknown> }
+    expect(next.realitySettings.minClientVer).toBe('0.0.0')
+    expect(next.realitySettings.target).toBe('x.com:443')
+  })
+
+  it('уже заданный minClientVer виден в поле', async () => {
+    wrap(
+      <StreamForm
+        value={{ network: 'tcp', security: 'reality', realitySettings: { minClientVer: '26.3.27' } }}
+        onChange={vi.fn()}
+      />,
+    )
+    await userEvent.click(screen.getByText('Продвинутые (Reality)'))
+    expect(screen.getByLabelText('Минимальная версия клиента')).toHaveValue('26.3.27')
+  })
+
   it('транспорт читается из method', async () => {
     wrap(<StreamForm value={{ method: 'ws', security: 'none' }} onChange={vi.fn()} />)
     expect(selectedValue('Транспорт')).toBe('ws')
