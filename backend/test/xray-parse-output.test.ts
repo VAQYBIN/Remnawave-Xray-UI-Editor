@@ -121,3 +121,21 @@ describe('parseXrayWarnings', () => {
     expect(parseXrayWarnings('Configuration OK.')).toEqual([])
   })
 })
+
+describe('запреты ядра v26.7.28', () => {
+  it('запрет VLESS без шифрования получает русскую подсказку', () => {
+    const out =
+      'Failed to start: main: failed to load config: vless without TLS or other encryption is prohibited unless the server address is a private IP or domain'
+    const errors = parseXrayOutput(out, '/data/tmp/x.json')
+    expect(errors[0]!.hint).toContain('encryption')
+    expect(errors[0]!.hint).toContain('26.7.28')
+  })
+
+  it('запрет Trojan без TLS получает свою подсказку', () => {
+    const out =
+      'Failed to start: main: failed to load config: trojan without TLS is prohibited unless the server address is a private IP or domain'
+    const errors = parseXrayOutput(out, '/data/tmp/x.json')
+    expect(errors[0]!.hint).toContain('TLS')
+    expect(errors[0]!.hint).toContain('Trojan')
+  })
+})
