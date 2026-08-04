@@ -44,6 +44,23 @@ function dummyClientFor(
   return { id: DUMMY_UUID, email: DUMMY_EMAIL }
 }
 
+/**
+ * Нужен ли inbound'у подставной пользователь. Общий предикат для фиктивных
+ * клиентов и для клиентов, взятых из computed-config панели: разъехавшись,
+ * они начали бы затирать друг друга.
+ */
+export function needsClient(raw: Record<string, unknown>): boolean {
+  const protocol = typeof raw.protocol === 'string' ? raw.protocol : ''
+  if (protocol !== 'vless' && protocol !== 'trojan' && protocol !== 'shadowsocks') return false
+  const settings = isRecord(raw.settings) ? raw.settings : {}
+  if (Array.isArray(settings.clients) && settings.clients.length > 0) return false
+  // Одиночный shadowsocks (пароль в settings) — валидный конфиг без clients
+  if (protocol === 'shadowsocks' && typeof settings.password === 'string' && settings.password !== '') {
+    return false
+  }
+  return true
+}
+
 export function withDummyClients(config: unknown): DummyInjection {
   const injected: string[] = []
   if (!isRecord(config)) return { config, injected }
@@ -53,21 +70,11 @@ export function withDummyClients(config: unknown): DummyInjection {
 
   for (const raw of next.inbounds) {
     if (!isRecord(raw)) continue
-    const protocol = typeof raw.protocol === 'string' ? raw.protocol : ''
-    if (protocol !== 'vless' && protocol !== 'trojan' && protocol !== 'shadowsocks') continue
+    if (!needsClient(raw)) continue
+    const protocol = raw.protocol as string
 
     if (!isRecord(raw.settings)) raw.settings = {}
     const settings = raw.settings as Record<string, unknown>
-    if (Array.isArray(settings.clients) && settings.clients.length > 0) continue
-    // Одиночный shadowsocks (пароль в settings) — валидный конфиг без clients
-    if (
-      protocol === 'shadowsocks' &&
-      typeof settings.password === 'string' &&
-      settings.password !== ''
-    ) {
-      continue
-    }
-
     settings.clients = [dummyClientFor(protocol, settings)]
     injected.push(typeof raw.tag === 'string' ? raw.tag : protocol)
   }

@@ -51,7 +51,7 @@ describe('XrayService.test', () => {
     }
     const res = await new XrayService('xray', dataDir, runner).test(CONFIG)
     expect((seen as any).inbounds[0].settings.clients).toHaveLength(1)
-    expect(res.injected).toEqual(['vless-in'])
+    expect(res.injected).toEqual([{ tag: 'vless-in', source: 'dummy' }])
   })
 
   it('временный файл удаляется после прогона', async () => {
