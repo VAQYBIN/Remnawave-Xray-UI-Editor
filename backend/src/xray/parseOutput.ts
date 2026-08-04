@@ -28,6 +28,19 @@ const HINTS: { pattern: RegExp; hint: string; code?: 'geo' }[] = [
     pattern: /reality|empty "?serverNames"?/i,
     hint: 'Reality собран неполно: нужны serverNames, приватный ключ и shortIds.',
   },
+  // Три записи ниже стоят до общей «unknown …|unsupported»: та перехватила бы их
+  {
+    pattern: /vless without TLS or other encryption is prohibited/i,
+    hint: 'Ядро 26.7.28+ не собирает VLESS без TLS/Reality и без encryption, если адрес публичный. Включите security в streamSettings или задайте settings.encryption.',
+  },
+  {
+    pattern: /trojan without TLS is prohibited/i,
+    hint: 'Ядро 26.7.28+ не собирает Trojan без TLS на публичный адрес. Включите security «tls» в streamSettings — у Trojan обхода через encryption нет.',
+  },
+  {
+    pattern: /minClientVer|maxClientVer/i,
+    hint: 'Reality разбирает ограничение версии клиента. С 26.7.11 умолчание minClientVer — 26.3.27; «0.0.0» пускает Mihomo, Sing-Box и старые Xray.',
+  },
   {
     // «unknown config id: vmesss» — так ядро 26.6.27 сообщает о неизвестном протоколе
     pattern: /unknown (protocol|network|security|config id)|unsupported/i,

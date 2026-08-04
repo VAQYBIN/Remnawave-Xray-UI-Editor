@@ -52,6 +52,30 @@ export function describeCause(err: unknown, depth = 4): string {
   return parts.join(' ← ')
 }
 
+/**
+ * У панели два формата ошибки 400: RemnawaveBadRequestErrorDto (просто message)
+ * и RemnawaveValidationErrorDto с errors[] — там лежат пути полей, которые не
+ * прошли проверку. В v3 панель валидирует и сам Xray-конфиг, поэтому верхний
+ * message («Validation failed») перестал что-либо называть.
+ */
+export function describePanelError(json: unknown): string | undefined {
+  if (typeof json !== 'object' || json === null) return undefined
+  const body = json as { message?: unknown; errors?: unknown }
+  if (Array.isArray(body.errors) && body.errors.length > 0) {
+    const lines = body.errors
+      .map((e) => {
+        const item = e as { path?: unknown; message?: unknown }
+        const path = Array.isArray(item.path) ? item.path.join('.') : ''
+        const message = typeof item.message === 'string' ? item.message : ''
+        if (path === '' && message === '') return ''
+        return path === '' ? message : `${path} — ${message}`
+      })
+      .filter((line) => line !== '')
+    if (lines.length > 0) return lines.join('; ')
+  }
+  return typeof body.message === 'string' ? body.message : undefined
+}
+
 interface ClientOptions {
   baseUrl: string
   token: string
@@ -90,8 +114,7 @@ export class RemnawaveClient implements RemnawavePort {
       json = undefined
     }
     if (!res.ok) {
-      const message =
-        (json as { message?: string } | undefined)?.message ?? `Панель ответила ${res.status}`
+      const message = describePanelError(json) ?? `Панель ответила ${res.status}`
       throw new RemnawaveError(res.status, message, json ?? text)
     }
     return json as T
@@ -134,11 +157,19 @@ export class RemnawaveClient implements RemnawavePort {
     return r.response
   }
 
+  // v3 отвечает 204 без тела, 2.8 — 200 с {response:{isDeleted}}: тело не читаем,
+  // и метод одинаково работает с обеими версиями панели
   async deleteProfile(uuid: string): Promise<void> {
-    await this.request<{ response: { isDeleted: boolean } }>(
-      'DELETE',
-      `/api/config-profiles/${uuid}`,
+    await this.request<void>('DELETE', `/api/config-profiles/${uuid}`)
+  }
+
+  /** Конфиг профиля с пользователями, которых панель инжектит при раздаче на ноды */
+  async getComputedConfig(uuid: string): Promise<unknown> {
+    const r = await this.request<{ response: { config: unknown } }>(
+      'GET',
+      `/api/config-profiles/${uuid}/computed-config`,
     )
+    return r.response.config
   }
 
   async getNodes(): Promise<unknown[]> {

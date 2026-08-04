@@ -5,9 +5,9 @@ FROM alpine:3.24 AS xray
 # Подставляет buildx: amd64 или arm64. Архив и его контрольная сумма
 # выбираются парой — рассинхрон здесь тише всего ломает сборку.
 ARG TARGETARCH
-ARG XRAY_VERSION=v26.6.27
-ARG XRAY_SHA256_AMD64=b3e5902d06d6282fe53cfa2fc426058b9aeaa429b2c812e20887cd47f26d08bf
-ARG XRAY_SHA256_ARM64=13a251379bea366c2cf10363ad71e75734193d401f26f518bf0c25e5c8f8c931
+ARG XRAY_VERSION=v26.7.28
+ARG XRAY_SHA256_AMD64=8195d909f1109b8f3d99eefe401a3c451d7bf4af71f24d3815420f77e5dd2a40
+ARG XRAY_SHA256_ARM64=f5698bb218ada3b4022db26fafc39601c5f53b46b19eb76c9616325985807501
 RUN set -eu; \
     case "$TARGETARCH" in \
       amd64) asset=Xray-linux-64.zip;        sha="$XRAY_SHA256_AMD64" ;; \

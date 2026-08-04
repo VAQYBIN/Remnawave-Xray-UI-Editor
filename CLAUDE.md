@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Что это
 
-Визуальный редактор Xray-конфигов (конфиг-профилей) панели Remnawave v2.8.0: топология трафика как граф (React Flow), формы вместо ручного JSON, сохранение в панель по API. Язык UI, сообщений об ошибках и документации — русский; коммиты — английский conventional style (`fix(frontend): ...`). Ветки: `main` и рабочая `dev`.
+Визуальный редактор Xray-конфигов (конфиг-профилей) панели Remnawave 2.8+/3.x: топология трафика как граф (React Flow), формы вместо ручного JSON, сохранение в панель по API. Язык UI, сообщений об ошибках и документации — русский; коммиты — английский conventional style (`fix(frontend): ...`). Ветки: `main` и рабочая `dev`.
 
 ## Команды
 
@@ -49,7 +49,8 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
   `loadConfig` хэширует открытый на старте — в `AppConfig.appPassword` всегда лежит хэш, и
   `verifyPassword` знает единственный формат. Rate-limit двухуровневый: 5 попыток в минуту на
   логине и глобальные 600 запросов в минуту на остальное.
-- `xray/*` — проверка конфига ядром: `dummyClient.ts` подставляет фиктивного пользователя
+- `xray/*` — проверка конфига ядром: `panelClients.ts` берёт по одному настоящему клиенту из
+  `computed-config` профиля, `dummyClient.ts` подставляет фиктивного там, где пары не нашлось
   (профили панели хранятся с `clients: []`), `service.ts` запускает `xray run -test` с
   `XRAY_LOCATION_ASSET` на geo-базы из `DATA_DIR`, `parseOutput.ts` переводит цепочки ошибок ядра
   в русские подсказки. Нет бинаря (`XRAY_BIN`) — `available: false`, а не ошибка.
@@ -80,6 +81,9 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 `shared` → `entities` → `features` (вариация feature-sliced):
 
 - `entities/xray` — типы и чистая логика Xray-конфига: схемы inbound/outbound/stream/routing, генерация (`generate.ts`). Всё реэкспортируется через `entities/xray/index.ts`.
+  Транспорт узла читается **только** через `streamNetwork` (`compat.ts`): Xray v26.7.28
+  переименовал `streamSettings.network` в `method` и при обоих ключах слушает `method`, поэтому
+  форма при смене транспорта пишет `network` и удаляет `method`.
 - `entities/graph` — `buildGraph.ts` строит из конфига колоночный граф (squad → inbound → rule → outbound); `mutations.ts` — обратные правки конфига из графа. Дубликаты тегов пропускаются (иначе ломаются id узлов React Flow).
 - **Балансеры.** `routing.balancers` — своя колонка графа между правилами и outbound'ами
   (`COLUMN_X.balancer`, outbound уехал на 1290), узел `bal:<tag>`. `selector` матчит теги

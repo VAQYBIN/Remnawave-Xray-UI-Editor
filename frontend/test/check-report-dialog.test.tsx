@@ -33,6 +33,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}
@@ -56,6 +57,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}
@@ -66,21 +68,56 @@ describe('CheckReportDialog', () => {
     expect(screen.getByText(/26\.6\.27/)).toBeInTheDocument()
   })
 
-  it('подставленный пользователь отмечается в отчёте', async () => {
+  it('клиенты из панели и фиктивные показаны отдельными строками', async () => {
     mockRoutes({
-      'xray-test': { available: true, ok: true, errors: [], warnings: [], injected: ['vless-in'] },
+      'xray-test': {
+        available: true,
+        ok: true,
+        version: '26.7.28',
+        errors: [],
+        warnings: [],
+        injected: [
+          { tag: 'vless-in', source: 'panel' },
+          { tag: 'new-in', source: 'dummy' },
+        ],
+      },
     })
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}
         onOpenGeo={() => {}}
       />,
     )
-    expect(await screen.findByText(/подставн/i)).toBeInTheDocument()
-    expect(screen.getByText(/vless-in/)).toBeInTheDocument()
+    expect(await screen.findByText(/клиенты взяты из панели/i)).toHaveTextContent('vless-in')
+    expect(screen.getByText(/подставлены фиктивные/i)).toHaveTextContent('new-in')
+  })
+
+  it('нет фиктивных — второй строки нет', async () => {
+    mockRoutes({
+      'xray-test': {
+        available: true,
+        ok: true,
+        errors: [],
+        warnings: [],
+        injected: [{ tag: 'vless-in', source: 'panel' }],
+      },
+    })
+    wrap(
+      <CheckReportDialog
+        open
+        profileUuid="p1"
+        config={{}}
+        targets={NO_TARGETS}
+        onClose={() => {}}
+        onOpenGeo={() => {}}
+      />,
+    )
+    expect(await screen.findByText(/клиенты взяты из панели/i)).toBeInTheDocument()
+    expect(screen.queryByText(/подставлены фиктивные/i)).not.toBeInTheDocument()
   })
 
   it('ошибка с подсказкой показывает и то, и другое', async () => {
@@ -101,6 +138,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}
@@ -127,6 +165,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}
@@ -152,6 +191,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={[
           {
@@ -183,6 +223,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}
@@ -199,6 +240,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}
@@ -213,6 +255,7 @@ describe('CheckReportDialog', () => {
     wrap(
       <CheckReportDialog
         open
+        profileUuid="p1"
         config={{}}
         targets={NO_TARGETS}
         onClose={() => {}}

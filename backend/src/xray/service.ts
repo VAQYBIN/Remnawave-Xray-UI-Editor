@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { withDummyClients } from './dummyClient.js'
+import { withPanelClients, type Injected } from './panelClients.js'
 import {
   parseXrayOutput,
   parseXrayWarnings,
@@ -18,8 +18,8 @@ export interface XrayTestResult {
   errors: XrayTestError[]
   /** Предупреждения ядра: приходят и при успешной проверке */
   warnings: string[]
-  /** Теги inbound'ов, куда подставлен фиктивный пользователь */
-  injected: string[]
+  /** Теги inbound'ов, куда подставлен пользователь, и откуда он взят */
+  injected: Injected[]
 }
 
 export interface SpawnOutcome {
@@ -58,8 +58,8 @@ export class XrayService {
     private run: SpawnRunner = runProcess,
   ) {}
 
-  async test(config: unknown): Promise<XrayTestResult> {
-    const { config: prepared, injected } = withDummyClients(config)
+  async test(config: unknown, computed?: unknown): Promise<XrayTestResult> {
+    const { config: prepared, injected } = withPanelClients(config, computed)
     const dir = join(this.dataDir, 'tmp')
     await mkdir(dir, { recursive: true })
     const file = join(dir, `xray-test-${randomUUID()}.json`)

@@ -52,8 +52,33 @@ export const VlessVnextSchema = z.looseObject({
   users: z.array(VlessOutboundUserSchema).optional(),
 })
 
+// Xray понимает две формы клиентского outbound'а: классическую (vnext/servers)
+// и плоскую (адрес прямо в settings). Ядро проверяет запрет «без шифрования на
+// публичный адрес» только для плоской — описываем обе.
 export const VlessOutboundSettingsSchema = z.looseObject({
+  address: z.string().optional(),
+  port: z.number().optional(),
+  id: z.string().optional(),
+  flow: z.string().optional(),
+  encryption: z.string().optional(),
+  seed: z.string().optional(),
   vnext: z.array(VlessVnextSchema).optional(),
+})
+
+export const TrojanServerSchema = z.looseObject({
+  address: z.string().optional(),
+  port: z.number().optional(),
+  password: z.string().optional(),
+  email: z.string().optional(),
+  flow: z.string().optional(),
+})
+
+export const TrojanOutboundSettingsSchema = z.looseObject({
+  address: z.string().optional(),
+  port: z.number().optional(),
+  password: z.string().optional(),
+  flow: z.string().optional(),
+  servers: z.array(TrojanServerSchema).optional(),
 })
 
 export const ProxyServerUserSchema = z.looseObject({
@@ -88,6 +113,7 @@ const OUTBOUND_SETTINGS_BY_PROTOCOL: Record<string, z.ZodTypeAny> = {
   blackhole: BlackholeOutboundSettingsSchema,
   wireguard: WireguardOutboundSettingsSchema,
   vless: VlessOutboundSettingsSchema,
+  trojan: TrojanOutboundSettingsSchema,
   socks: SocksOutboundSettingsSchema,
   http: HttpOutboundSettingsSchema,
 }

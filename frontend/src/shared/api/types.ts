@@ -100,6 +100,12 @@ export interface XrayTestError {
   code?: 'geo'
 }
 
+export interface InjectedClient {
+  tag: string
+  /** 'panel' — клиент взят из computed-config панели, 'dummy' — подставлен редактором */
+  source: 'panel' | 'dummy'
+}
+
 export interface XrayTestResult {
   available: boolean
   ok: boolean
@@ -107,8 +113,8 @@ export interface XrayTestResult {
   errors: XrayTestError[]
   /** Предупреждения ядра: приходят и при успешной проверке */
   warnings: string[]
-  /** Теги inbound'ов, куда на время проверки подставлен фиктивный пользователь */
-  injected: string[]
+  /** Inbound'ы, куда на время проверки подставлен пользователь, и откуда он взят */
+  injected: InjectedClient[]
 }
 
 export type CheckLevel = 'ok' | 'warn' | 'error'

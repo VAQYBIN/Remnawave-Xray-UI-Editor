@@ -5,7 +5,7 @@ import { probeRealityTarget, type RealityProbe } from '../tools/realityProbe.js'
 import { registerWarpAccount, type WarpRegister } from '../tools/warp.js'
 
 const deriveSchema = z.object({ privateKey: z.string().min(1) })
-const xrayTestSchema = z.object({ config: z.unknown() })
+const xrayTestSchema = z.object({ config: z.unknown(), profileUuid: z.string().optional() })
 const realitySchema = z.object({
   target: z.string().min(1),
   serverNames: z.array(z.string()).default([]),
@@ -29,11 +29,21 @@ export const toolsRoutes: FastifyPluginAsync<ToolsRoutesOptions> = async (app, o
 
   app.post('/api/tools/xray-test', async (req, reply) => {
     // z.unknown() не отличает «не передали» от «передали undefined» — проверяем сами
-    const { config } = xrayTestSchema.parse(req.body ?? {})
+    const { config, profileUuid } = xrayTestSchema.parse(req.body ?? {})
     if (config === undefined) {
       return reply.status(400).send({ message: 'Нужно передать поле config' })
     }
-    return app.xray.test(config)
+    let computed: unknown
+    if (profileUuid !== undefined) {
+      // Панель недоступна или профиль ещё не сохранён — проверка обязана
+      // работать так же, как работала до computed-config
+      try {
+        computed = await app.remnawave.getComputedConfig(profileUuid)
+      } catch (err) {
+        req.log.warn({ err }, 'computed-config недоступен, проверяем на фиктивных клиентах')
+      }
+    }
+    return app.xray.test(config, computed)
   })
 
   app.post('/api/tools/reality-target', async (req) => {

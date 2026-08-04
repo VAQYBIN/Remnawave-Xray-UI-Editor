@@ -16,6 +16,10 @@ export const RealitySettingsSchema = z.looseObject({
   serverName: z.string().optional(),
   shortId: z.string().optional(),
   password: z.string().optional(),
+  // С Xray 26.7.11 умолчание minClientVer — 26.3.27: Mihomo, Sing-Box и старые
+  // Xray отваливаются молча, пока не поставить «0.0.0»
+  minClientVer: z.string().optional(),
+  maxClientVer: z.string().optional(),
 })
 
 export const CertificateSchema = z.looseObject({
@@ -33,6 +37,11 @@ export const TlsSettingsSchema = z.looseObject({
   certificates: z.array(CertificateSchema).optional(),
   minVersion: z.string().optional(),
   maxVersion: z.string().optional(),
+  // Xray v26.7.28: наборы шифров для unsafe-fingerprint (#6450) и пиннинг
+  // сертификата пира, требующий имени (#6472)
+  cipherSuites: z.string().optional(),
+  pinnedPeerCertSha256: z.array(z.string()).optional(),
+  verifyPeerCertByName: z.string().optional(),
   fingerprint: z.string().optional(),
 })
 
@@ -101,6 +110,8 @@ export const SockoptSchema = z.looseObject({
 
 export const StreamSettingsSchema = z.looseObject({
   network: z.string().optional(),
+  /** Новое имя network (Xray ≥26.7.28); при обоих ключах ядро слушает method */
+  method: z.string().optional(),
   security: z.string().optional(),
   realitySettings: RealitySettingsSchema.optional(),
   tlsSettings: TlsSettingsSchema.optional(),

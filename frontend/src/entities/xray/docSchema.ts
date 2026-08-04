@@ -126,6 +126,7 @@ const OUTBOUND_PROTOCOLS: DocEnum[] = [
   { value: 'socks', doc: 'Внешний SOCKS-прокси' },
   { value: 'http', doc: 'Внешний HTTP-прокси' },
   { value: 'vless', doc: 'Цепочка на другой VLESS-сервер' },
+  { value: 'trojan', doc: 'Цепочка на Trojan-сервер' },
 ]
 
 // ── реестр узлов дерева ────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ const outboundSettingsNode = (p: Props): string | undefined =>
     blackhole: 'blackholeOutboundSettings',
     wireguard: 'wireguardOutboundSettings',
     vless: 'vlessOutboundSettings',
+    trojan: 'trojanOutboundSettings',
     socks: 'proxyOutboundSettings',
     http: 'proxyOutboundSettings',
   })[p.protocol ?? 'freedom']
@@ -169,6 +171,7 @@ export const NODES: Record<string, DocNode> = {
       },
       api: { doc: 'gRPC API управления', type: 'object' },
       metrics: { doc: 'Метрики Prometheus', type: 'object' },
+      env: { doc: 'Переменные окружения ядра (Xray ≥26.7.28)', type: 'object' },
     },
   },
 
@@ -279,6 +282,11 @@ export const NODES: Record<string, DocNode> = {
   streamSettings: {
     fields: {
       network: { doc: 'Транспорт', type: 'string', enum: NETWORKS },
+      method: {
+        doc: 'Транспорт — новое имя network (Xray ≥26.7.28); при обоих ключах ядро берёт method',
+        type: 'string',
+        enum: NETWORKS,
+      },
       security: { doc: 'Шифрование транспорта', type: 'string', enum: SECURITIES },
       realitySettings: { doc: 'Настройки Reality', type: 'object', node: 'realitySettings' },
       tlsSettings: { doc: 'Настройки TLS', type: 'object', node: 'tlsSettings' },
@@ -308,6 +316,11 @@ export const NODES: Record<string, DocNode> = {
       serverName: { doc: 'SNI (клиент) — одно из serverNames сервера', type: 'string' },
       shortId: { doc: 'Короткий ID (клиент)', type: 'string' },
       password: { doc: 'Публичный ключ сервера (pbk) — в свежих ядрах поле password', type: 'string' },
+      minClientVer: {
+        doc: 'Минимальная версия клиента. С Xray 26.7.11 умолчание — 26.3.27: Mihomo, Sing-Box и старые Xray не подключатся. «0.0.0» снимает ограничение',
+        type: 'string',
+      },
+      maxClientVer: { doc: 'Максимальная версия клиента', type: 'string' },
     },
   },
   tlsSettings: {
@@ -319,6 +332,12 @@ export const NODES: Record<string, DocNode> = {
       minVersion: { doc: 'Минимальная версия TLS', type: 'string', enum: TLS_VERSIONS },
       maxVersion: { doc: 'Максимальная версия TLS', type: 'string', enum: TLS_VERSIONS },
       fingerprint: { doc: 'uTLS-профиль (клиент)', type: 'string', enum: FINGERPRINTS },
+      cipherSuites: { doc: 'Наборы шифров — только для unsafe (golang) fingerprint', type: 'string' },
+      pinnedPeerCertSha256: {
+        doc: 'Пиннинг сертификата; требует serverName, verifyPeerCertByName или адрес outbound-а',
+        type: 'array',
+      },
+      verifyPeerCertByName: { doc: 'Имя, по которому проверяется сертификат пира', type: 'string' },
     },
   },
   certificate: {
@@ -387,6 +406,7 @@ export const NODES: Record<string, DocNode> = {
   finalmask: {
     fields: {
       quicParams: { doc: 'Параметры QUIC', type: 'object', node: 'quicParams' },
+      xmc: { doc: 'Маскировка под Minecraft (TCP) — Xray ≥26.7.28', type: 'object' },
     },
   },
   quicParams: {
@@ -476,7 +496,31 @@ export const NODES: Record<string, DocNode> = {
   },
   vlessOutboundSettings: {
     fields: {
-      vnext: { doc: 'Серверы назначения', type: 'array', itemsNode: 'vlessVnext' },
+      vnext: { doc: 'Серверы назначения (классическая форма)', type: 'array', itemsNode: 'vlessVnext' },
+      address: { doc: 'Адрес сервера (плоская форма)', type: 'string' },
+      port: { doc: 'Порт сервера (плоская форма)', type: 'number' },
+      id: { doc: 'UUID пользователя (плоская форма)', type: 'string' },
+      flow: { doc: 'Flow (плоская форма)', type: 'string', enum: FLOW },
+      encryption: { doc: 'Шифрование VLESS: none либо строка mlkem768x25519plus…', type: 'string' },
+      seed: { doc: 'Seed для VLESS Seed', type: 'string' },
+    },
+  },
+  trojanOutboundSettings: {
+    fields: {
+      servers: { doc: 'Серверы назначения (классическая форма)', type: 'array', itemsNode: 'trojanServer' },
+      address: { doc: 'Адрес сервера (плоская форма)', type: 'string' },
+      port: { doc: 'Порт сервера (плоская форма)', type: 'number' },
+      password: { doc: 'Пароль (плоская форма)', type: 'string' },
+      flow: { doc: 'Flow', type: 'string', enum: FLOW },
+    },
+  },
+  trojanServer: {
+    fields: {
+      address: { doc: 'Адрес сервера', type: 'string' },
+      port: { doc: 'Порт сервера', type: 'number' },
+      password: { doc: 'Пароль', type: 'string' },
+      email: { doc: 'Идентификатор', type: 'string' },
+      flow: { doc: 'Flow', type: 'string', enum: FLOW },
     },
   },
   vlessVnext: {

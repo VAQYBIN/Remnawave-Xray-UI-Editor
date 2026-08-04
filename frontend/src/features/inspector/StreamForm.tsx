@@ -8,6 +8,8 @@ import {
   hysteriaCertificateIssue,
   normalizeNetwork,
   securityNetworkIssue,
+  streamNetwork,
+  type StreamNetworkSource,
 } from '../../entities/xray'
 import { useRealityKeypair, useRealityPublicKey } from '../../shared/api'
 import { KeyValueField, ListEditor } from './collections'
@@ -118,7 +120,7 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTa
   const derive = useRealityPublicKey()
   // Сколько shortId генерировать за раз (Reality); пустой shortId добавляется отдельно
   const [genCount, setGenCount] = useState(4)
-  const network = (value.network as string) ?? 'tcp'
+  const network = streamNetwork(value as StreamNetworkSource) ?? 'tcp'
   const security = (value.security as string) ?? 'none'
   const reality = (value.realitySettings as Obj) ?? {}
   const tls = (value.tlsSettings as Obj) ?? {}
@@ -206,6 +208,8 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTa
         onChange={(v) =>
           patch((n) => {
             n.network = v
+            // method перебивает network в ядре: оставь старый ключ — правка не подействует
+            delete n.method
             // Hysteria 2 жёстко требует version: 2 — иначе ядро не стартует
             if (v === 'hysteria' && n.hysteriaSettings === undefined) n.hysteriaSettings = { version: 2 }
           })
@@ -624,6 +628,23 @@ export function StreamForm({ value, onChange, mode = 'inbound', flow, outboundTa
             onChange={(v) => patchReality((r) => { if (v === undefined) delete r.xver; else r.xver = v })}
           />
           <CollapsibleSection title="Продвинутые (Reality)">
+            <TextField
+              label="Минимальная версия клиента"
+              mono
+              placeholder="26.3.27"
+              hint="Умолчание ядра с 26.7.11 — 26.3.27: Mihomo, Sing-Box и старые Xray отваливаются молча"
+              value={reality.minClientVer as string | undefined}
+              onChange={(v) => patchReality((r) => { if (v === undefined) delete r.minClientVer; else r.minClientVer = v })}
+            />
+            <Button variant="ghost" onClick={() => patchReality((r) => { r.minClientVer = '0.0.0' })}>
+              0.0.0 — пустить Mihomo и Sing-Box
+            </Button>
+            <TextField
+              label="Максимальная версия клиента"
+              mono
+              value={reality.maxClientVer as string | undefined}
+              onChange={(v) => patchReality((r) => { if (v === undefined) delete r.maxClientVer; else r.maxClientVer = v })}
+            />
             <CheckboxField
               label="Отладочный вывод (show)"
               hint="Печатает отладку хендшейка в лог — в проде выключено"

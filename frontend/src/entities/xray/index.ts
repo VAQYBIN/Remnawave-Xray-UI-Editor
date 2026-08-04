@@ -1,3 +1,4 @@
+export * from './address'
 export * from './compat'
 export * from './rules'
 export * from './traceMatch'

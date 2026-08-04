@@ -45,6 +45,12 @@ describe('RealitySettingsSchema', () => {
     expect(parsed.shortId).toBe('ab12')
     expect(parsed.password).toBe('PUBKEY_BASE64URL')
   })
+
+  it('знает minClientVer и maxClientVer', () => {
+    const parsed = RealitySettingsSchema.parse({ minClientVer: '0.0.0', maxClientVer: '99.0.0' })
+    expect(parsed.minClientVer).toBe('0.0.0')
+    expect(parsed.maxClientVer).toBe('99.0.0')
+  })
 })
 
 describe('SniffingSchema', () => {
@@ -105,5 +111,18 @@ describe('StreamSettingsSchema — транспорты', () => {
     expect(a.sockopt?.dialerProxy).toBe('warp')
     expect(b.sockopt?.tcpFastOpen).toBe(256)
     expect(StreamSettingsSchema.safeParse({ sockopt: { tcpFastOpen: 'yes' } }).success).toBe(false)
+  })
+})
+
+describe('TlsSettingsSchema — поля Xray v26.7.28', () => {
+  it('знает cipherSuites, pinnedPeerCertSha256 и verifyPeerCertByName', () => {
+    const parsed = TlsSettingsSchema.parse({
+      cipherSuites: 'TLS_AES_128_GCM_SHA256',
+      pinnedPeerCertSha256: ['abc='],
+      verifyPeerCertByName: 'example.com',
+    })
+    expect(parsed.cipherSuites).toBe('TLS_AES_128_GCM_SHA256')
+    expect(parsed.pinnedPeerCertSha256).toEqual(['abc='])
+    expect(parsed.verifyPeerCertByName).toBe('example.com')
   })
 })

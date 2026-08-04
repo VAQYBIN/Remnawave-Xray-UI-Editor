@@ -252,7 +252,8 @@ describe('analyzeIntegrity — матрица совместимости (пла
       inbounds: [
         { tag: 'h', port: 443, protocol: 'hysteria', streamSettings: { network: 'hysteria', security: 'tls', tlsSettings } },
       ],
-      outbounds: [],
+      // Выход нужен любому конфигу: панель v3 не принимает пустые outbounds
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
     })
     const bad = validateXrayConfig(JSON.stringify(mk({})))
     expect(bad.issues.some((i) => i.level === 'error' && i.message.includes('сертификат'))).toBe(true)
@@ -272,7 +273,7 @@ describe('analyzeIntegrity — матрица совместимости (пла
         },
         { tag: 'b', port: 444, protocol: 'trojan', streamSettings: { network: 'grpc', security: 'reality' } },
       ],
-      outbounds: [],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
     }
     const res = validateXrayConfig(JSON.stringify(cfg))
     expect(res.issues.filter((i) => i.level === 'error')).toHaveLength(0)
@@ -536,5 +537,159 @@ describe('валидация балансеров', () => {
       },
     } as XrayConfig
     expect(messages(config).some((m) => m.startsWith('warning:routing.rules.0.balancerTag'))).toBe(true)
+  })
+})
+
+describe('outbound без шифрования на публичный адрес', () => {
+  const cfg = (out: Record<string, unknown>) =>
+    ({ inbounds: [], outbounds: [out], routing: { rules: [] } }) as unknown as XrayConfig
+
+  it('плоский VLESS без security и без encryption — ошибка', () => {
+    const issues = analyzeIntegrity(
+      cfg({ tag: 'chain', protocol: 'vless', settings: { address: 'example.com', port: 443, id: 'u' } }),
+    )
+    const hit = issues.find((i) => i.path === 'outbounds.0.settings.address')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('VLESS')
+  })
+
+  it('security tls снимает вопрос', () => {
+    const issues = analyzeIntegrity(
+      cfg({
+        tag: 'chain',
+        protocol: 'vless',
+        settings: { address: 'example.com', port: 443, id: 'u' },
+        streamSettings: { network: 'tcp', security: 'tls' },
+      }),
+    )
+    expect(issues.some((i) => i.path === 'outbounds.0.settings.address')).toBe(false)
+  })
+
+  it('encryption снимает вопрос у VLESS, но не у Trojan', () => {
+    const vless = analyzeIntegrity(
+      cfg({ tag: 'c', protocol: 'vless', settings: { address: 'example.com', port: 443, encryption: 'mlkem768x25519plus.native.0rtt.abc' } }),
+    )
+    expect(vless.some((i) => i.path === 'outbounds.0.settings.address')).toBe(false)
+
+    const trojan = analyzeIntegrity(
+      cfg({ tag: 'c', protocol: 'trojan', settings: { address: 'example.com', port: 443, password: 'p', encryption: 'x' } }),
+    )
+    const hit = trojan.find((i) => i.path === 'outbounds.0.settings.address')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('Trojan')
+  })
+
+  it('приватный адрес разрешён — ядро тоже его пропускает', () => {
+    const issues = analyzeIntegrity(
+      cfg({ tag: 'c', protocol: 'vless', settings: { address: '10.0.0.5', port: 443, id: 'u' } }),
+    )
+    expect(issues.some((i) => i.path === 'outbounds.0.settings.address')).toBe(false)
+  })
+
+  // vnext/servers ядро не проверяет: validateOutboundTransportSecurity читает
+  // плоский Address, а у классической формы он nil
+  it('классическая форма vnext под запрет не попадает', () => {
+    const issues = analyzeIntegrity(
+      cfg({
+        tag: 'c',
+        protocol: 'vless',
+        settings: { vnext: [{ address: 'example.com', port: 443, users: [{ id: 'u', encryption: 'none' }] }] },
+      }),
+    )
+    expect(issues.some((i) => i.path.startsWith('outbounds.0.settings'))).toBe(false)
+  })
+})
+
+describe('запреты панели v3 и умолчания ядра v26.7.28', () => {
+  it('конфиг без outbounds — ошибка: панель такой профиль не примет', () => {
+    const issues = analyzeIntegrity({ inbounds: [] } as unknown as XrayConfig)
+    const hit = issues.find((i) => i.path === 'outbounds')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('outbounds')
+  })
+
+  it('пустой массив outbounds — та же ошибка', () => {
+    const issues = analyzeIntegrity({ inbounds: [], outbounds: [] } as unknown as XrayConfig)
+    expect(issues.some((i) => i.path === 'outbounds' && i.level === 'error')).toBe(true)
+  })
+
+  it('непустые outbounds ошибки не дают', () => {
+    const issues = analyzeIntegrity({
+      inbounds: [],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    } as unknown as XrayConfig)
+    expect(issues.some((i) => i.path === 'outbounds')).toBe(false)
+  })
+
+  const reality = (realitySettings: Record<string, unknown>) =>
+    ({
+      inbounds: [
+        {
+          tag: 'r-in',
+          protocol: 'vless',
+          streamSettings: { network: 'tcp', security: 'reality', realitySettings },
+        },
+      ],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    }) as unknown as XrayConfig
+
+  it('Reality без minClientVer — предупреждение про Mihomo и Sing-Box', () => {
+    const hit = analyzeIntegrity(reality({ target: 'x.com:443' })).find(
+      (i) => i.path === 'inbounds.0.streamSettings.realitySettings',
+    )
+    expect(hit?.level).toBe('warning')
+    expect(hit?.message).toContain('26.3.27')
+    expect(hit?.message).toContain('Mihomo')
+  })
+
+  it('явный minClientVer — молчим, вопрос решён', () => {
+    const issues = analyzeIntegrity(reality({ target: 'x.com:443', minClientVer: '0.0.0' }))
+    expect(issues.some((i) => i.path === 'inbounds.0.streamSettings.realitySettings')).toBe(false)
+  })
+
+  const ss = (settings: Record<string, unknown>) =>
+    ({
+      inbounds: [{ tag: 'ss-in', protocol: 'shadowsocks', settings }],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    }) as unknown as XrayConfig
+
+  // btoa падает на не-Latin1, поэтому исходники ключей здесь только ASCII
+  it('ключ 2022 не той длины — ошибка с ожидаемым числом байт', () => {
+    const hit = analyzeIntegrity(
+      ss({ method: '2022-blake3-aes-256-gcm', password: btoa('short') }),
+    ).find((i) => i.path === 'inbounds.0.settings.password')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('32')
+  })
+
+  it('ключ 2022 нужной длины — молчим', () => {
+    const key = btoa('x'.repeat(32))
+    const issues = analyzeIntegrity(ss({ method: '2022-blake3-aes-256-gcm', password: key }))
+    expect(issues.some((i) => i.path === 'inbounds.0.settings.password')).toBe(false)
+  })
+
+  it('не-base64 в ключе 2022 — тоже ошибка', () => {
+    const hit = analyzeIntegrity(
+      ss({ method: '2022-blake3-aes-128-gcm', password: 'not base64 at all!!' }),
+    ).find((i) => i.path === 'inbounds.0.settings.password')
+    expect(hit?.level).toBe('error')
+  })
+
+  it('обычный метод шифрования по длине ключа не проверяется', () => {
+    const issues = analyzeIntegrity(ss({ method: 'aes-256-gcm', password: 'любой пароль' }))
+    expect(issues.some((i) => i.path === 'inbounds.0.settings.password')).toBe(false)
+  })
+})
+
+describe('корневой env (Xray ≥26.7.28)', () => {
+  it('проходит схему и не даёт диагностик', () => {
+    const res = validateXrayConfig(
+      JSON.stringify({
+        env: { XRAY_VMESS_AEAD_FORCED: 'false' },
+        outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      }),
+    )
+    expect(res.ok).toBe(true)
+    expect(res.issues).toEqual([])
   })
 })

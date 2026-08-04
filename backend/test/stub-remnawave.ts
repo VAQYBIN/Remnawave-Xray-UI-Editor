@@ -62,5 +62,9 @@ export function makeStubRemnawave(
         { uuid: 'pi-1', profileUuid: uuid, tag: 'vless-in', type: 'vless', network: 'tcp', security: 'none', port: 443, rawInbound: {}, activeSquads: ['squad-1'] },
       ]
     },
+    async getComputedConfig(uuid) {
+      const p = find(uuid)
+      return p.config
+    },
   }
 }
