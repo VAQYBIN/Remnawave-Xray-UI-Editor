@@ -65,10 +65,37 @@ function issue(parts: PathParts, message: string, level: 'error' | 'warning'): V
   return { parts, path: formatPath(parts), message, level }
 }
 
+// Длины ключей Shadowsocks 2022 в байтах — панель v3 проверяет их до сохранения
+const SS2022_KEY_BYTES: Record<string, number> = {
+  '2022-blake3-aes-128-gcm': 16,
+  '2022-blake3-aes-256-gcm': 32,
+  '2022-blake3-chacha20-poly1305': 32,
+}
+
+/** Длина ключа в байтах или null, если это не base64 */
+function base64Bytes(value: string): number | null {
+  try {
+    return atob(value).length
+  } catch {
+    return null
+  }
+}
+
 export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const inbounds = config.inbounds ?? []
   const outbounds = config.outbounds ?? []
+
+  // Панель Remnawave 3.x отклоняет профиль с пустыми outbounds ещё до сохранения
+  if (outbounds.length === 0) {
+    issues.push(
+      issue(
+        ['outbounds'],
+        'Панель Remnawave 3.x не примет конфиг без outbounds — добавьте хотя бы один выход',
+        'error',
+      ),
+    )
+  }
 
   const seenTags = new Map<string, string>()
   inbounds.forEach((inb, i) => {
@@ -242,12 +269,43 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
       if (secNet) issues.push(issue(['inbounds', i, 'streamSettings'], secNet, 'error'))
       const cert = hysteriaCertificateIssue(streamNetwork(stream), stream.security, stream.tlsSettings)
       if (cert) issues.push(issue(['inbounds', i, 'streamSettings'], cert, 'error'))
+      // Ядро 26.7.11+ по умолчанию ставит minClientVer 26.3.27: клиенты постарше
+      // отваливаются молча, ни в одном логе это не видно
+      if ((stream.security ?? 'none') === 'reality') {
+        const reality = (inb.streamSettings as { realitySettings?: { minClientVer?: unknown } })
+          .realitySettings
+        if (reality !== undefined && reality.minClientVer === undefined) {
+          issues.push(
+            issue(
+              ['inbounds', i, 'streamSettings', 'realitySettings'],
+              'Ядро 26.7.11+ по умолчанию требует клиента 26.3.27 и новее — Mihomo, Sing-Box и старые Xray не подключатся. Задайте minClientVer «0.0.0», если они нужны',
+              'warning',
+            ),
+          )
+        }
+      }
     }
     if (inb.protocol === 'vless') {
       // Панель Remnawave применяет flow из settings ко всем пользователям inbound'а
       const flow = (inb.settings as { flow?: string } | undefined)?.flow
       const flowIssue = flowNetworkIssue(flow, streamNetwork(stream))
       if (flowIssue) issues.push(issue(['inbounds', i, 'settings', 'flow'], flowIssue, 'error'))
+    }
+    if (inb.protocol === 'shadowsocks') {
+      const ss = inb.settings as { method?: string; password?: string } | undefined
+      const expected = ss?.method === undefined ? undefined : SS2022_KEY_BYTES[ss.method]
+      if (expected !== undefined && typeof ss?.password === 'string') {
+        const actual = base64Bytes(ss.password)
+        if (actual !== expected) {
+          issues.push(
+            issue(
+              ['inbounds', i, 'settings', 'password'],
+              `Метод ${ss.method} требует ключ ровно ${expected} байт в base64 — панель отклонит конфиг с другим`,
+              'error',
+            ),
+          )
+        }
+      }
     }
   })
 

@@ -252,7 +252,8 @@ describe('analyzeIntegrity — матрица совместимости (пла
       inbounds: [
         { tag: 'h', port: 443, protocol: 'hysteria', streamSettings: { network: 'hysteria', security: 'tls', tlsSettings } },
       ],
-      outbounds: [],
+      // Выход нужен любому конфигу: панель v3 не принимает пустые outbounds
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
     })
     const bad = validateXrayConfig(JSON.stringify(mk({})))
     expect(bad.issues.some((i) => i.level === 'error' && i.message.includes('сертификат'))).toBe(true)
@@ -272,7 +273,7 @@ describe('analyzeIntegrity — матрица совместимости (пла
         },
         { tag: 'b', port: 444, protocol: 'trojan', streamSettings: { network: 'grpc', security: 'reality' } },
       ],
-      outbounds: [],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
     }
     const res = validateXrayConfig(JSON.stringify(cfg))
     expect(res.issues.filter((i) => i.level === 'error')).toHaveLength(0)
@@ -596,5 +597,86 @@ describe('outbound без шифрования на публичный адре�
       }),
     )
     expect(issues.some((i) => i.path.startsWith('outbounds.0.settings'))).toBe(false)
+  })
+})
+
+describe('запреты панели v3 и умолчания ядра v26.7.28', () => {
+  it('конфиг без outbounds — ошибка: панель такой профиль не примет', () => {
+    const issues = analyzeIntegrity({ inbounds: [] } as unknown as XrayConfig)
+    const hit = issues.find((i) => i.path === 'outbounds')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('outbounds')
+  })
+
+  it('пустой массив outbounds — та же ошибка', () => {
+    const issues = analyzeIntegrity({ inbounds: [], outbounds: [] } as unknown as XrayConfig)
+    expect(issues.some((i) => i.path === 'outbounds' && i.level === 'error')).toBe(true)
+  })
+
+  it('непустые outbounds ошибки не дают', () => {
+    const issues = analyzeIntegrity({
+      inbounds: [],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    } as unknown as XrayConfig)
+    expect(issues.some((i) => i.path === 'outbounds')).toBe(false)
+  })
+
+  const reality = (realitySettings: Record<string, unknown>) =>
+    ({
+      inbounds: [
+        {
+          tag: 'r-in',
+          protocol: 'vless',
+          streamSettings: { network: 'tcp', security: 'reality', realitySettings },
+        },
+      ],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    }) as unknown as XrayConfig
+
+  it('Reality без minClientVer — предупреждение про Mihomo и Sing-Box', () => {
+    const hit = analyzeIntegrity(reality({ target: 'x.com:443' })).find(
+      (i) => i.path === 'inbounds.0.streamSettings.realitySettings',
+    )
+    expect(hit?.level).toBe('warning')
+    expect(hit?.message).toContain('26.3.27')
+    expect(hit?.message).toContain('Mihomo')
+  })
+
+  it('явный minClientVer — молчим, вопрос решён', () => {
+    const issues = analyzeIntegrity(reality({ target: 'x.com:443', minClientVer: '0.0.0' }))
+    expect(issues.some((i) => i.path === 'inbounds.0.streamSettings.realitySettings')).toBe(false)
+  })
+
+  const ss = (settings: Record<string, unknown>) =>
+    ({
+      inbounds: [{ tag: 'ss-in', protocol: 'shadowsocks', settings }],
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+    }) as unknown as XrayConfig
+
+  // btoa падает на не-Latin1, поэтому исходники ключей здесь только ASCII
+  it('ключ 2022 не той длины — ошибка с ожидаемым числом байт', () => {
+    const hit = analyzeIntegrity(
+      ss({ method: '2022-blake3-aes-256-gcm', password: btoa('short') }),
+    ).find((i) => i.path === 'inbounds.0.settings.password')
+    expect(hit?.level).toBe('error')
+    expect(hit?.message).toContain('32')
+  })
+
+  it('ключ 2022 нужной длины — молчим', () => {
+    const key = btoa('x'.repeat(32))
+    const issues = analyzeIntegrity(ss({ method: '2022-blake3-aes-256-gcm', password: key }))
+    expect(issues.some((i) => i.path === 'inbounds.0.settings.password')).toBe(false)
+  })
+
+  it('не-base64 в ключе 2022 — тоже ошибка', () => {
+    const hit = analyzeIntegrity(
+      ss({ method: '2022-blake3-aes-128-gcm', password: 'not base64 at all!!' }),
+    ).find((i) => i.path === 'inbounds.0.settings.password')
+    expect(hit?.level).toBe('error')
+  })
+
+  it('обычный метод шифрования по длине ключа не проверяется', () => {
+    const issues = analyzeIntegrity(ss({ method: 'aes-256-gcm', password: 'любой пароль' }))
+    expect(issues.some((i) => i.path === 'inbounds.0.settings.password')).toBe(false)
   })
 })
