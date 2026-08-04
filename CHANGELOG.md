@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/compare/v1.0.0...v1.1.0) (2026-07-26)
+
+
+### Features
+
+* **docker:** name the service for nginx upstreams, bind to loopback on 5065 ([791bfc0](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/791bfc09fd7add45cd598a56c9cf0e5f587480dc))
+* **docs:** inspector form and json intellisense shots ([f3bb6aa](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/f3bb6aa43649f45359f9019c5cfe17169d90dcca))
+* **docs:** screenshot harness and topology hero shot ([7133004](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/71330045230511e5424deec6e81eb579f12871fd))
+* **docs:** trace and recipes shots ([50e07d4](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/50e07d423fffea31e11d403deb98a59ae145249e))
+* hint that REMNAWAVE_URL must be the public https address ([960fc9d](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/960fc9d1c38d3d7c3a80fc1680f8e7b9158caec0))
+* hint that REMNAWAVE_URL must be the public https address ([21a1a0b](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/21a1a0b2dd2733bc3ba22e1eb2c05e54b494ffe4))
+* make the editor easy to put behind Remnawave's nginx ([4beeccd](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/4beeccd3ca69bdfb965a2e488f302478555f9ff7))
+
+
+### Bug Fixes
+
+* **backend:** keep the cause chain when the panel is unreachable ([116b906](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/116b9064b3140ec22f30ed00b8be57715c9ae1a5))
+* keep the cause chain when the panel is unreachable ([904ea0d](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/904ea0d29ba32c2592ffdf9a32d2a34f225148de))
+
 ## 1.0.0 (2026-07-26)
 
 
