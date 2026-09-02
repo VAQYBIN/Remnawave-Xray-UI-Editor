@@ -1011,7 +1011,14 @@ p { margin: 0 0 10px; }
   from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to { opacity: 1; transform: none; }
 }
-.fnode:hover { border-color: var(--rail-hi); background: var(--panel-2); transform: translateY(-1px); }
+/* Подъём карточки на ховере убран намеренно: React Flow считает концы кабелей
+   по снятым координатам и на ховер их не пересчитывает, поэтому любой сдвиг
+   узла отстёгивает гнездо от кабеля. Отклик даём цветом и тенью. */
+.fnode:hover {
+  border-color: var(--rail-hi);
+  background: var(--panel-2);
+  box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.5), var(--shadow-1);
+}
 .fnode-in { --node-hue: var(--flux); --node-select: var(--flux); }
 .fnode-out { --node-hue: var(--ember); --node-select: var(--ember); }
 .fnode-squad { --node-hue: var(--flux); --node-select: var(--flux); }
@@ -1096,23 +1103,49 @@ p { margin: 0 0 10px; }
 }
 .fnode-cond-all { border-color: var(--flux-line); color: var(--flux); background: var(--flux-soft); }
 
-/* --- Джеки: физические гнёзда коммутации вместо точек по умолчанию --- */
+/* --- Джеки: физические гнёзда коммутации вместо точек по умолчанию ---
+   React Flow сам центрирует гнездо на грани карточки через translate(±50%,-50%).
+   Собственный сдвиг задавать нельзя — он сложится с этим и выкинет гнездо наружу,
+   поэтому масштаб пристёгивается к переносу через --h-tx, а не заменяет его. */
 .react-flow__handle {
   width: 12px;
   height: 12px;
   border: 2px solid var(--rail-hi);
   background: var(--panel-3);
   border-radius: 50%;
+  transform: translate(var(--h-tx), -50%) scale(var(--h-scale, 1));
   transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease),
     transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.react-flow__handle-left { left: -7px; }
-.react-flow__handle-right { right: -7px; }
+.react-flow__handle-left { --h-tx: -50%; }
+.react-flow__handle-right { --h-tx: 50%; }
+
+/* Хит-зона больше самого джека и не зависит от масштаба холста: делим на зум,
+   который PatchbayState кладёт в --rf-zoom. Иначе на отдалении в гнездо
+   диаметром пять экранных пикселей нечем попасть. Потолок держит зону в
+   пределах своей строки: соседние узлы стоят через ROW_H = 130px.
+
+   Смещена наружу от карточки: центрированная зона накрыла бы её правый край,
+   и клик по карточке начинал бы тянуть кабель вместо выбора узла. Целятся
+   всё равно снаружи, поэтому внутрь зона заходит на четверть своего размера
+   вместо половины, а наружу — на три четверти. */
+.react-flow__handle.connectable::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(72px, 28px / var(--rf-zoom, 1));
+  height: min(72px, 28px / var(--rf-zoom, 1));
+  transform: translate(calc(-50% + var(--hit-bias, 0%)), -50%);
+  border-radius: 50%;
+}
+.react-flow__handle-left.connectable::after { --hit-bias: -25%; }
+.react-flow__handle-right.connectable::after { --hit-bias: 25%; }
 .fnode:hover .react-flow__handle { border-color: var(--node-hue); }
 .react-flow__handle:hover {
   background: var(--node-hue);
   border-color: var(--node-hue);
-  transform: scale(1.25);
+  --h-scale: 1.25;
 }
 /* Во время протяжки кабеля: совместимые гнёзда светятся, остальные гаснут */
 .react-flow__handle.connectingfrom {
@@ -1123,10 +1156,26 @@ p { margin: 0 0 10px; }
 .react-flow__handle.valid {
   background: var(--live);
   border-color: var(--live);
-  transform: scale(1.35);
+  --h-scale: 1.35;
   box-shadow: 0 0 0 6px color-mix(in srgb, var(--live) 20%, transparent);
 }
 .react-flow__handle.connectingto:not(.valid) { opacity: 0.25; }
+
+/* Куда можно воткнуть тянущийся кабель. Набор колонок в data-accepts считает
+   PatchbayState по isValidConnection — здесь только оформление. Цель видно с
+   другого конца холста, а не только когда курсор уже над гнездом. */
+[data-accepts~='rule'] .react-flow__node[data-id^='rule:'] .fnode,
+[data-accepts~='out'] .react-flow__node[data-id^='out:'] .fnode,
+[data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .fnode {
+  border-color: color-mix(in srgb, var(--live) 55%, var(--rail));
+  box-shadow: var(--shadow-1), 0 0 0 1px color-mix(in srgb, var(--live) 30%, transparent);
+}
+[data-accepts~='rule'] .react-flow__node[data-id^='rule:'] .react-flow__handle-left,
+[data-accepts~='out'] .react-flow__node[data-id^='out:'] .react-flow__handle-left,
+[data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .react-flow__handle-left {
+  border-color: var(--live);
+  background: color-mix(in srgb, var(--live) 30%, var(--panel-3));
+}
 
 /* --- Кабели ---
    Три слоя: гало-подложка (вес на тёмном фоне), сплошной кабель-градиент и —
