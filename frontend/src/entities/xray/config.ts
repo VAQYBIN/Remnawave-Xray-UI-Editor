@@ -9,7 +9,14 @@ import {
 } from './compat'
 import { DnsSchema } from './dns'
 import { InboundSchema } from './inbounds'
-import { RemnawaveDirectivesSchema } from './inject'
+import {
+  hasPanelNamedTags,
+  injectedTagsOf,
+  injectGroupsOf,
+  RemnawaveDirectivesSchema,
+  SELECT_FROM,
+  SELECTOR_TYPES,
+} from './inject'
 import { LogSchema } from './log'
 import { BurstObservatorySchema, ObservatorySchema, subjectCovers } from './observatory'
 import { OutboundSchema } from './outbounds'
@@ -90,6 +97,11 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const inbounds = config.inbounds ?? []
   const outbounds = config.outbounds ?? []
+  const injectGroups = injectGroupsOf(config)
+  // Теги, которые панель создаст сама: для проверок они существуют
+  const predicted = injectedTagsOf(config)
+  // Часть тегов знает только панель — тогда проверки на существование тега молчат
+  const tagsUnknowable = hasPanelNamedTags(config)
 
   // Панель Remnawave 3.x отклоняет профиль с пустыми outbounds ещё до сохранения
   if (outbounds.length === 0) {
@@ -133,12 +145,12 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
   })
 
   const inboundTags = new Set(inbounds.map((x) => x.tag))
-  const outboundTags = new Set(outbounds.map((x) => x.tag))
+  const outboundTags = new Set([...outbounds.map((x) => x.tag), ...predicted])
   const rules = config.routing?.rules ?? []
   const balancers = config.routing?.balancers ?? []
   const balancerTags = new Set(balancers.map((b) => b.tag))
   rules.forEach((rule, i) => {
-    if (rule.outboundTag && !outboundTags.has(rule.outboundTag)) {
+    if (rule.outboundTag && !tagsUnknowable && !outboundTags.has(rule.outboundTag)) {
       issues.push(
         issue(
           ['routing', 'rules', i, 'outboundTag'],
@@ -207,7 +219,7 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
     seenBalancerTags.add(bal.tag)
 
     const candidates = balancerCandidates(config, bal)
-    if (candidates.length === 0) {
+    if (candidates.length === 0 && !tagsUnknowable) {
       issues.push(
         issue(
           ['routing', 'balancers', i, 'selector'],
@@ -216,7 +228,7 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
         ),
       )
     }
-    if (bal.fallbackTag !== undefined && !outboundTags.has(bal.fallbackTag)) {
+    if (bal.fallbackTag !== undefined && !tagsUnknowable && !outboundTags.has(bal.fallbackTag)) {
       issues.push(
         issue(
           ['routing', 'balancers', i, 'fallbackTag'],
@@ -411,6 +423,86 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
       }
     })
   }
+
+  // Шаблон подписки без подстановки отдаёт клиенту конфиг без единого сервера.
+  // Глазами в JSON это не видно, поэтому проверка ценнее прочих.
+  if (config.remnawave !== undefined && injectGroups.length === 0) {
+    issues.push(
+      issue(
+        ['remnawave', 'injectHosts'],
+        'В шаблоне нет ни одной группы подстановки — подписка не получит ни одного сервера',
+        'warning',
+      ),
+    )
+  }
+
+  injectGroups.forEach((group, i) => {
+    const named = [group.tagPrefix !== undefined && group.tagPrefix !== '', group.useHostRemarkAsTag === true, group.useHostTagAsTag === true].filter(Boolean).length
+    if (named === 0) {
+      issues.push(
+        issue(
+          ['remnawave', 'injectHosts', i],
+          'Не выбран способ именования тегов: нужен ровно один из tagPrefix, useHostRemarkAsTag, useHostTagAsTag',
+          'error',
+        ),
+      )
+    } else if (named > 1) {
+      issues.push(
+        issue(
+          ['remnawave', 'injectHosts', i],
+          'Задано больше одного способа именования тегов — панель примет только один',
+          'error',
+        ),
+      )
+    }
+
+    if (group.selectFrom !== undefined && !SELECT_FROM.includes(group.selectFrom as (typeof SELECT_FROM)[number])) {
+      issues.push(
+        issue(
+          ['remnawave', 'injectHosts', i, 'selectFrom'],
+          `Неизвестный пул выбора «${group.selectFrom}»: ожидается HIDDEN, NOT_HIDDEN или ALL`,
+          'error',
+        ),
+      )
+    }
+
+    const selector = group.selector
+    if (selector === undefined) {
+      issues.push(
+        issue(['remnawave', 'injectHosts', i, 'selector'], 'Группа без селектора: непонятно, какие хосты подставлять', 'error'),
+      )
+    } else if (!SELECTOR_TYPES.includes(selector.type as (typeof SELECTOR_TYPES)[number])) {
+      issues.push(
+        issue(
+          ['remnawave', 'injectHosts', i, 'selector', 'type'],
+          `Неизвестный тип селектора «${selector.type}»: ожидается uuids, remarkRegex, tagRegex или sameTagAsRecipient`,
+          'error',
+        ),
+      )
+    }
+    if (selector?.type === 'tagRegex' || selector?.type === 'remarkRegex') {
+      try {
+        new RegExp(selector.pattern ?? '')
+      } catch (err) {
+        issues.push(
+          issue(
+            ['remnawave', 'injectHosts', i, 'selector', 'pattern'],
+            `Селектор не компилируется как регулярное выражение: ${(err as Error).message}`,
+            'error',
+          ),
+        )
+      }
+    }
+    if (selector?.type === 'uuids' && (selector.values ?? []).length === 0) {
+      issues.push(
+        issue(
+          ['remnawave', 'injectHosts', i, 'selector', 'values'],
+          'Список uuid пуст — группа не подставит ни одного хоста',
+          'warning',
+        ),
+      )
+    }
+  })
 
   return issues
 }

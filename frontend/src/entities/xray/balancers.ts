@@ -4,6 +4,7 @@
 
 import { z } from 'zod'
 import type { XrayConfig } from './config'
+import { injectedTagsOf } from './inject'
 
 export const BALANCER_STRATEGIES = ['random', 'roundRobin', 'leastPing', 'leastLoad'] as const
 
@@ -29,10 +30,14 @@ export function matchPrefixes(tags: string[], prefixes: string[] | undefined): s
   return tags.filter((tag) => list.some((p) => tag.startsWith(p)))
 }
 
+// Для балансера тег инжектируемого хоста НИЧЕМ не отличается от обычного:
+// к моменту работы ядра панель уже подставила его в outbounds. Поэтому
+// предсказанные теги входят сюда наравне со статическими.
 export function outboundTagsOf(config: XrayConfig): string[] {
-  return (config.outbounds ?? [])
+  const static_ = (config.outbounds ?? [])
     .map((o) => o.tag)
     .filter((t): t is string => typeof t === 'string')
+  return [...static_, ...injectedTagsOf(config)]
 }
 
 export function balancerCandidates(config: XrayConfig, balancer: Balancer): string[] {
