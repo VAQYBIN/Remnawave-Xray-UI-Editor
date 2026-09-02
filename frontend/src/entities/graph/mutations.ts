@@ -1,5 +1,6 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates } from '../xray/balancers'
+import { predictedTags, type InjectGroup } from '../xray/inject'
 
 function clone(config: XrayConfig): XrayConfig {
   return structuredClone(config)
@@ -399,4 +400,86 @@ export function disconnectEdge(config: XrayConfig, edgeId: string): XrayConfig {
     return next
   }
   return config
+}
+
+/**
+ * Группы подстановки. Способ именования тегов ровно один из трёх, поэтому
+ * правка всегда снимает парные ключи — тот же приём, что у пары
+ * outboundTag/balancerTag: невыразимое состояние лучше проверяемого.
+ */
+const TAG_SCHEME_KEYS = ['tagPrefix', 'useHostRemarkAsTag', 'useHostTagAsTag'] as const
+
+export function addInjectGroup(config: XrayConfig): XrayConfig {
+  const next = clone(config)
+  next.remnawave = next.remnawave ?? {}
+  next.remnawave.injectHosts = next.remnawave.injectHosts ?? []
+  const taken = new Set(
+    next.remnawave.injectHosts
+      .map((g) => g.tagPrefix)
+      .filter((t): t is string => typeof t === 'string'),
+  )
+  next.remnawave.injectHosts.push({
+    selector: { type: 'sameTagAsRecipient' },
+    tagPrefix: uniqueTag(taken, 'proxy'),
+    selectFrom: 'HIDDEN',
+  })
+  return next
+}
+
+export function updateInjectGroup(
+  config: XrayConfig,
+  index: number,
+  patch: Partial<InjectGroup>,
+): XrayConfig {
+  if (config.remnawave?.injectHosts?.[index] === undefined) return config
+  const next = clone(config)
+  const group = next.remnawave!.injectHosts![index]! as Record<string, unknown>
+  const touchesScheme = TAG_SCHEME_KEYS.some((k) => k in patch)
+  if (touchesScheme) for (const key of TAG_SCHEME_KEYS) delete group[key]
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) delete group[key]
+    else group[key] = value
+  }
+  return next
+}
+
+export function removeInjectGroup(config: XrayConfig, index: number): XrayConfig {
+  if (config.remnawave?.injectHosts?.[index] === undefined) return config
+  const next = clone(config)
+  next.remnawave!.injectHosts!.splice(index, 1)
+  return next
+}
+
+/** Ребро «правило → группа»: тег берётся первый предсказанный. Непредсказуемый — тот же конфиг. */
+export function setRuleInjectGroup(
+  config: XrayConfig,
+  ruleIndex: number,
+  groupIndex: number,
+): XrayConfig {
+  const group = config.remnawave?.injectHosts?.[groupIndex]
+  const rule = config.routing?.rules?.[ruleIndex]
+  const tag = group ? predictedTags(group)[0] : undefined
+  if (!rule || tag === undefined) return config
+  return setRuleOutbound(config, ruleIndex, tag)
+}
+
+/**
+ * Ребро «балансер → группа»: в selector уходит ПРЕФИКС, а не точный тег —
+ * иначе балансер поймает только первый из подставленных хостов.
+ */
+export function attachInjectGroupToBalancer(
+  config: XrayConfig,
+  balancerTag: string,
+  groupIndex: number,
+): XrayConfig {
+  const group = config.remnawave?.injectHosts?.[groupIndex]
+  const prefix = group?.tagPrefix
+  const index = (config.routing?.balancers ?? []).findIndex((b) => b.tag === balancerTag)
+  if (index === -1 || typeof prefix !== 'string' || prefix === '') return config
+  const balancer = config.routing!.balancers![index]!
+  if ((balancer.selector ?? []).includes(prefix)) return config
+  const next = clone(config)
+  const target = next.routing!.balancers![index]!
+  target.selector = [...(target.selector ?? []), prefix]
+  return next
 }
