@@ -9,6 +9,7 @@ import {
 } from './compat'
 import { DnsSchema } from './dns'
 import { InboundSchema } from './inbounds'
+import { RemnawaveDirectivesSchema } from './inject'
 import { LogSchema } from './log'
 import { BurstObservatorySchema, ObservatorySchema, subjectCovers } from './observatory'
 import { OutboundSchema } from './outbounds'
@@ -43,6 +44,8 @@ export const XrayConfigSchema = z.looseObject({
   api: obj().optional(),
   /** Переменные окружения ядра — корневая секция Xray ≥26.7.28 (PR #6400) */
   env: obj().optional(),
+  /** Директивы подстановки хостов в шаблоне подписки; в профиле ноды их не бывает */
+  remnawave: RemnawaveDirectivesSchema.optional(),
 })
 
 export type XrayConfig = z.infer<typeof XrayConfigSchema>
