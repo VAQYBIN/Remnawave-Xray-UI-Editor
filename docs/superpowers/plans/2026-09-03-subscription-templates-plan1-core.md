@@ -703,11 +703,11 @@ describe('роуты шаблонов', () => {
       method: 'POST',
       url: '/api/templates',
       headers: { cookie },
-      payload: { name: 'Мой шаблон' },
+      payload: { name: 'My Template' },
     })
     expect(res.statusCode).toBe(201)
     const created = res.json().template
-    expect(created.name).toBe('Мой шаблон')
+    expect(created.name).toBe('My Template')
     expect(created.templateType).toBe('XRAY_JSON')
     const json = created.templateJson as Record<string, unknown>
     expect(json.outbounds).toBeDefined()
@@ -716,15 +716,20 @@ describe('роуты шаблонов', () => {
     await app.close()
   })
 
+  // Панель режет имя регуляркой /^[A-Za-z0-9_\s-]+$/ и отвечает 400 по-английски.
+  // Проверяем локально ровно тем же набором символов, чтобы пользователь получал
+  // понятное русское сообщение до обращения к панели, а не её ответ после.
   it('имя шаблона проверяется так же, как имя профиля', async () => {
     const { app, cookie } = await makeApp()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/templates',
-      headers: { cookie },
-      payload: { name: 'плохое имя ✗' },
-    })
-    expect(res.statusCode).toBe(400)
+    for (const name of ['плохое имя ✗', 'Кириллица', 'имя/со/слешем']) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/templates',
+        headers: { cookie },
+        payload: { name },
+      })
+      expect(res.statusCode, `имя «${name}» должно быть отклонено`).toBe(400)
+    }
     await app.close()
   })
 
