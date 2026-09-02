@@ -1,7 +1,13 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates } from '../xray/balancers'
 import { streamNetwork } from '../xray/compat'
-import { describeSelector, injectGroupsOf, predictedTags, tagScheme } from '../xray/inject'
+import {
+  describeSelector,
+  injectedTagOwners,
+  injectGroupsOf,
+  predictedTags,
+  tagScheme,
+} from '../xray/inject'
 import type { FlowEdge, FlowNode, GraphContext } from './types'
 
 export const COLUMN_X = { squad: -380, inbound: 0, rule: 430, balancer: 860, outbound: 1290 } as const
@@ -31,6 +37,15 @@ export function buildGraph(
   const rules = config.routing?.rules ?? []
   const inboundTags = new Set(inbounds.map((i) => i.tag))
   const outboundTags = new Set(outbounds.map((o) => o.tag))
+
+  // Тег может принадлежать группе подстановки: тогда ребро ведёт к её узлу,
+  // а не к несуществующему out:<tag>
+  const injectOwners = injectedTagOwners(config)
+  const targetForTag = (tag: string): string | undefined => {
+    const owner = injectOwners.get(tag)
+    if (owner !== undefined) return `inj:${owner}`
+    return outboundTags.has(tag) ? `out:${tag}` : undefined
+  }
 
   const inboundSquads = ctx.inboundSquads ?? {}
   // Учитываем сквады только тех тегов, что реально есть среди inbound'ов текущего
@@ -131,12 +146,15 @@ export function buildGraph(
     for (const tag of ruleTags) {
       edges.push({ id: `e:in:${tag}->rule:${index}`, source: `in:${tag}`, target: `rule:${index}` })
     }
-    if (rule.outboundTag && outboundTags.has(rule.outboundTag)) {
-      edges.push({
-        id: `e:rule:${index}->out:${rule.outboundTag}`,
-        source: `rule:${index}`,
-        target: `out:${rule.outboundTag}`,
-      })
+    if (rule.outboundTag) {
+      const target = targetForTag(rule.outboundTag)
+      if (target !== undefined) {
+        edges.push({
+          id: `e:rule:${index}->${target}`,
+          source: `rule:${index}`,
+          target,
+        })
+      }
     }
   })
 
@@ -159,11 +177,17 @@ export function buildGraph(
         candidates: candidates.length,
       },
     })
+    const seenTargets = new Set<string>()
     for (const tag of candidates) {
+      const target = targetForTag(tag)
+      // Несколько предсказанных тегов одной группы дают один узел: без дедупликации
+      // получились бы дубликаты id рёбер, а они ломают React Flow
+      if (target === undefined || seenTargets.has(target)) continue
+      seenTargets.add(target)
       edges.push({
-        id: `e:bal:${bal.tag}->out:${tag}`,
+        id: `e:bal:${bal.tag}->${target}`,
         source: `bal:${bal.tag}`,
-        target: `out:${tag}`,
+        target,
       })
     }
     // Запасной выход — не кандидат балансировки: отдельный id ребра и свой стиль
