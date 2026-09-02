@@ -106,6 +106,33 @@ describe('RemnawaveClient', () => {
     expect(err.message).toBe('Config profile not found')
   })
 
+  // 401/403 от панели нельзя пропускать наружу как есть: тот же статус фронтенд
+  // трактует как «сессия редактора истекла» и уводит на /login, где вход ничего
+  // не чинит. Причина вышестоящая — значит 502, как и для недоступной панели.
+  it('401 от панели превращается в 502 с подсказкой про токен', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 'протухший',
+      fetchImpl: fakeFetch(() => ({ status: 401, body: { message: 'Unauthorized' } })),
+    })
+    const err = await client.listProfiles().catch((e) => e)
+    expect(err).toBeInstanceOf(RemnawaveError)
+    expect(err.status).toBe(502)
+    expect(err.message).toBe('Панель Remnawave отклонила токен')
+    expect(err.hint).toMatch(/REMNAWAVE_TOKEN/)
+  })
+
+  it('403 от панели обрабатывается так же, как 401', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 'без прав',
+      fetchImpl: fakeFetch(() => ({ status: 403, body: { message: 'Forbidden' } })),
+    })
+    const err = await client.getNodes().catch((e) => e)
+    expect(err.status).toBe(502)
+    expect(err.message).toBe('Панель Remnawave отклонила токен')
+  })
+
   it('сетевая ошибка превращается в RemnawaveError 502 по-русски', async () => {
     const client = new RemnawaveClient({
       baseUrl: 'http://panel.test',
