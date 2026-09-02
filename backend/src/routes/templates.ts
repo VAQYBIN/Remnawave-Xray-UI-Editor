@@ -16,6 +16,13 @@ const nameSchema = z
 
 const createSchema = z.object({ name: nameSchema })
 
+const updateSchema = z.object({
+  name: nameSchema.optional(),
+  templateJson: z.record(z.string(), z.unknown()),
+  /** Хэш, полученный при чтении; считает и сравнивает только бэкенд */
+  expectedHash: z.string().min(1),
+})
+
 export const templateRoutes: FastifyPluginAsync = async (app) => {
   app.get('/api/templates', async () => ({ templates: await app.remnawave.listTemplates() }))
 
@@ -44,5 +51,26 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
     await app.backups.saveTemplateBackup(current)
     await app.remnawave.deleteTemplate(uuid)
     return { ok: true }
+  })
+
+  // Аналог оптимистической блокировки профилей, но по содержимому: у шаблонов
+  // нет updatedAt, сравнивать нечего кроме самого JSON.
+  app.patch('/api/templates/:uuid', async (req, reply) => {
+    const { uuid } = paramsSchema.parse(req.params)
+    const body = updateSchema.parse(req.body)
+    const current = await app.remnawave.getTemplate(uuid)
+    if (hashTemplateJson(current.templateJson) !== body.expectedHash) {
+      return reply.status(409).send({
+        message: 'Шаблон был изменён в панели после открытия',
+        current,
+      })
+    }
+    await app.backups.saveTemplateBackup(current)
+    const template = await app.remnawave.updateTemplate({
+      uuid,
+      name: body.name,
+      templateJson: body.templateJson,
+    })
+    return { template }
   })
 }
