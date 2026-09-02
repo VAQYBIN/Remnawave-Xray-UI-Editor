@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow, useReactFlow,
-  useUpdateNodeInternals, ViewportPortal,
+  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow, useConnection,
+  useReactFlow, useStore, useUpdateNodeInternals, ViewportPortal,
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
 import { expandSelector, type TraceResult, type XrayConfig } from '../../entities/xray'
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
@@ -137,6 +136,46 @@ function FocusNode({ request }: { request?: { nodeId: string; nonce: number } | 
       duration: 320,
     })
   }, [request, getNode, setCenter])
+
+  return null
+}
+
+/** Колонки, куда вообще можно воткнуть кабель. Ключ — префикс id узла. */
+const TARGET_KINDS = ['rule', 'out', 'bal'] as const
+
+/**
+ * Гнёзда живут внутри масштабируемого вьюпорта: на отдалении 12px-джек
+ * превращается в пять экранных пикселей, и попасть в него мышью нечем. Кладём
+ * зум в CSS-переменную — хит-зона делится на него и остаётся постоянной на
+ * экране, каким бы ни был масштаб.
+ *
+ * Второй атрибут говорит, куда сейчас можно воткнуть тянущийся кабель. Набор
+ * колонок выводится из isValidConnection, а не переписывается в CSS: правила
+ * коммутации должны жить в одном месте. Подсветка тогда — чистый CSS, без
+ * перерисовки узлов на каждое движение мыши.
+ */
+function PatchbayState() {
+  const dom = useStore((s) => s.domNode)
+  const zoom = useStore((s) => s.transform[2])
+  const connection = useConnection()
+  const from = connection.inProgress ? (connection.fromHandle?.nodeId ?? null) : null
+
+  const accepts = useMemo(() => {
+    if (from === null) return null
+    return TARGET_KINDS.filter((kind) =>
+      isValidConnection({ source: from, target: `${kind}:probe` }),
+    ).join(' ')
+  }, [from])
+
+  useEffect(() => {
+    dom?.style.setProperty('--rf-zoom', String(zoom))
+  }, [dom, zoom])
+
+  useEffect(() => {
+    if (!dom) return
+    if (accepts === null) delete dom.dataset.accepts
+    else dom.dataset.accepts = accepts
+  }, [dom, accepts])
 
   return null
 }
@@ -384,6 +423,7 @@ export function TopologyView({
       <ViewportShift shift={selectedId === null ? 0 : inspectorWidth(window.innerWidth)} />
       <FocusNode request={focus} />
       <RemeasureOnEnter />
+      <PatchbayState />
 
       {/* Подписи колонок живут в координатах канваса и едут вместе с узлами */}
       <ViewportPortal>
