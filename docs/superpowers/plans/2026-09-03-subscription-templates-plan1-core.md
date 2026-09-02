@@ -338,10 +338,10 @@ npm install --save-dev --workspace backend @remnawave/backend-contract@3.4.14
  * в рантайме его нет, поэтому терпимость к новым полям панели сохраняется
  * (см. тест «новые поля панели проходят насквозь»).
  */
-import type { GetTemplateCommand, UpdateSubscriptionTemplateCommand } from '@remnawave/backend-contract'
+import type { GetSubscriptionTemplateCommand, UpdateSubscriptionTemplateCommand } from '@remnawave/backend-contract'
 import type { SubscriptionTemplate, TemplateType } from '../src/remnawave/types.js'
 
-type PanelTemplate = GetTemplateCommand.Response['response']
+type PanelTemplate = GetSubscriptionTemplateCommand.Response['response']
 
 // Ответ панели обязан подходить под наш тип: иначе клиент врёт о том, что читает
 const _fromPanel: SubscriptionTemplate = null as unknown as PanelTemplate
@@ -927,6 +927,10 @@ describe('сохранение шаблона', () => {
 
   it('с устаревшим хэшем отвечает 409 и отдаёт актуальный шаблон', async () => {
     const { app, cookie, template, stub } = await makeApp()
+    // Снимок ДО запроса и обязательно глубокая копия: стаб хранит тот же объект,
+    // что и `template`, поэтому сравнение с ним самим прошло бы всегда и не
+    // проверило бы ничего
+    const before = structuredClone(template.templateJson)
     const res = await app.inject({
       method: 'PATCH',
       url: `/api/templates/${template.uuid}`,
@@ -936,7 +940,8 @@ describe('сохранение шаблона', () => {
     expect(res.statusCode).toBe(409)
     expect(res.json().current.uuid).toBe(template.uuid)
     // Ничего не записано
-    expect(stub.templates[0]!.templateJson).toEqual(template.templateJson)
+    expect(stub.templates[0]!.templateJson).toEqual(before)
+    expect(await app.backups.listTemplateBackups(template.uuid)).toHaveLength(0)
     await app.close()
   })
 
@@ -2317,7 +2322,15 @@ git commit --allow-empty -m "chore: контракт шаблонов подтв
 - карточка узла подстановки в `features/topology/nodes.tsx` и её стили;
 - форма группы в инспекторе;
 - трассировка через группы подстановки;
-- e2e-сценарии.
+- e2e-сценарии;
+- **разрыв рёбер, ведущих к группам подстановки.** Найдено ревью Task 12 и
+  требует отдельного решения в плане 2, а не механического переиспользования
+  существующего пути. Ребро «балансер → группа» задано ПРЕФИКСОМ, и нынешний
+  `expandSelector` при разрыве разворачивает селектор в точные теги кандидатов.
+  Для инжектируемых тегов это вредно: он вморозит в конфиг предсказанные
+  `proxy`, `proxy-2`, `proxy-3`, тогда как реальное их число знает только
+  панель — селектор перестанет ловить хосты, которых окажется больше. Пока
+  рёбра не отрисованы и не удаляемы пользователем, вопрос не горит.
 
 После этого плана узлы подстановки строятся и тестируются, но на холсте ещё не
 отрисованы: React Flow не знает типа `inject`, пока в `nodeTypes` не появится
