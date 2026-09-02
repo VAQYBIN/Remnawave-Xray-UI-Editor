@@ -18,7 +18,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@remnawave/backend-contract": "^3.4.14",
+    "@remnawave/backend-contract": "3.4.14",
     "@types/node": "^24.0.0",
     "tsup": "^8.4.0",
     "tsx": "^4.19.0",
