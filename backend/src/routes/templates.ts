@@ -5,14 +5,15 @@ import { STARTER_XRAY_TEMPLATE } from '../templates/starter.js'
 
 const paramsSchema = z.object({ uuid: z.string().uuid() })
 
-// Как и у имени профиля, длина 2-30 символов; в отличие от профиля (только
-// латиница) панель принимает для шаблона любые буквы, в том числе кириллицу —
-// запрещены лишь спецсимволы вроде ✗
+// Регулярка зеркалит валидацию панели (проверено на живой 3.4.3: панель
+// отвечает 400 "Name can only contain letters, numbers, underscores, dashes
+// and spaces", pattern /^[A-Za-z0-9_\s-]+$/) — та же, что у имени профиля.
+// Расширять нельзя: панель всё равно откажет, только позже и по-английски.
 const nameSchema = z
   .string()
   .min(2)
   .max(30)
-  .regex(/^[\p{L}\p{N}_\s-]+$/u, 'Имя: буквы, цифры, пробел, - и _')
+  .regex(/^[A-Za-z0-9_\s-]+$/, 'Имя: латиница, цифры, пробел, - и _')
 
 const createSchema = z.object({ name: nameSchema })
 
