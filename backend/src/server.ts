@@ -11,6 +11,7 @@ import { RemnawaveClient, RemnawaveError } from './remnawave/client.js'
 import { describeToken, describeTokenWarning } from './remnawave/token.js'
 import type { RemnawavePort } from './remnawave/types.js'
 import { profileRoutes } from './routes/profiles.js'
+import { templateRoutes } from './routes/templates.js'
 import { panelRoutes } from './routes/panel.js'
 import { BackupService } from './backups/service.js'
 import { backupRoutes } from './routes/backups.js'
@@ -103,6 +104,7 @@ export async function buildServer(
 
   await app.register(authRoutes, { config })
   await app.register(profileRoutes)
+  await app.register(templateRoutes)
   await app.register(panelRoutes, { config })
   await app.register(backupRoutes)
   await app.register(toolsRoutes, {
