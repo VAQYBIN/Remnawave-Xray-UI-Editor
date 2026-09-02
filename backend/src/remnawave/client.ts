@@ -1,4 +1,10 @@
-import type { ConfigProfile, PanelInboundDetail, RemnawavePort } from './types.js'
+import type {
+  ConfigProfile,
+  PanelInboundDetail,
+  RemnawavePort,
+  SubscriptionTemplate,
+  TemplateType,
+} from './types.js'
 
 export class RemnawaveError extends Error {
   constructor(
@@ -206,5 +212,50 @@ export class RemnawaveClient implements RemnawavePort {
       `/api/config-profiles/${uuid}/inbounds`,
     )
     return r.response.inbounds
+  }
+
+  // Ручки шаблонов зеркалят config-profiles: PATCH идёт на коллекцию, uuid — в теле.
+  // Слеш в конце путей коллекций взят из официального контракта, не из догадки.
+  async listTemplates(): Promise<SubscriptionTemplate[]> {
+    const r = await this.request<{ response: { total: number; templates: SubscriptionTemplate[] } }>(
+      'GET',
+      '/api/subscription-templates/',
+    )
+    return r.response.templates
+  }
+
+  async getTemplate(uuid: string): Promise<SubscriptionTemplate> {
+    const r = await this.request<{ response: SubscriptionTemplate }>(
+      'GET',
+      `/api/subscription-templates/${uuid}`,
+    )
+    return r.response
+  }
+
+  async createTemplate(name: string, templateType: TemplateType): Promise<SubscriptionTemplate> {
+    const r = await this.request<{ response: SubscriptionTemplate }>(
+      'POST',
+      '/api/subscription-templates/',
+      { name, templateType },
+    )
+    return r.response
+  }
+
+  async updateTemplate(input: {
+    uuid: string
+    name?: string
+    templateJson?: unknown
+  }): Promise<SubscriptionTemplate> {
+    const r = await this.request<{ response: SubscriptionTemplate }>(
+      'PATCH',
+      '/api/subscription-templates/',
+      input,
+    )
+    return r.response
+  }
+
+  // Тело не читаем — как и у deleteProfile: панель отвечает то 200 с телом, то 204
+  async deleteTemplate(uuid: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/subscription-templates/${uuid}`)
   }
 }
