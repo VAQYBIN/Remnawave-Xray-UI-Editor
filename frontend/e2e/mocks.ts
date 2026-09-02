@@ -37,6 +37,10 @@ export const PROFILE = {
 export async function mockApi(page: Page) {
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: { authenticated: true } }))
   await page.route('**/api/squads', (r) => r.fulfill({ json: { squads: [] } }))
+  // Срок токена панели: «неизвестен» — статус-бар при этом молчит
+  await page.route('**/api/panel/token', (r) =>
+    r.fulfill({ json: { expiresAt: null, daysLeft: null, expired: false, expiringSoon: false } }),
+  )
   // Обработчики просмотра идут раньше общего '**/api/geo': порядок здесь важен,
   // ранний маршрут Playwright перехватывает запрос первым
   await page.route('**/api/geo/geosite/categories', (r) =>

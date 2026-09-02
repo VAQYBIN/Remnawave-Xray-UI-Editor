@@ -8,6 +8,7 @@ import {
   useGeoMatch,
   useSaveProfile,
   useSquads,
+  usePanelToken,
   type Profile,
   type ProfileInboundDetail,
   type SquadInfo,
@@ -52,6 +53,7 @@ import { canRedo, canUndo, useHistoryStore } from './historyStore'
 import { VersionsDialog } from './VersionsDialog'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
 import { IssueList } from './IssueList'
+import { PanelTokenNotice } from './PanelTokenNotice'
 import { JsonView } from './JsonView'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { SaveDialog } from './SaveDialog'
@@ -199,6 +201,7 @@ function EditorInner({ profile }: { profile: Profile }) {
   const [focus, setFocus] = useState<{ nodeId: string; nonce: number } | null>(null)
   const focusNonce = useRef(0)
   const squads = useSquads()
+  const panelToken = usePanelToken()
   const panelInbounds = useProfileInbounds(profile.uuid)
   const ctx = useMemo(
     () => toGraphContext(squads.data, panelInbounds.data),
@@ -545,6 +548,7 @@ function EditorInner({ profile }: { profile: Profile }) {
             </button>
           )}
           <span className="spacer" />
+          <PanelTokenNotice status={panelToken.data} />
           {saveError && <span className="field-error">{saveError}</span>}
         </div>
         {issuesOpen && validation.issues.length > 0 && (

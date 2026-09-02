@@ -106,6 +106,51 @@ describe('RemnawaveClient', () => {
     expect(err.message).toBe('Config profile not found')
   })
 
+  // 401/403 от панели нельзя пропускать наружу как есть: тот же статус фронтенд
+  // трактует как «сессия редактора истекла» и уводит на /login, где вход ничего
+  // не чинит. Причина вышестоящая — значит 502, как и для недоступной панели.
+  it('401 от панели превращается в 502 с подсказкой про токен', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 'протухший',
+      fetchImpl: fakeFetch(() => ({ status: 401, body: { message: 'Unauthorized' } })),
+    })
+    const err = await client.listProfiles().catch((e) => e)
+    expect(err).toBeInstanceOf(RemnawaveError)
+    expect(err.status).toBe(502)
+    expect(err.message).toBe('Панель Remnawave отклонила токен')
+    expect(err.hint).toMatch(/REMNAWAVE_TOKEN/)
+  })
+
+  it('403 от панели обрабатывается так же, как 401', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 'без прав',
+      fetchImpl: fakeFetch(() => ({ status: 403, body: { message: 'Forbidden' } })),
+    })
+    const err = await client.getNodes().catch((e) => e)
+    expect(err.status).toBe(502)
+    expect(err.message).toBe('Панель Remnawave отклонила токен')
+  })
+
+  // Панель растёт: 3.4.0 добавила профилям tags, дальше добавит что-то ещё.
+  // Мы её ответы не валидируем намеренно — новые поля должны доезжать целыми,
+  // иначе каждый минор панели требовал бы релиза редактора.
+  it('новые поля панели проходят насквозь, а не теряются', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: fakeFetch(() => ({
+        status: 200,
+        body: { response: { ...profile, tags: ['prod'], полеИзБудущего: 42 } },
+      })),
+    })
+    const got = (await client.getProfile(profile.uuid)) as unknown as Record<string, unknown>
+    expect(got.tags).toEqual(['prod'])
+    expect(got['полеИзБудущего']).toBe(42)
+    expect(got.config).toEqual(profile.config)
+  })
+
   it('сетевая ошибка превращается в RemnawaveError 502 по-русски', async () => {
     const client = new RemnawaveClient({
       baseUrl: 'http://panel.test',
