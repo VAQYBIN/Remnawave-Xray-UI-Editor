@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/compare/v1.2.0...v1.3.0) (2026-09-02)
+
+
+### Features
+
+* **backend:** предупреждать об истечении токена панели заранее ([5b5032c](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/5b5032c55521a45e279c90d6d8197836461bea50))
+
+
+### Bug Fixes
+
+* **backend:** не выдавать 401 панели за истёкшую сессию редактора ([5ccc199](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/commit/5ccc1999395667e4f0f538c866d83339085f464c))
+
 ## [1.2.0](https://github.com/VAQYBIN/Remnawave-Xray-UI-Editor/compare/v1.1.0...v1.2.0) (2026-08-04)
 
 
