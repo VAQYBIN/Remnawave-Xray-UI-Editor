@@ -24,6 +24,14 @@ export interface Profile {
   updatedAt: string
 }
 
+/** Срок действия REMNAWAVE_TOKEN; null'ы — панель выдала токен, чей срок не разобрать */
+export interface PanelTokenStatus {
+  expiresAt: string | null
+  daysLeft: number | null
+  expired: boolean
+  expiringSoon: boolean
+}
+
 export interface SquadInfo {
   uuid: string
   name: string

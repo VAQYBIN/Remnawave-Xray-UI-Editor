@@ -23,6 +23,8 @@ export interface ConfigProfile {
   uuid: string
   viewPosition: number
   name: string
+  /** Панель 3.4.0+; редактор их не использует, но и не теряет: PATCH шлёт только name/config */
+  tags?: string[]
   config: unknown
   inbounds: PanelInbound[]
   nodes: PanelNodeRef[]

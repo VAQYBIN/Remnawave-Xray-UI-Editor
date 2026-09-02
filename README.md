@@ -13,8 +13,8 @@
 ![Node](https://img.shields.io/badge/Node-24_LTS-339933?logo=node.js&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)
-![Remnawave](https://img.shields.io/badge/Remnawave-3.2.1-6E56CF)
-![tests](https://img.shields.io/badge/tests-951_passing-brightgreen)
+![Remnawave](https://img.shields.io/badge/Remnawave-3.4.3-6E56CF)
+![tests](https://img.shields.io/badge/tests-969_passing-brightgreen)
 
 <img src="docs/screenshots/topology.png" width="900" alt="Топология трафика графом: сквады, три inbound'а, пять правил маршрутизации, балансер с обсерваторией и пять outbound'ов, соединённые цветными кабелями" />
 
@@ -31,7 +31,9 @@
 > [!NOTE]
 > Редактор работает и с панелью 2.8.x, и с 3.x: используемые им ручки `config-profiles`,
 > `internal-squads` и `nodes` мажор не менял. Единственное расхождение — ответ на удаление
-> профиля (`204` против `200`), и оно обработано.
+> профиля (`204` против `200`), и оно обработано. Совместимость проверена на живой панели
+> **3.4.3**: чтение, сохранение с оптимистической блокировкой и конфликт `409` — без правок.
+> Теги профилей и сквадов (3.4.0) редактор не использует и не теряет.
 
 ---
 

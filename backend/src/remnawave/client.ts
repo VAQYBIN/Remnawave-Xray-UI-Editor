@@ -33,6 +33,18 @@ export function hintForNetworkError(baseUrl: string, cause: string): string | un
 }
 
 /**
+ * Токен панели живёт 30 дней, после чего она отвечает 401 на всё подряд. Отдать
+ * этот статус браузеру как есть нельзя: фронтенд трактует любой 401 как «сессия
+ * редактора истекла» и уводит на /login, где вход ничего не чинит — получается
+ * петля без единого намёка на настоящую причину. Поэтому 401/403 от панели
+ * становятся 502: сломан вышестоящий сервис, а не сессия пользователя.
+ */
+export const PANEL_TOKEN_HINT =
+  'Панель не приняла REMNAWAVE_TOKEN: срок его действия истёк (токен выдаётся на 30 дней) ' +
+  'либо он отозван. Выпустите новый API-токен в панели и пропишите его в .env, ' +
+  'затем перезапустите редактор.'
+
+/**
  * Разворачивает цепочку `cause`. `fetch` в Node на любую сетевую беду отвечает
  * одинаковым `TypeError: fetch failed`, а настоящая причина (ECONNREFUSED,
  * EAI_AGAIN, обрыв TLS) лежит глубже. Без разворота диагностика упирается в
@@ -115,6 +127,9 @@ export class RemnawaveClient implements RemnawavePort {
     }
     if (!res.ok) {
       const message = describePanelError(json) ?? `Панель ответила ${res.status}`
+      if (res.status === 401 || res.status === 403) {
+        throw new RemnawaveError(502, 'Панель Remnawave отклонила токен', message, PANEL_TOKEN_HINT)
+      }
       throw new RemnawaveError(res.status, message, json ?? text)
     }
     return json as T
