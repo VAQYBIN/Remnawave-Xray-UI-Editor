@@ -332,7 +332,7 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
       const secNet = securityNetworkIssue(stream.security, streamNetwork(stream))
       if (secNet) issues.push(issue(['outbounds', i, 'streamSettings'], secNet, 'error'))
       const dialer = stream.sockopt?.dialerProxy
-      if (dialer !== undefined && dialer !== '' && !outboundTags.has(dialer)) {
+      if (dialer !== undefined && dialer !== '' && !tagsUnknowable && !outboundTags.has(dialer)) {
         issues.push(
           issue(
             ['outbounds', i, 'streamSettings', 'sockopt', 'dialerProxy'],

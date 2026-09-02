@@ -1,6 +1,6 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates } from '../xray/balancers'
-import { predictedTags, type InjectGroup } from '../xray/inject'
+import { predictedTags, tagScheme, type InjectGroup } from '../xray/inject'
 
 function clone(config: XrayConfig): XrayConfig {
   return structuredClone(config)
@@ -475,7 +475,9 @@ export function attachInjectGroupToBalancer(
   const group = config.remnawave?.injectHosts?.[groupIndex]
   const prefix = group?.tagPrefix
   const index = (config.routing?.balancers ?? []).findIndex((b) => b.tag === balancerTag)
-  if (index === -1 || typeof prefix !== 'string' || prefix === '') return config
+  if (index === -1 || group === undefined || tagScheme(group) !== 'prefix' || typeof prefix !== 'string') {
+    return config
+  }
   const balancer = config.routing!.balancers![index]!
   if ((balancer.selector ?? []).includes(prefix)) return config
   const next = clone(config)

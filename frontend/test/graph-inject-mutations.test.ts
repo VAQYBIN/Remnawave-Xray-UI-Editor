@@ -47,6 +47,16 @@ describe('мутации групп подстановки', () => {
     expect(group.useHostRemarkAsTag).toBeUndefined()
   })
 
+  // Патч, не касающийся именования (touchesScheme === false), не должен
+  // задевать tagPrefix — это регресс-тест на ветку, которую раньше проверяло
+  // только чтение кода
+  it('правка не по схеме именования не стирает tagPrefix', () => {
+    const next = updateInjectGroup(base, 0, { selectFrom: 'ALL' })
+    const group = next.remnawave?.injectHosts?.[0] as Record<string, unknown>
+    expect(group.selectFrom).toBe('ALL')
+    expect(group.tagPrefix).toBe('proxy')
+  })
+
   it('удаление вынимает группу, несуществующий индекс отдаёт тот же конфиг', () => {
     expect(removeInjectGroup(base, 0).remnawave?.injectHosts).toHaveLength(0)
     expect(removeInjectGroup(base, 5)).toBe(base)
@@ -77,5 +87,21 @@ describe('мутации групп подстановки', () => {
     })
     expect(setRuleInjectGroup(panelNamed, 0, 0)).toBe(panelNamed)
     expect(attachInjectGroupToBalancer(panelNamed, 'bal', 0)).toBe(panelNamed)
+  })
+
+  // Обе мутации обязаны сверяться с одним и тем же tagScheme, а не повторять
+  // предикат «схема prefix» каждая на свой лад — иначе при одновременно заданных
+  // tagPrefix и useHostTagAsTag они расходятся в поведении (setRuleInjectGroup
+  // шёл через predictedTags и отказывал, а attachInjectGroupToBalancer — нет)
+  it('при tagPrefix и useHostTagAsTag сразу обе мутации ведут себя одинаково', () => {
+    const ambiguous = parse({
+      remnawave: {
+        injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy', useHostTagAsTag: true }],
+      },
+      outbounds: [],
+      routing: { rules: [{}], balancers: [{ tag: 'bal', selector: [] }] },
+    })
+    expect(setRuleInjectGroup(ambiguous, 0, 0)).toBe(ambiguous)
+    expect(attachInjectGroupToBalancer(ambiguous, 'bal', 0)).toBe(ambiguous)
   })
 })

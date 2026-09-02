@@ -13,7 +13,10 @@ export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize)
   if (value !== null && typeof value === 'object') {
     const src = value as Record<string, unknown>
-    const out: Record<string, unknown> = {}
+    // Object.create(null): литерал {} унаследовал бы Object.prototype, и ключ
+    // __proto__ из внешнего JSON подменил бы прототип аккумулятора вместо того,
+    // чтобы стать собственным свойством, — и молча выпал бы из хэша
+    const out: Record<string, unknown> = Object.create(null)
     for (const key of Object.keys(src).sort()) out[key] = canonicalize(src[key])
     return out
   }

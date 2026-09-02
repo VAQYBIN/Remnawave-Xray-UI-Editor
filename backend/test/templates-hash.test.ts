@@ -28,4 +28,14 @@ describe('хэш содержимого шаблона', () => {
       '{"a":{"c":[3,1],"d":2},"b":1}',
     )
   })
+
+  // JSON.parse создаёт __proto__ как собственное свойство, а не как сеттер.
+  // Аккумулятор-литерал {} в canonicalize унаследовал бы Object.prototype,
+  // и присваивание out['__proto__'] = ... подменило бы прототип вместо того,
+  // чтобы стать своим свойством, — тогда документы ниже хэшировались бы одинаково
+  it('документы, различающиеся только значением ключа __proto__, дают разные хэши', () => {
+    const a = JSON.parse('{"__proto__": 1, "x": 1}') as Record<string, unknown>
+    const b = JSON.parse('{"__proto__": 2, "x": 1}') as Record<string, unknown>
+    expect(hashTemplateJson(a)).not.toBe(hashTemplateJson(b))
+  })
 })

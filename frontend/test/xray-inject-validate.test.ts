@@ -144,4 +144,52 @@ describe('ослабление проверок на предсказанных 
     })
     expect(messages(config).some((m) => m.includes('Запасной выход'))).toBe(true)
   })
+
+  it('dialerProxy на предсказанный тег не считается ошибочным', () => {
+    const config = parse({
+      ...base,
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }] },
+      outbounds: [
+        {
+          tag: 'chain',
+          protocol: 'vless',
+          streamSettings: { network: 'tcp', sockopt: { dialerProxy: 'proxy' } },
+        },
+      ],
+      routing: { rules: [] },
+    })
+    expect(messages(config).some((m) => m.includes('dialerProxy'))).toBe(false)
+  })
+
+  it('при тегах от панели проверка dialerProxy тоже подавляется', () => {
+    const config = parse({
+      ...base,
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, useHostTagAsTag: true }] },
+      outbounds: [
+        {
+          tag: 'chain',
+          protocol: 'vless',
+          streamSettings: { network: 'tcp', sockopt: { dialerProxy: 'тег-от-панели' } },
+        },
+      ],
+      routing: { rules: [] },
+    })
+    expect(messages(config).some((m) => m.includes('dialerProxy'))).toBe(false)
+  })
+
+  // Без подстановки проверка dialerProxy обязана работать в полную силу
+  it('в обычном профиле проверка dialerProxy не ослаблена', () => {
+    const config = parse({
+      ...base,
+      outbounds: [
+        {
+          tag: 'chain',
+          protocol: 'vless',
+          streamSettings: { network: 'tcp', sockopt: { dialerProxy: 'нет-такого' } },
+        },
+      ],
+      routing: { rules: [] },
+    })
+    expect(messages(config).some((m) => m.includes('dialerProxy'))).toBe(true)
+  })
 })

@@ -2,18 +2,9 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { hashTemplateJson } from '../templates/hash.js'
 import { STARTER_XRAY_TEMPLATE } from '../templates/starter.js'
+import { nameSchema } from './nameSchema.js'
 
 const paramsSchema = z.object({ uuid: z.string().uuid() })
-
-// Регулярка зеркалит валидацию панели (проверено на живой 3.4.3: панель
-// отвечает 400 "Name can only contain letters, numbers, underscores, dashes
-// and spaces", pattern /^[A-Za-z0-9_\s-]+$/) — та же, что у имени профиля.
-// Расширять нельзя: панель всё равно откажет, только позже и по-английски.
-const nameSchema = z
-  .string()
-  .min(2)
-  .max(30)
-  .regex(/^[A-Za-z0-9_\s-]+$/, 'Имя: латиница, цифры, пробел, - и _')
 
 const createSchema = z.object({ name: nameSchema })
 
@@ -60,10 +51,19 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
     const { uuid } = paramsSchema.parse(req.params)
     const body = updateSchema.parse(req.body)
     const current = await app.remnawave.getTemplate(uuid)
+    // Редактор умеет только JSON-содержимое (templateJson); у MIHOMO/CLASH/STASH/
+    // SINGBOX-YAML содержимое лежит в encodedTemplateYaml, а templateJson === null —
+    // применение JSON-патча к такому шаблону оставило бы в нём мусор
+    if (current.templateType !== 'XRAY_JSON') {
+      return reply.status(400).send({
+        message: `Редактор пока умеет только шаблоны XRAY_JSON, а этот — ${current.templateType}`,
+      })
+    }
     if (hashTemplateJson(current.templateJson) !== body.expectedHash) {
       return reply.status(409).send({
         message: 'Шаблон был изменён в панели после открытия',
         current,
+        hash: hashTemplateJson(current.templateJson),
       })
     }
     await app.backups.saveTemplateBackup(current)
@@ -72,6 +72,6 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
       name: body.name,
       templateJson: body.templateJson,
     })
-    return { template }
+    return { template, hash: hashTemplateJson(template.templateJson) }
   })
 }

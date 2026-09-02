@@ -38,6 +38,7 @@ export function makeStubRemnawave(
   templates: SubscriptionTemplate[] = [],
 ): RemnawavePort & { profiles: ConfigProfile[]; templates: SubscriptionTemplate[] } {
   const profiles = [...initial]
+  templates = [...templates]
   const find = (uuid: string) => {
     const p = profiles.find((x) => x.uuid === uuid)
     if (!p) throw new RemnawaveError(404, 'Config profile not found')
