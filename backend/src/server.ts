@@ -8,6 +8,7 @@ import type { AppConfig } from './config.js'
 import { authRoutes } from './auth/routes.js'
 import { registerAuthGuard } from './auth/guard.js'
 import { RemnawaveClient, RemnawaveError } from './remnawave/client.js'
+import { describeToken, describeTokenWarning } from './remnawave/token.js'
 import type { RemnawavePort } from './remnawave/types.js'
 import { profileRoutes } from './routes/profiles.js'
 import { panelRoutes } from './routes/panel.js'
@@ -91,13 +92,18 @@ export async function buildServer(
     return reply.status(status).send({ message: err.message || 'Внутренняя ошибка' })
   })
 
+  // Срок токена панели виден из него самого — говорим о нём на старте, пока он
+  // ещё действует: постфактум оператор увидит только 401 на каждом запросе.
+  const tokenWarning = describeTokenWarning(describeToken(config.remnawaveToken))
+  if (tokenWarning !== undefined) app.log.warn(tokenWarning)
+
   registerAuthGuard(app, config.sessionTtlSeconds)
 
   app.get('/health', async () => ({ status: 'ok' }))
 
   await app.register(authRoutes, { config })
   await app.register(profileRoutes)
-  await app.register(panelRoutes)
+  await app.register(panelRoutes, { config })
   await app.register(backupRoutes)
   await app.register(toolsRoutes, {
     probeReality: deps.probeReality,

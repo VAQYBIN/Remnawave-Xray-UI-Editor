@@ -7,6 +7,7 @@ import type {
   GeoKind,
   GeoMatchAnswer,
   GeoStatus,
+  PanelTokenStatus,
   Profile,
   ProfileInboundDetail,
   RealityProbeResult,
@@ -98,6 +99,15 @@ export function useSquads() {
     queryKey: ['squads'],
     queryFn: () => apiFetch<{ squads: SquadInfo[] }>('/api/squads').then((r) => r.squads),
     staleTime: 60_000,
+  })
+}
+
+/** Срок токена панели меняется раз в месяц — часто спрашивать нечего. */
+export function usePanelToken() {
+  return useQuery({
+    queryKey: ['panel', 'token'],
+    queryFn: () => apiFetch<PanelTokenStatus>('/api/panel/token'),
+    staleTime: 60 * 60_000,
   })
 }
 

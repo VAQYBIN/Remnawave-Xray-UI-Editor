@@ -7,6 +7,8 @@ export function makeProfile(overrides: Partial<ConfigProfile> = {}): ConfigProfi
     uuid: randomUUID(),
     viewPosition: 0,
     name: 'Test Profile',
+    // Панель 3.4.0 добавила профилям теги — держим стаб похожим на живой ответ
+    tags: [],
     config: { inbounds: [], outbounds: [] },
     inbounds: [],
     nodes: [],

@@ -133,6 +133,24 @@ describe('RemnawaveClient', () => {
     expect(err.message).toBe('Панель Remnawave отклонила токен')
   })
 
+  // Панель растёт: 3.4.0 добавила профилям tags, дальше добавит что-то ещё.
+  // Мы её ответы не валидируем намеренно — новые поля должны доезжать целыми,
+  // иначе каждый минор панели требовал бы релиза редактора.
+  it('новые поля панели проходят насквозь, а не теряются', async () => {
+    const client = new RemnawaveClient({
+      baseUrl: 'http://panel.test',
+      token: 't',
+      fetchImpl: fakeFetch(() => ({
+        status: 200,
+        body: { response: { ...profile, tags: ['prod'], полеИзБудущего: 42 } },
+      })),
+    })
+    const got = (await client.getProfile(profile.uuid)) as unknown as Record<string, unknown>
+    expect(got.tags).toEqual(['prod'])
+    expect(got['полеИзБудущего']).toBe(42)
+    expect(got.config).toEqual(profile.config)
+  })
+
   it('сетевая ошибка превращается в RemnawaveError 502 по-русски', async () => {
     const client = new RemnawaveClient({
       baseUrl: 'http://panel.test',
