@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { RemnawaveError } from '../src/remnawave/client.js'
-import type { ConfigProfile, RemnawavePort } from '../src/remnawave/types.js'
+import type { ConfigProfile, RemnawavePort, SubscriptionTemplate, TemplateType } from '../src/remnawave/types.js'
 
 export function makeProfile(overrides: Partial<ConfigProfile> = {}): ConfigProfile {
   return {
@@ -18,10 +18,27 @@ export function makeProfile(overrides: Partial<ConfigProfile> = {}): ConfigProfi
   }
 }
 
+export function makeStubTemplate(
+  overrides: Partial<SubscriptionTemplate> = {},
+): SubscriptionTemplate {
+  return {
+    uuid: randomUUID(),
+    viewPosition: 0,
+    name: 'Test Template',
+    tags: [],
+    templateType: 'XRAY_JSON',
+    templateJson: { outbounds: [{ tag: 'direct', protocol: 'freedom' }] },
+    encodedTemplateYaml: null,
+    ...overrides,
+  }
+}
+
 export function makeStubRemnawave(
   initial: ConfigProfile[] = [],
-): RemnawavePort & { profiles: ConfigProfile[] } {
+  templates: SubscriptionTemplate[] = [],
+): RemnawavePort & { profiles: ConfigProfile[]; templates: SubscriptionTemplate[] } {
   const profiles = [...initial]
+  templates = [...templates]
   const find = (uuid: string) => {
     const p = profiles.find((x) => x.uuid === uuid)
     if (!p) throw new RemnawaveError(404, 'Config profile not found')
@@ -29,6 +46,7 @@ export function makeStubRemnawave(
   }
   return {
     profiles,
+    templates,
     async listProfiles() {
       return profiles
     },
@@ -67,6 +85,31 @@ export function makeStubRemnawave(
     async getComputedConfig(uuid) {
       const p = find(uuid)
       return p.config
+    },
+    async listTemplates() {
+      return templates
+    },
+    async getTemplate(uuid) {
+      const t = templates.find((x) => x.uuid === uuid)
+      if (!t) throw new RemnawaveError(404, 'Subscription template not found')
+      return t
+    },
+    async createTemplate(name, templateType) {
+      const t = makeStubTemplate({ name, templateType, templateJson: null })
+      templates.push(t)
+      return t
+    },
+    async updateTemplate({ uuid, name, templateJson }) {
+      const t = templates.find((x) => x.uuid === uuid)
+      if (!t) throw new RemnawaveError(404, 'Subscription template not found')
+      if (name !== undefined) t.name = name
+      if (templateJson !== undefined) t.templateJson = templateJson
+      return t
+    },
+    async deleteTemplate(uuid) {
+      const i = templates.findIndex((x) => x.uuid === uuid)
+      if (i === -1) throw new RemnawaveError(404, 'Subscription template not found')
+      templates.splice(i, 1)
     },
   }
 }

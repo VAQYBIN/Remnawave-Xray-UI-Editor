@@ -338,10 +338,10 @@ npm install --save-dev --workspace backend @remnawave/backend-contract@3.4.14
  * в рантайме его нет, поэтому терпимость к новым полям панели сохраняется
  * (см. тест «новые поля панели проходят насквозь»).
  */
-import type { GetTemplateCommand, UpdateSubscriptionTemplateCommand } from '@remnawave/backend-contract'
+import type { GetSubscriptionTemplateCommand, UpdateSubscriptionTemplateCommand } from '@remnawave/backend-contract'
 import type { SubscriptionTemplate, TemplateType } from '../src/remnawave/types.js'
 
-type PanelTemplate = GetTemplateCommand.Response['response']
+type PanelTemplate = GetSubscriptionTemplateCommand.Response['response']
 
 // Ответ панели обязан подходить под наш тип: иначе клиент врёт о том, что читает
 const _fromPanel: SubscriptionTemplate = null as unknown as PanelTemplate
@@ -703,11 +703,11 @@ describe('роуты шаблонов', () => {
       method: 'POST',
       url: '/api/templates',
       headers: { cookie },
-      payload: { name: 'Мой шаблон' },
+      payload: { name: 'My Template' },
     })
     expect(res.statusCode).toBe(201)
     const created = res.json().template
-    expect(created.name).toBe('Мой шаблон')
+    expect(created.name).toBe('My Template')
     expect(created.templateType).toBe('XRAY_JSON')
     const json = created.templateJson as Record<string, unknown>
     expect(json.outbounds).toBeDefined()
@@ -716,15 +716,20 @@ describe('роуты шаблонов', () => {
     await app.close()
   })
 
+  // Панель режет имя регуляркой /^[A-Za-z0-9_\s-]+$/ и отвечает 400 по-английски.
+  // Проверяем локально ровно тем же набором символов, чтобы пользователь получал
+  // понятное русское сообщение до обращения к панели, а не её ответ после.
   it('имя шаблона проверяется так же, как имя профиля', async () => {
     const { app, cookie } = await makeApp()
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/templates',
-      headers: { cookie },
-      payload: { name: 'плохое имя ✗' },
-    })
-    expect(res.statusCode).toBe(400)
+    for (const name of ['плохое имя ✗', 'Кириллица', 'имя/со/слешем']) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/templates',
+        headers: { cookie },
+        payload: { name },
+      })
+      expect(res.statusCode, `имя «${name}» должно быть отклонено`).toBe(400)
+    }
     await app.close()
   })
 
@@ -927,6 +932,10 @@ describe('сохранение шаблона', () => {
 
   it('с устаревшим хэшем отвечает 409 и отдаёт актуальный шаблон', async () => {
     const { app, cookie, template, stub } = await makeApp()
+    // Снимок ДО запроса и обязательно глубокая копия: стаб хранит тот же объект,
+    // что и `template`, поэтому сравнение с ним самим прошло бы всегда и не
+    // проверило бы ничего
+    const before = structuredClone(template.templateJson)
     const res = await app.inject({
       method: 'PATCH',
       url: `/api/templates/${template.uuid}`,
@@ -936,7 +945,8 @@ describe('сохранение шаблона', () => {
     expect(res.statusCode).toBe(409)
     expect(res.json().current.uuid).toBe(template.uuid)
     // Ничего не записано
-    expect(stub.templates[0]!.templateJson).toEqual(template.templateJson)
+    expect(stub.templates[0]!.templateJson).toEqual(before)
+    expect(await app.backups.listTemplateBackups(template.uuid)).toHaveLength(0)
     await app.close()
   })
 
@@ -2317,7 +2327,32 @@ git commit --allow-empty -m "chore: контракт шаблонов подтв
 - карточка узла подстановки в `features/topology/nodes.tsx` и её стили;
 - форма группы в инспекторе;
 - трассировка через группы подстановки;
-- e2e-сценарии.
+- e2e-сценарии;
+- роут `/api/templates/:uuid/backups` и восстановление из бэкапа — без него
+  `listTemplateBackups`/`readTemplateBackup` остаются без потребителя;
+- ветка `remnawave.injectHosts` в `entities/graph/locate.ts` и
+  `entities/graph/search.ts`. Спека обещала, что три резолвера получат новые
+  диагностики бесплатно — бесплатно вышло только у `jsonLocate`, он обходит
+  дерево обобщённо. Без этих веток клик по проблеме подстановки на вкладке
+  топологии никуда не приведёт, а на узле не будет счётчика;
+- общий хелпер id рёбер: схема `e:<источник>-><цель>` сейчас продублирована в
+  `buildGraph.ts` и в подсветке трассы `TopologyView.tsx`, и для инжектируемых
+  тегов они уже разошлись;
+- обобщить `ConflictError.current`: тело 409 у шаблонов совпадает с профильным,
+  но тип поля объявлен как `Profile`;
+- обновить CLAUDE.md — появились роуты шаблонов, `templates/hash.ts`,
+  пространство бэкапов, `entities/xray/inject.ts` и узел `inj:`;
+- **разрыв рёбер, ведущих к группам подстановки.** Найдено ревью Task 12 и
+  требует отдельного решения в плане 2, а не механического переиспользования
+  существующего пути. Ребро «балансер → группа» задано ПРЕФИКСОМ, и нынешний
+  `expandSelector` при разрыве разворачивает селектор в точные теги кандидатов.
+  Для инжектируемых тегов это вредно: он вморозит в конфиг предсказанные
+  `proxy`, `proxy-2`, `proxy-3`, тогда как реальное их число знает только
+  панель — селектор перестанет ловить хосты, которых окажется больше. Пока
+  рёбра не отрисованы и не удаляемы пользователем, вопрос не горит.
+  **Важно:** опасна сама функция `expandSelector`, а не только рёбра к группам.
+  Разрыв ребра «балансер → обычный outbound» у балансера, чей селектор попутно
+  ловит префикс группы, вморозит предсказанные теги ровно так же.
 
 После этого плана узлы подстановки строятся и тестируются, но на холсте ещё не
 отрисованы: React Flow не знает типа `inject`, пока в `nodeTypes` не появится

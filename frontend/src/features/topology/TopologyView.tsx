@@ -8,8 +8,9 @@ import { expandSelector, type TraceResult, type XrayConfig } from '../../entitie
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import {
-  addBalancer, addInbound, addOutbound, addRule, attachInboundToRule, attachOutboundToBalancer,
-  connectRule, disconnectEdge, setRuleBalancer, setRuleOutbound,
+  addBalancer, addInbound, addOutbound, addRule, attachInboundToRule, attachInjectGroupToBalancer,
+  attachOutboundToBalancer, connectRule, disconnectEdge, setRuleBalancer, setRuleInjectGroup,
+  setRuleOutbound,
 } from '../../entities/graph/mutations'
 import { Button, Dialog } from '../../shared/ui'
 import { edgeTypes } from './edges'
@@ -58,14 +59,18 @@ export function resyncEdges(prev: Edge[], next: Edge[]): Edge[] {
  * (тогда правило создаётся само), правило — в балансер либо в outbound, балансер —
  * в outbound. Гнёзда сквадов и обсерватории закрыты: привязку сквадов задаёт панель
  * Remnawave, а связь обсерватории с балансером выводится из его стратегии.
+ * Группы подстановки — такие же выходы, только их outbound'ы создаст панель,
+ * поэтому вести в них можно из правил и балансеров, а выходить из них нельзя.
  */
 export function isValidConnection(conn: { source?: string | null; target?: string | null }): boolean {
   const source = conn.source ?? ''
   const target = conn.target ?? ''
   if (source === target) return false
   if (source.startsWith('in:')) return target.startsWith('rule:') || target.startsWith('out:')
-  if (source.startsWith('rule:')) return target.startsWith('out:') || target.startsWith('bal:')
-  if (source.startsWith('bal:')) return target.startsWith('out:')
+  if (source.startsWith('rule:')) {
+    return target.startsWith('out:') || target.startsWith('bal:') || target.startsWith('inj:')
+  }
+  if (source.startsWith('bal:')) return target.startsWith('out:') || target.startsWith('inj:')
   return false
 }
 
@@ -90,6 +95,12 @@ export function applyConnection(
   }
   if (source.startsWith('bal:') && target.startsWith('out:')) {
     return attachOutboundToBalancer(config, source.slice(4), target.slice(4))
+  }
+  if (source.startsWith('rule:') && target.startsWith('inj:')) {
+    return setRuleInjectGroup(config, Number(source.slice(5)), Number(target.slice(4)))
+  }
+  if (source.startsWith('bal:') && target.startsWith('inj:')) {
+    return attachInjectGroupToBalancer(config, source.slice(4), Number(target.slice(4)))
   }
   return config
 }

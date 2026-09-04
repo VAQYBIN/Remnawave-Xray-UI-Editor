@@ -1,24 +1,16 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { nameSchema } from './nameSchema.js'
 
 const paramsSchema = z.object({ uuid: z.string().uuid() })
 
 const createSchema = z.object({
-  name: z
-    .string()
-    .min(2)
-    .max(30)
-    .regex(/^[A-Za-z0-9_\s-]+$/, 'Имя: латиница, цифры, пробел, - и _'),
+  name: nameSchema,
   config: z.record(z.string(), z.unknown()),
 })
 
 const updateSchema = z.object({
-  name: z
-    .string()
-    .min(2)
-    .max(30)
-    .regex(/^[A-Za-z0-9_\s-]+$/, 'Имя: латиница, цифры, пробел, - и _')
-    .optional(),
+  name: nameSchema.optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   expectedUpdatedAt: z.string().min(1),
 })

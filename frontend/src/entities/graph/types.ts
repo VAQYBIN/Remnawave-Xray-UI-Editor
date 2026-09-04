@@ -35,6 +35,18 @@ export interface BalancerNodeData extends Record<string, unknown> {
   candidates: number
   issueCount?: IssueCount
 }
+export interface InjectNodeData extends Record<string, unknown> {
+  kind: 'inject'; index: number
+  /** Короткая подпись селектора для карточки */
+  selector: string
+  /** Пул выбора; undefined — панель возьмёт HIDDEN */
+  selectFrom?: string
+  /** 'prefix' — теги предсказуемы, 'panel' — их знает только панель, 'none' — не задано */
+  scheme: 'prefix' | 'panel' | 'none'
+  /** Предсказанные теги; для схемы 'panel' пусто */
+  tags: string[]
+  issueCount?: IssueCount
+}
 export interface ObservatoryNodeData extends Record<string, unknown> {
   kind: 'observatory'; hasObservatory: boolean; hasBurst: boolean; subjectsCount: number
   issueCount?: IssueCount

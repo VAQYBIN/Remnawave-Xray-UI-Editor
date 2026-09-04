@@ -32,6 +32,32 @@ export interface ConfigProfile {
   updatedAt: string
 }
 
+/** Типы шаблонов подписки панели 3.4.x (см. @remnawave/backend-contract) */
+export type TemplateType =
+  | 'XRAY_JSON'
+  | 'XRAY_BASE64'
+  | 'MIHOMO'
+  | 'STASH'
+  | 'CLASH'
+  | 'SINGBOX'
+
+/**
+ * Шаблон подписки. Полей createdAt/updatedAt здесь НЕТ — оптимистическая
+ * блокировка профилей через expectedUpdatedAt тут неприменима, защита строится
+ * на сравнении содержимого (backend/src/templates/hash.ts).
+ */
+export interface SubscriptionTemplate {
+  uuid: string
+  viewPosition: number
+  name: string
+  tags?: string[]
+  templateType: TemplateType
+  /** JSON-типы (XRAY_JSON, SINGBOX); у YAML-типов здесь null */
+  templateJson: unknown
+  /** YAML-типы (MIHOMO, CLASH, STASH) в base64; у JSON-типов null */
+  encodedTemplateYaml: string | null
+}
+
 export interface RemnawavePort {
   listProfiles(): Promise<ConfigProfile[]>
   getProfile(uuid: string): Promise<ConfigProfile>
@@ -42,4 +68,13 @@ export interface RemnawavePort {
   getSquads(): Promise<unknown[]>
   getProfileInbounds(uuid: string): Promise<PanelInboundDetail[]>
   getComputedConfig(uuid: string): Promise<unknown>
+  listTemplates(): Promise<SubscriptionTemplate[]>
+  getTemplate(uuid: string): Promise<SubscriptionTemplate>
+  createTemplate(name: string, templateType: TemplateType): Promise<SubscriptionTemplate>
+  updateTemplate(input: {
+    uuid: string
+    name?: string
+    templateJson?: unknown
+  }): Promise<SubscriptionTemplate>
+  deleteTemplate(uuid: string): Promise<void>
 }

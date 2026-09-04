@@ -1,6 +1,13 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates } from '../xray/balancers'
 import { streamNetwork } from '../xray/compat'
+import {
+  describeSelector,
+  injectedTagOwners,
+  injectGroupsOf,
+  predictedTags,
+  tagScheme,
+} from '../xray/inject'
 import type { FlowEdge, FlowNode, GraphContext } from './types'
 
 export const COLUMN_X = { squad: -380, inbound: 0, rule: 430, balancer: 860, outbound: 1290 } as const
@@ -30,6 +37,15 @@ export function buildGraph(
   const rules = config.routing?.rules ?? []
   const inboundTags = new Set(inbounds.map((i) => i.tag))
   const outboundTags = new Set(outbounds.map((o) => o.tag))
+
+  // Тег может принадлежать группе подстановки: тогда ребро ведёт к её узлу,
+  // а не к несуществующему out:<tag>
+  const injectOwners = injectedTagOwners(config)
+  const targetForTag = (tag: string): string | undefined => {
+    const owner = injectOwners.get(tag)
+    if (owner !== undefined) return `inj:${owner}`
+    return outboundTags.has(tag) ? `out:${tag}` : undefined
+  }
 
   const inboundSquads = ctx.inboundSquads ?? {}
   // Учитываем сквады только тех тегов, что реально есть среди inbound'ов текущего
@@ -84,6 +100,24 @@ export function buildGraph(
     }
   })
 
+  // Группы подстановки идут перед статическими выходами: панель вставляет
+  // инжектируемые outbound'ы в начало массива, и на холсте порядок тот же
+  injectGroupsOf(config).forEach((group, index) => {
+    nodes.push({
+      id: `inj:${index}`,
+      type: 'inject',
+      position: { x: 0, y: 0 },
+      data: {
+        kind: 'inject',
+        index,
+        selector: describeSelector(group),
+        selectFrom: group.selectFrom,
+        scheme: tagScheme(group),
+        tags: predictedTags(group),
+      },
+    })
+  })
+
   const seenOutboundTags = new Set<string>()
   outbounds.forEach((out, index) => {
     if (seenOutboundTags.has(out.tag)) return
@@ -112,12 +146,15 @@ export function buildGraph(
     for (const tag of ruleTags) {
       edges.push({ id: `e:in:${tag}->rule:${index}`, source: `in:${tag}`, target: `rule:${index}` })
     }
-    if (rule.outboundTag && outboundTags.has(rule.outboundTag)) {
-      edges.push({
-        id: `e:rule:${index}->out:${rule.outboundTag}`,
-        source: `rule:${index}`,
-        target: `out:${rule.outboundTag}`,
-      })
+    if (rule.outboundTag) {
+      const target = targetForTag(rule.outboundTag)
+      if (target !== undefined) {
+        edges.push({
+          id: `e:rule:${index}->${target}`,
+          source: `rule:${index}`,
+          target,
+        })
+      }
     }
   })
 
@@ -140,11 +177,17 @@ export function buildGraph(
         candidates: candidates.length,
       },
     })
+    const seenTargets = new Set<string>()
     for (const tag of candidates) {
+      const target = targetForTag(tag)
+      // Несколько предсказанных тегов одной группы дают один узел: без дедупликации
+      // получились бы дубликаты id рёбер, а они ломают React Flow
+      if (target === undefined || seenTargets.has(target)) continue
+      seenTargets.add(target)
       edges.push({
-        id: `e:bal:${bal.tag}->out:${tag}`,
+        id: `e:bal:${bal.tag}->${target}`,
         source: `bal:${bal.tag}`,
-        target: `out:${tag}`,
+        target,
       })
     }
     // Запасной выход — не кандидат балансировки: отдельный id ребра и свой стиль
@@ -222,7 +265,10 @@ export function layoutColumns(nodes: FlowNode[]): FlowNode[] {
   }
 
   return nodes.map((n) => {
-    const kind = n.data.kind as keyof typeof counters | 'dns' | 'observatory'
+    // Узлы подстановки делят колонку и счётчик строк с outbound'ами: они и есть
+    // будущие outbound'ы, просто их создаст панель
+    const raw = n.data.kind === 'inject' ? 'outbound' : n.data.kind
+    const kind = raw as keyof typeof counters | 'dns' | 'observatory'
     if (kind === 'dns') {
       return { ...n, position: { x: COLUMN_X.inbound, y: (inboundTotal + 1) * ROW_H } }
     }
