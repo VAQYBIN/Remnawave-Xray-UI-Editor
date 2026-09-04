@@ -85,7 +85,8 @@ function EditorInner({ profile }: { profile: Profile }) {
         onError: (err) => {
           if (err instanceof ConflictError) {
             setSaveOpen(false)
-            setConflict(err.current)
+            // Роут профилей отдаёт в `current` профиль — сужаем на границе
+            setConflict(err.current as Profile)
           }
         },
       },
@@ -387,8 +388,9 @@ function EditorInner({ profile }: { profile: Profile }) {
 
       <VersionsDialog
         open={versionsOpen}
-        profileUuid={profile.uuid}
-        profileName={profile.name}
+        kind="profiles"
+        docUuid={profile.uuid}
+        docName={profile.name}
         currentText={draft.text}
         onRestore={(configText) => {
           draft.writeDraft(configText, { history: true })

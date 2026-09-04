@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { VersionsDialog } from '../src/features/editor/VersionsDialog'
 
-const profileUuid = 'u1'
+const docUuid = 'u1'
 
 const backups = [
   { file: 'a.json', savedAt: '2026-07-20T10:00:00.000Z', profileName: 'Germany' },
@@ -14,7 +14,7 @@ const backups = [
 const fileData = {
   savedAt: '2026-07-20T10:00:00.000Z',
   profile: {
-    uuid: profileUuid,
+    uuid: docUuid,
     viewPosition: 0,
     name: 'Germany',
     config: { inbounds: [] },
@@ -55,8 +55,9 @@ function renderDialog(props: Partial<{ onRestore: (t: string) => void; onClose: 
     <QueryClientProvider client={qc}>
       <VersionsDialog
         open
-        profileUuid={profileUuid}
-        profileName="Germany"
+        kind="profiles"
+        docUuid={docUuid}
+        docName="Germany"
         currentText={'{\n  "inbounds": []\n}'}
         onRestore={onRestore}
         onClose={onClose}

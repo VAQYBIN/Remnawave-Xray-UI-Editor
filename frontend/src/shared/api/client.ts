@@ -1,5 +1,3 @@
-import type { Profile } from './types'
-
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -39,7 +37,10 @@ function fieldOf(err: unknown, key: 'details' | 'hint'): string | undefined {
 export class ConflictError extends ApiError {
   constructor(
     message: string,
-    public current: Profile,
+    /** Текущая версия из панели: профиль либо шаблон — сужает вызывающая сторона */
+    public current: unknown,
+    /** Хэш текущей версии; только у шаблонов — у профилей роль базы играет updatedAt */
+    public hash?: string,
   ) {
     super(409, message)
     this.name = 'ConflictError'
@@ -74,8 +75,8 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       (body as { message?: string } | undefined)?.message ?? `Ошибка сервера (${res.status})`
     if (res.status === 401) throw new AuthError(401, message)
     if (res.status === 409) {
-      const current = (body as { current?: Profile } | undefined)?.current
-      if (current) throw new ConflictError(message, current)
+      const current = (body as { current?: unknown } | undefined)?.current
+      if (current) throw new ConflictError(message, current, (body as { hash?: string }).hash)
     }
     throw new ApiError(res.status, message, body)
   }
