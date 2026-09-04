@@ -223,7 +223,11 @@ p { margin: 0 0 10px; }
   padding: 4px 12px;
 }
 .segmented .btn:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--ink); }
-.segmented .btn[aria-pressed='true'] {
+/* Активный сегмент: у кнопок-переключателей это aria-pressed, у навигационных
+   ссылок — aria-current. Разные атрибуты не прихоть: на роли link aria-pressed
+   невалиден, а aria-current не имеет смысла на кнопке вкладки. */
+.segmented .btn[aria-pressed='true'],
+.segmented .btn[aria-current='page'] {
   background: var(--panel-3);
   color: var(--ink);
   border-color: var(--rail-hi);

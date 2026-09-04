@@ -4,6 +4,7 @@ import { causeOf, hintOf, useDeleteProfile, useLogout, useProfiles, type PanelIn
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { useDraftStore } from '../editor/draftStore'
+import { SectionSwitch } from '../nav/SectionSwitch'
 import { usePositionsStore } from '../topology/positionsStore'
 import { CreateProfileDialog } from './CreateProfileDialog'
 
@@ -107,6 +108,7 @@ export function ProfilesPage() {
           <span className="eyebrow">remnawave · xray</span>
           <h1>Конфиг-профили</h1>
         </div>
+        <SectionSwitch />
         <span className="spacer" />
         {/* Черновики лежат в localStorage и до сих пор были видны только внутри
             редактора — на списке это единственная подсказка, что правки не сохранены */}
