@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { UUID, mockApi } from './mocks'
+import { pickOption } from './helpers'
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page)
@@ -49,6 +50,27 @@ test('сравнение бэкапа показывает обе стороны
   await expect(page.locator('.diff-frame .cm-editor')).toHaveCount(2)
   await page.getByRole('button', { name: '← К списку' }).click()
   await expect(page.getByRole('button', { name: 'Сравнить' })).toBeVisible()
+})
+
+test('сброс черновика пишет историю — отмена возвращает правку', async ({ page }) => {
+  const inspector = page.locator('aside')
+  await page.locator('.react-flow__node[data-id="in:vless-in"]').click()
+  await pickOption(page, inspector.getByLabel('Flow'), 'xtls-rprx-vision')
+  await inspector.getByRole('button', { name: 'Применить' }).click()
+  await expect(page.getByText('черновик', { exact: true })).toBeVisible()
+
+  // exact: true — иначе подстрока задевает «Сбросить к версии панели»
+  await page.getByRole('button', { name: 'Сбросить к версии панели', exact: true }).click()
+  const resetDialog = page.getByRole('dialog', { name: 'Сбросить черновик' })
+  await expect(resetDialog).toBeVisible()
+  await resetDialog.getByRole('button', { name: 'Сбросить', exact: true }).click()
+  await expect(page.getByText('черновик', { exact: true })).toHaveCount(0)
+
+  // Сброс обязан записать текущий текст в историю: иначе отменять нечего и
+  // кнопка отмены останется заблокированной. Порядок записи и очистки при
+  // этом не важен — resetDraft держит текст в замыкании, а не читает из стора
+  await page.getByRole('button', { name: 'Отменить' }).click()
+  await expect(page.getByText('черновик', { exact: true })).toBeVisible()
 })
 
 test('вкладка «Файл» скачивает конфиг', async ({ page }) => {
