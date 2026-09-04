@@ -34,6 +34,9 @@ export function getNodeJson(config: XrayConfig, nodeId: string): unknown | undef
     const i = balancerIndex(config, nodeId.slice(4))
     return i === -1 ? undefined : config.routing!.balancers![i]
   }
+  if (nodeId.startsWith('inj:')) {
+    return config.remnawave?.injectHosts?.[Number(nodeId.slice(4))]
+  }
   // Узел obs представляет ДВЕ глобальные секции сразу — в JSON-вкладке видно и
   // правится ровно то, что уйдёт в конфиг
   if (nodeId === 'obs') {
@@ -142,6 +145,12 @@ export function applyNodeJson(config: XrayConfig, nodeId: string, value: unknown
     }
     return next
   }
+  if (nodeId.startsWith('inj:')) {
+    const i = Number(nodeId.slice(4))
+    const groups = next.remnawave?.injectHosts
+    if (groups?.[i] !== undefined) groups[i] = value as NonNullable<typeof groups>[number]
+    return next
+  }
   if (nodeId === 'obs') {
     const obj = (value ?? {}) as { observatory?: unknown; burstObservatory?: unknown }
     if (obj.observatory === undefined) delete next.observatory
@@ -177,6 +186,13 @@ export function removeNode(config: XrayConfig, nodeId: string): XrayConfig {
   if (nodeId.startsWith('bal:')) {
     const i = balancerIndex(next, nodeId.slice(4))
     if (i !== -1) next.routing!.balancers!.splice(i, 1)
+    return next
+  }
+  if (nodeId.startsWith('inj:')) {
+    // Ссылки на предсказанные теги в правилах и селекторах остаются висеть —
+    // ровно как при удалении обычного outbound'а. Их ловит валидация, а не
+    // молчаливая чистка: удалить чужое правило пользователь не просил.
+    next.remnawave?.injectHosts?.splice(Number(nodeId.slice(4)), 1)
     return next
   }
   if (nodeId === 'obs') {
