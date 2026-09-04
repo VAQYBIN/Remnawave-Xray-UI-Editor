@@ -382,6 +382,13 @@ p { margin: 0 0 10px; }
 .metric:last-child { border-right: none; }
 /* --node-hue объявлен только на узлах графа; вне их берётся акцент по умолчанию */
 .metric-accent { color: var(--node-hue, var(--flux)); }
+/* Предсказанное значение: его настоящий вид знает только панель.
+   У .metric нет собственной рамки (только border-right от соседа), поэтому
+   пунктир нужно рисовать явно — иначе он просто не проявится. */
+.metric-predicted {
+  color: var(--ember);
+  border: 1px dashed var(--ember-line);
+}
 
 /* =========================================================================
    Поверхности
@@ -1024,6 +1031,20 @@ p { margin: 0 0 10px; }
 .fnode-squad { --node-hue: var(--flux); --node-select: var(--flux); }
 /* Балансер — переключатель без своего hue, как правило: сталь, акцент на выходе */
 .fnode-bal { --node-hue: var(--cable-steel); --node-select: var(--ember); }
+/* Группа подстановки — выход, которого в документе нет: янтарь выхода, но рамка
+   пунктиром. Пунктир и есть сообщение: содержимое появится только у клиента. */
+.fnode-inj { --node-hue: var(--ember); --node-select: var(--ember); border-style: dashed; }
+.fnode-inj::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  right: -1px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--node-hue);
+  opacity: 0.85;
+}
 
 /* Торцевая марка — цветной корешок со стороны, откуда приходит/уходит сигнал */
 .fnode-in::before, .fnode-out::before, .fnode-squad::before {
@@ -1166,12 +1187,14 @@ p { margin: 0 0 10px; }
    другого конца холста, а не только когда курсор уже над гнездом. */
 [data-accepts~='rule'] .react-flow__node[data-id^='rule:'] .fnode,
 [data-accepts~='out'] .react-flow__node[data-id^='out:'] .fnode,
+[data-accepts~='inj'] .react-flow__node[data-id^='inj:'] .fnode,
 [data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .fnode {
   border-color: color-mix(in srgb, var(--live) 55%, var(--rail));
   box-shadow: var(--shadow-1), 0 0 0 1px color-mix(in srgb, var(--live) 30%, transparent);
 }
 [data-accepts~='rule'] .react-flow__node[data-id^='rule:'] .react-flow__handle-left,
 [data-accepts~='out'] .react-flow__node[data-id^='out:'] .react-flow__handle-left,
+[data-accepts~='inj'] .react-flow__node[data-id^='inj:'] .react-flow__handle-left,
 [data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .react-flow__handle-left {
   border-color: var(--live);
   background: color-mix(in srgb, var(--live) 30%, var(--panel-3));

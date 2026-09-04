@@ -97,4 +97,55 @@ describe('TracePanel', () => {
     render(<TracePanel result={result} onClose={() => {}} onSelectRule={() => {}} onOpenGeo={() => {}} />)
     expect(screen.queryByRole('button', { name: /geo-базы/i })).not.toBeInTheDocument()
   })
+
+  it('дефолтный маршрут с подстановкой отмечает, что выход появится только у клиента', () => {
+    const injectedDefault: TraceResult = {
+      verdicts: [],
+      winner: {
+        ruleIndex: null,
+        outboundTag: 'proxy',
+        injected: { groupIndex: 0, selector: 'тег ~ ^RU-', selectFrom: 'HIDDEN' },
+      },
+      caveats: [],
+    }
+    render(<TracePanel result={injectedDefault} onClose={() => {}} onSelectRule={() => {}} />)
+    expect(screen.getByText(/подставит панель/i)).toBeInTheDocument()
+    expect(screen.getByText('тег ~ ^RU-')).toBeInTheDocument()
+  })
+
+  it('у победившего правила с подставленным выходом стоит отметка подстановки', () => {
+    const injectedWinner: TraceResult = {
+      verdicts: [{ index: 0, state: 'yes', outboundTag: 'proxy-2', fields: [] }],
+      winner: {
+        ruleIndex: 0,
+        outboundTag: 'proxy-2',
+        injected: { groupIndex: 0, selector: 'тег ~ ^RU-', selectFrom: 'HIDDEN' },
+      },
+      caveats: [],
+    }
+    render(<TracePanel result={injectedWinner} onClose={() => {}} onSelectRule={() => {}} />)
+    const summary = within(screen.getByLabelText('Итог трассировки'))
+    expect(summary.getByText(/подстановка: тег ~ \^RU-/)).toBeInTheDocument()
+  })
+
+  it('среди кандидатов балансера предсказанные теги помечены иначе, чем статический выход', () => {
+    const mixedCandidates: TraceResult = {
+      verdicts: [{ index: 0, state: 'yes', outboundTag: undefined, balancerTag: 'bal-1', fields: [] }],
+      winner: {
+        ruleIndex: 0,
+        balancerTag: 'bal-1',
+        balancerCandidates: ['direct', 'proxy', 'proxy-2'],
+        injectedTags: ['proxy', 'proxy-2'],
+      },
+      caveats: [],
+    }
+    render(<TracePanel result={mixedCandidates} onClose={() => {}} onSelectRule={() => {}} />)
+    const summary = within(screen.getByLabelText('Итог трассировки'))
+    // Статический кандидат остаётся metric-accent, предсказанные — metric-predicted;
+    // проверяем именно различие классов, а не просто наличие всех трёх на экране
+    expect(summary.getByText('direct')).toHaveClass('metric-accent')
+    expect(summary.getByText('direct')).not.toHaveClass('metric-predicted')
+    expect(summary.getByText('proxy')).toHaveClass('metric-predicted')
+    expect(summary.getByText('proxy-2')).toHaveClass('metric-predicted')
+  })
 })
