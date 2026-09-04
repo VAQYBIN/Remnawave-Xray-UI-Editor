@@ -14,4 +14,16 @@ export const backupRoutes: FastifyPluginAsync = async (app) => {
     const { uuid, file } = readParams.parse(req.params)
     return await app.backups.read(uuid, file)
   })
+
+  // Шаблоны живут в своём пространстве имён (backups/templates/<uuid>): uuid
+  // профиля и шаблона могут совпасть, и общий путь вернул бы чужие версии
+  app.get('/api/templates/:uuid/backups', async (req) => {
+    const { uuid } = listParams.parse(req.params)
+    return { backups: await app.backups.listTemplateBackups(uuid) }
+  })
+
+  app.get('/api/templates/:uuid/backups/:file', async (req) => {
+    const { uuid, file } = readParams.parse(req.params)
+    return await app.backups.readTemplateBackup(uuid, file)
+  })
 }
