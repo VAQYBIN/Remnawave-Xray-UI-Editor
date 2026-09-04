@@ -4,7 +4,7 @@
 
 import { z } from 'zod'
 import type { XrayConfig } from './config'
-import { injectedTagsOf } from './inject'
+import { injectGroupsOf, injectedTagsOf, predictedTags } from './inject'
 
 export const BALANCER_STRATEGIES = ['random', 'roundRobin', 'leastPing', 'leastLoad'] as const
 
@@ -49,9 +49,52 @@ export function findBalancer(config: XrayConfig, tag: string): Balancer | undefi
 }
 
 /**
- * Разворачивает selector в точные теги текущих кандидатов, выбрасывая dropTag.
- * Нужно разрыву ребра, кандидат которого пришёл из префикса: убрать одного,
- * не переписав префикс, нельзя. Неизвестный балансер — ТОТ ЖЕ конфиг.
+ * Префиксы, которые в новом селекторе останутся префиксами: развернуть группу
+ * подстановки в точные теги нельзя — сколько серверов подставит панель, знает
+ * только она.
+ *
+ * Обычный префикс сохраняется как есть, чтобы состав кандидатов не поехал:
+ * `['proxy-']` ловит proxy-2 и proxy-3, но не proxy, и подмена его на tagPrefix
+ * группы добавила бы балансеру выход, которого пользователь не просил. А вот
+ * пустой префикс сохранять нечем — он ловит вообще всё, включая убираемый
+ * выход, — поэтому он и только он подменяется на tagPrefix'ы пойманных групп.
+ */
+function keptInjectPrefixes(config: XrayConfig, selector: string[]): string[] {
+  const kept: string[] = []
+  const add = (prefix: string) => {
+    if (prefix !== '' && !kept.includes(prefix)) kept.push(prefix)
+  }
+  for (const prefix of selector) {
+    for (const group of injectGroupsOf(config)) {
+      const tags = predictedTags(group)
+      if (matchPrefixes(tags, [prefix]).length === 0) continue
+      add(prefix === '' ? (group.tagPrefix ?? '') : prefix)
+    }
+  }
+  return kept
+}
+
+/**
+ * Сохраняемый префикс, который вдобавок ловит сам dropTag. Пока он в
+ * селекторе, убрать dropTag нечем: сохраним префикс — выход вернётся,
+ * развернём — сломается группа. Возвращает такой префикс, если он есть;
+ * иначе undefined.
+ */
+export function blockingInjectPrefix(
+  config: XrayConfig,
+  balancerTag: string,
+  dropTag: string,
+): string | undefined {
+  const balancer = findBalancer(config, balancerTag)
+  if (!balancer) return undefined
+  return keptInjectPrefixes(config, balancer.selector ?? []).find((p) => dropTag.startsWith(p))
+}
+
+/**
+ * Разворачивает selector в точные теги текущих СТАТИЧЕСКИХ кандидатов, выбрасывая
+ * dropTag. Префиксы групп подстановки переносятся как есть — см. keptInjectPrefixes:
+ * обычный префикс тем же значением, что стояло в selector, пустой — tagPrefix'ами
+ * пойманных групп. Неизвестный балансер и неразрешимый конфликт префикса — ТОТ ЖЕ конфиг.
  */
 export function expandSelector(
   config: XrayConfig,
@@ -60,8 +103,17 @@ export function expandSelector(
 ): XrayConfig {
   const index = (config.routing?.balancers ?? []).findIndex((b) => b.tag === balancerTag)
   if (index === -1) return config
+  if (blockingInjectPrefix(config, balancerTag, dropTag) !== undefined) return config
+  const selector = config.routing!.balancers![index]!.selector ?? []
+  const kept = keptInjectPrefixes(config, selector)
+  const statics = (config.outbounds ?? []).map((o) => o.tag)
+  const expanded = matchPrefixes(
+    statics,
+    selector.filter((p) => !kept.includes(p)),
+  ).filter((t) => t !== dropTag)
   const next = structuredClone(config)
-  const balancer = next.routing!.balancers![index]!
-  balancer.selector = balancerCandidates(config, balancer).filter((t) => t !== dropTag)
+  // Префиксы групп встают в начало независимо от их позиции в исходном selector:
+  // порядок в selector семантики не несёт, это не потеря информации
+  next.routing!.balancers![index]!.selector = [...kept, ...expanded]
   return next
 }
