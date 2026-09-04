@@ -28,6 +28,12 @@ export function nodeIdForPath(parts: PathParts, config: XrayConfig): string | nu
     return tag ? `bal:${tag}` : null
   }
 
+  // Группы подстановки адресуются позиционно, как правила: путь диагностики
+  // приходит из валидации в виде ['remnawave', 'injectHosts', i, ...]
+  if (head === 'remnawave' && second === 'injectHosts' && typeof third === 'number') {
+    return config.remnawave?.injectHosts?.[third] ? `inj:${third}` : null
+  }
+
   // Обе секции обсерватории живут в одном узле графа
   if (head === 'observatory' || head === 'burstObservatory') {
     return config.observatory || config.burstObservatory ? 'obs' : null
