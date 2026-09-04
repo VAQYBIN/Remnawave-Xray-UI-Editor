@@ -52,7 +52,7 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
     const body = updateSchema.parse(req.body)
     const current = await app.remnawave.getTemplate(uuid)
     // Редактор умеет только JSON-содержимое (templateJson); у MIHOMO/CLASH/STASH/
-    // SINGBOX-YAML содержимое лежит в encodedTemplateYaml, а templateJson === null —
+    // SINGBOX содержимое лежит не в templateJson, а он тогда null —
     // применение JSON-патча к такому шаблону оставило бы в нём мусор
     if (current.templateType !== 'XRAY_JSON') {
       return reply.status(400).send({

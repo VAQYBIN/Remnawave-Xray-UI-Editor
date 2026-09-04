@@ -1,7 +1,8 @@
 // Схема id ребра — `e:<источник>-><цель>`. Живёт в одном месте, потому что её
 // независимо строят buildGraph (рисует рёбра) и tracedEdgeIds (подсвечивает
 // победивший путь), а разбирает disconnectEdge. Для инжектируемых тегов они
-// уже разошлись: граф вёл ребро в inj:<index>, подсветка — в out:<tag>.
+// однажды уже разошлись — граф вёл ребро в inj:<index>, подсветка в out:<tag>, —
+// и подсветка обрывалась. Теперь обе стороны зовут outboundTargets отсюда.
 
 import type { XrayConfig } from '../xray'
 import { injectedTagOwners } from '../xray/inject'
