@@ -31,6 +31,18 @@ test('группа подстановки нарисована на холсте
   await expect(page.getByRole('button', { name: 'Сохранить в панель' })).toBeEnabled()
 })
 
+test('группа подстановки заводится кнопкой с холста', async ({ page }) => {
+  await mockTemplates(page)
+  await page.goto(`/templates/${TEMPLATE_UUID}`)
+  // В шаблоне ровно одна группа; новая встаёт следующим узлом
+  await expect(page.locator('.react-flow__node[data-id="inj:1"]')).toHaveCount(0)
+  await page.getByRole('button', { name: '+ Подстановка' }).click()
+  const added = page.locator('.react-flow__node[data-id="inj:1"]')
+  await expect(added).toBeVisible()
+  // Префикс уникален: proxy занят первой группой
+  await expect(added).toContainText('proxy-2')
+})
+
 test('в топбаре шаблона нет проверки ядром и рецептов', async ({ page }) => {
   await mockTemplates(page)
   await page.goto(`/templates/${TEMPLATE_UUID}`)

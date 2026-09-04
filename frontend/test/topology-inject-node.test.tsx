@@ -54,3 +54,45 @@ describe('карточка группы подстановки', () => {
     expect(screen.getByText(/не задан/)).toBeInTheDocument()
   })
 })
+
+// isValidConnection работает по префиксам id и конфига не видит, поэтому гнездо
+// подсвечивалось бы всегда. А мутации для схем panel/none возвращают тот же
+// конфиг: кабель дотягивался и не делал ничего. Закрываем гнездо на карточке.
+describe('гнездо группы подстановки', () => {
+  const handleOf = (container: HTMLElement) => container.querySelector('.react-flow__handle')
+
+  it('при префиксной схеме коммутируется', () => {
+    const { container } = renderNode({
+      kind: 'inject',
+      index: 0,
+      selector: 'тег ~ ^RU-',
+      scheme: 'prefix',
+      tags: ['proxy'],
+    })
+    expect(handleOf(container)).toHaveClass('connectable')
+    expect(screen.queryByText(/Гнездо закрыто/)).not.toBeInTheDocument()
+  })
+
+  it('при тегах от панели закрыто и объясняет почему', () => {
+    const { container } = renderNode({
+      kind: 'inject',
+      index: 0,
+      selector: 'тег как у получателя',
+      scheme: 'panel',
+      tags: [],
+    })
+    expect(handleOf(container)).not.toHaveClass('connectable')
+    expect(screen.getByText(/Гнездо закрыто/)).toBeInTheDocument()
+  })
+
+  it('без выбранного способа именования тоже закрыто', () => {
+    const { container } = renderNode({
+      kind: 'inject',
+      index: 0,
+      selector: 'по списку: 2',
+      scheme: 'none',
+      tags: [],
+    })
+    expect(handleOf(container)).not.toHaveClass('connectable')
+  })
+})

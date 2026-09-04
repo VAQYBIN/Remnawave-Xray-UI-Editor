@@ -35,6 +35,8 @@ export interface WorkbenchProps {
   save?: ReactNode
   /** Библиотека рецептов: у шаблона её нет, кнопка не появляется */
   onOpenRecipes?: () => void
+  /** Группы подстановки: секция remnawave бывает только у шаблона — у профиля кнопки нет */
+  allowInject?: boolean
   /** Правая часть статус-бара: текст ошибки сохранения приходит из мутации страницы */
   statusExtra?: ReactNode
   /** Диалоги страницы: сохранение, конфликт, проверка ядром */
@@ -50,6 +52,7 @@ export function Workbench({
   actions,
   save,
   onOpenRecipes,
+  allowInject,
   statusExtra,
   children,
 }: WorkbenchProps) {
@@ -156,6 +159,7 @@ export function Workbench({
                 issues={draft.nodeIssues}
                 focus={draft.focus}
                 onOpenRecipes={onOpenRecipes}
+                allowInject={allowInject}
                 dockExtra={
                   <>
                     <SearchBox

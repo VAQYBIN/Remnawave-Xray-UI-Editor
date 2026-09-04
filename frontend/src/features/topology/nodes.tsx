@@ -195,7 +195,10 @@ function ObservatoryNode({ data, selected }: { data: ObservatoryNodeData; select
 function InjectNode({ data, selected }: { data: InjectNodeData; selected?: boolean }) {
   return (
     <div className={frame('inject', selected)} style={enter('inject')}>
-      <Handle type="target" position={Position.Left} />
+      {/* Ссылку на группу задаёт ПРЕДСКАЗАННЫЙ тег, а при именовании от панели его нет:
+          мутации всё равно вернули бы тот же конфиг, и кабель дотягивался бы вхолостую.
+          Закрываем гнездо, как у сквадов и обсерватории */}
+      <Handle type="target" position={Position.Left} isConnectable={data.scheme === 'prefix'} />
       <div className="fnode-head">
         <span className="fnode-kind">подстановка</span>
         <IssueBadge count={data.issueCount} />
@@ -208,6 +211,13 @@ function InjectNode({ data, selected }: { data: InjectNodeData; selected?: boole
         {data.scheme === 'panel' && <Metric>теги задаст панель</Metric>}
         {data.scheme === 'none' && <Metric>способ именования не задан</Metric>}
       </div>
+      {/* Свой класс заводить не за чем — одна строка на одной карточке; размер берём
+          тем же токеном, что у .metric, чтобы пояснение не спорило с приборным рядом */}
+      {data.scheme !== 'prefix' && (
+        <div className="muted" style={{ marginTop: 6, fontSize: 'var(--t-micro)' }}>
+          Гнездо закрыто: тег ссылки знает только панель — впишите его в JSON
+        </div>
+      )}
       {/* Гнезда-источника нет: из группы никуда не ведут — её выходы создаст панель */}
     </div>
   )

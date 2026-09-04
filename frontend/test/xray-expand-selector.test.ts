@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { blockingInjectPrefix, expandSelector, type XrayConfig } from '../src/entities/xray'
+import {
+  blockingInjectPrefix,
+  expandBlockedByPanelTags,
+  expandSelector,
+  type XrayConfig,
+} from '../src/entities/xray'
 
 const withGroups = (selector: string[], outbounds: string[]): XrayConfig =>
   ({
@@ -63,16 +68,6 @@ describe('разворот префикса селектора', () => {
     expect(next.routing!.balancers![0]!.selector).toEqual(['ru', 'de', 'eu-1'])
   })
 
-  it('группа с тегами от панели префикса не имеет и ничего не сохраняет', () => {
-    const config = {
-      remnawave: { injectHosts: [{ selector: { type: 'tagRegex' }, useHostTagAsTag: true }] },
-      outbounds: [{ tag: 'eu-1' }, { tag: 'eu-2' }],
-      routing: { balancers: [{ tag: 'bal', selector: ['eu-'] }], rules: [] },
-    } as unknown as XrayConfig
-    const next = expandSelector(config, 'bal', 'eu-2')
-    expect(next.routing!.balancers![0]!.selector).toEqual(['eu-1'])
-  })
-
   it('частичный префикс группы сохраняется как есть и не расширяет состав кандидатов', () => {
     const config = withGroups(['proxy-', 'eu-'], ['eu-1', 'eu-2'])
     const next = expandSelector(config, 'bal', 'eu-2')
@@ -96,5 +91,55 @@ describe('разворот префикса селектора', () => {
     } as unknown as XrayConfig
     const next = expandSelector(config, 'bal', 'eu-2')
     expect(next.routing!.balancers![0]!.selector).toEqual(['eu-1'])
+  })
+})
+
+// Теги такой группы знает ТОЛЬКО панель, поэтому любой префикс селектора может
+// поймать их будущие теги — какие именно, редактор не знает по определению.
+// Значит разворот неразрешим целиком, пока такая группа есть в документе.
+describe('группа с тегами от панели запрещает разворот целиком', () => {
+  const panel = (selector: string[], outbounds: string[]): XrayConfig =>
+    ({
+      remnawave: {
+        injectHosts: [{ selector: { type: 'tagRegex', pattern: '^RU-' }, useHostTagAsTag: true }],
+      },
+      outbounds: outbounds.map((tag) => ({ tag, protocol: 'freedom' })),
+      routing: { balancers: [{ tag: 'bal', selector }], rules: [] },
+    }) as unknown as XrayConfig
+
+  it('разворот возвращает ТОТ ЖЕ конфиг, а не пустой селектор', () => {
+    const config = panel(['RU-'], ['RU-fallback'])
+    expect(expandSelector(config, 'bal', 'RU-fallback')).toBe(config)
+  })
+
+  it('запрет виден предикатом — диалогу есть чем объяснить причину', () => {
+    expect(expandBlockedByPanelTags(panel(['RU-'], ['RU-fallback']), 'bal')).toBe(true)
+  })
+
+  it('диалог не показывает кнопку разворота: префикс назван блокирующим', () => {
+    const config = panel(['RU-'], ['RU-fallback'])
+    expect(blockingInjectPrefix(config, 'bal', 'RU-fallback')).toBe('RU-')
+  })
+
+  it('запрет глобальный: он держится и для префикса, не пересекающегося с группой', () => {
+    const config = panel(['eu-'], ['eu-1', 'eu-2'])
+    expect(expandBlockedByPanelTags(config, 'bal')).toBe(true)
+    expect(expandSelector(config, 'bal', 'eu-2')).toBe(config)
+  })
+
+  it('пустой селектор разворачивать нечем — запрет не срабатывает', () => {
+    expect(expandBlockedByPanelTags(panel([], ['eu-1']), 'bal')).toBe(false)
+  })
+
+  it('неизвестный балансер запретом не считается', () => {
+    expect(expandBlockedByPanelTags(panel(['RU-'], ['RU-1']), 'нет-такого')).toBe(false)
+  })
+
+  it('без панельной группы предикат молчит', () => {
+    const config = {
+      outbounds: [{ tag: 'eu-1' }, { tag: 'eu-2' }],
+      routing: { balancers: [{ tag: 'bal', selector: ['eu-'] }], rules: [] },
+    } as unknown as XrayConfig
+    expect(expandBlockedByPanelTags(config, 'bal')).toBe(false)
   })
 })

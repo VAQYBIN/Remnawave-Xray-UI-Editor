@@ -4,14 +4,17 @@ import {
   useReactFlow, useStore, useUpdateNodeInternals, ViewportPortal,
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
-import { blockingInjectPrefix, expandSelector, type TraceResult, type XrayConfig } from '../../entities/xray'
+import {
+  blockingInjectPrefix, expandBlockedByPanelTags, expandSelector,
+  type TraceResult, type XrayConfig,
+} from '../../entities/xray'
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
 import { edgeId, outboundTargets } from '../../entities/graph/edgeIds'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import {
-  addBalancer, addInbound, addOutbound, addRule, attachInboundToRule, attachInjectGroupToBalancer,
-  attachOutboundToBalancer, blockingGroupPrefix, connectRule, disconnectEdge, setRuleBalancer,
-  setRuleInjectGroup, setRuleOutbound,
+  addBalancer, addInbound, addInjectGroup, addOutbound, addRule, attachInboundToRule,
+  attachInjectGroupToBalancer, attachOutboundToBalancer, blockingGroupPrefix, connectRule,
+  disconnectEdge, setRuleBalancer, setRuleInjectGroup, setRuleOutbound,
 } from '../../entities/graph/mutations'
 import { Button, Dialog } from '../../shared/ui'
 import { edgeTypes } from './edges'
@@ -37,6 +40,12 @@ interface Props {
   focus?: { nodeId: string; nonce: number } | null
   /** Открыть библиотеку рецептов; кнопка появляется только когда обработчик передан */
   onOpenRecipes?: () => void
+  /**
+   * Разрешить заводить группы подстановки с холста. Директива `remnawave` бывает
+   * только у шаблона подписки, поэтому в редакторе профиля кнопки нет — тот же
+   * приём, что у onOpenRecipes: кнопка появляется, только когда её передали.
+   */
+  allowInject?: boolean
 }
 
 // Индекс правила, зашитый в id ребра (`rule:{i}`), для сортировки перед батч-удалением.
@@ -294,6 +303,7 @@ export function TopologyView({
   issues,
   focus,
   onOpenRecipes,
+  allowInject,
 }: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
@@ -430,10 +440,13 @@ export function TopologyView({
   const noRules = (config.routing?.rules?.length ?? 0) === 0
 
   // Если префикс держит и кандидата, и группу подстановки, expandSelector вернёт тот же
-  // конфиг — кнопка «Развернуть префикс» в диалоге ниже обманывала бы пользователя
-  const blocked = expand
-    ? blockingInjectPrefix(config, expand.balancerTag, expand.outboundTag)
-    : undefined
+  // конфиг — кнопка «Развернуть префикс» в диалоге ниже обманывала бы пользователя.
+  // Теги от панели запрещают разворот целиком, и объяснение у него своё
+  const panelBlocked = expand ? expandBlockedByPanelTags(config, expand.balancerTag) : false
+  const blocked =
+    expand && !panelBlocked
+      ? blockingInjectPrefix(config, expand.balancerTag, expand.outboundTag)
+      : undefined
 
   return (
     <ReactFlow
@@ -492,6 +505,9 @@ export function TopologyView({
             <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
             <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
             <Button onClick={() => onChangeConfig(addBalancer(config))}>+ Балансер</Button>
+            {allowInject && (
+              <Button onClick={() => onChangeConfig(addInjectGroup(config))}>+ Подстановка</Button>
+            )}
             {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
             <span className="wb-dock-sep" aria-hidden="true" />
             {dockExtra}
@@ -505,7 +521,26 @@ export function TopologyView({
       </Panel>
 
       <Dialog open={expand !== null} title="Убрать выход из балансера" onClose={() => setExpand(null)}>
-        {blocked !== undefined ? (
+        {panelBlocked ? (
+          <>
+            <p>
+              В шаблоне есть группа подстановки, теги которой задаёт панель. Какие именно выходы
+              она подставит, редактор не знает — значит любой префикс селектора может ловить их, и
+              развернуть селектор в точные теги нельзя: подставленные выходы молча выпали бы из
+              балансера.
+            </p>
+            <p className="muted">
+              Уберите кандидата вручную в форме балансера либо переведите группу на префикс тегов
+              в её форме — тогда разворот снова станет возможен.
+            </p>
+            <div className="row">
+              <span className="spacer" />
+              <Button variant="ghost" onClick={() => setExpand(null)}>
+                Понятно
+              </Button>
+            </div>
+          </>
+        ) : blocked !== undefined ? (
           <>
             <p>
               Префикс «{blocked}» ловит и выход «{expand?.outboundTag}», и группу подстановки.

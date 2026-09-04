@@ -1,7 +1,9 @@
-// Редактор шаблона подписки. Отличий от редактора профиля ровно четыре: база
+// Редактор шаблона подписки. Отличий от редактора профиля ровно пять: база
 // черновика — хэш содержимого (updatedAt у шаблонов нет), сохранение шлёт
-// expectedHash, контекст графа пуст (сквадов у шаблона нет), а проверки ядром и
-// рецептов в топбаре нет — они про конфиг ноды, а не про клиентскую подписку.
+// expectedHash, контекст графа пуст (сквадов у шаблона нет), проверки ядром и
+// рецептов в топбаре нет — они про конфиг ноды, а не про клиентскую подписку, —
+// и только здесь на холсте есть «+ Подстановка»: секция remnawave бывает лишь у
+// шаблона (allowInject).
 
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
@@ -80,6 +82,7 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
       back={{ to: '/templates', label: '← Шаблоны' }}
       title={template.name}
       subtitle={`шаблон ${template.templateType}`}
+      allowInject
       statusExtra={saveError ? <span className="field-error">{saveError}</span> : undefined}
       save={
         <Button
