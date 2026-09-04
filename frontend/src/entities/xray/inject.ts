@@ -39,6 +39,24 @@ export const InjectGroupSchema = z.looseObject({
 
 export type InjectGroup = z.infer<typeof InjectGroupSchema>
 
+/**
+ * Ключи способа именования. Их ровно три, и одновременно допустим только один —
+ * поэтому любая правка одного снимает остальные два. Перечень общий для мутаций
+ * графа и формы инспектора: разъехавшись, они позволили бы собрать невозможное.
+ */
+export const TAG_SCHEME_KEYS = ['tagPrefix', 'useHostRemarkAsTag', 'useHostTagAsTag'] as const
+
+export type TagSchemeKey = (typeof TAG_SCHEME_KEYS)[number]
+
+/** Переключает способ именования, снимая два остальных ключа */
+export function withTagScheme(group: InjectGroup, key: TagSchemeKey, prefix = 'proxy'): InjectGroup {
+  const next: Record<string, unknown> = { ...group }
+  for (const k of TAG_SCHEME_KEYS) delete next[k]
+  if (key === 'tagPrefix') next.tagPrefix = group.tagPrefix || prefix
+  else next[key] = true
+  return next as InjectGroup
+}
+
 export const RemnawaveDirectivesSchema = z.looseObject({
   addVirtualHostAsOutbound: z.boolean().optional(),
   injectHosts: z.array(InjectGroupSchema).optional(),

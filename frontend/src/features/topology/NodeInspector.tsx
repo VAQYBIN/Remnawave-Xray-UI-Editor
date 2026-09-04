@@ -11,6 +11,7 @@ import { RuleForm } from '../inspector/RuleForm'
 import { DnsForm } from '../inspector/DnsForm'
 import { BalancerForm, type ObservatoryState } from '../inspector/BalancerForm'
 import { ObservatoryForm } from '../inspector/ObservatoryForm'
+import { InjectGroupForm } from '../inspector/InjectGroupForm'
 
 const inspectorTheme = EditorView.theme({
   '&': { backgroundColor: 'var(--void)', fontSize: '12px', height: '100%' },
@@ -27,6 +28,7 @@ const KIND_LABEL: Record<string, string> = {
   balancer: 'балансер',
   dns: 'резолвер',
   observatory: 'проверка живости',
+  inject: 'подстановка',
   other: 'узел',
 }
 
@@ -98,10 +100,13 @@ export function NodeInspector({
             ? 'dns'
             : nodeId === 'obs'
               ? 'observatory'
-              : 'other'
+              : nodeId.startsWith('inj:')
+                ? 'inject'
+                : 'other'
   // Автоподсказки/hover питаются от узла docSchema, с которого начинается документ.
   // Узел obs — фрагмент корня конфига (две его секции), поэтому корень там 'config';
-  // у «прочих» узлов схемы нет — там только подсветка JSON.
+  // у группы подстановки и «прочих» узлов схемы нет — там только подсветка JSON:
+  // секции remnawave в docSchema нет.
   const rootKind: XrayRootKind | null =
     kind === 'inbound' ||
     kind === 'outbound' ||
@@ -238,6 +243,12 @@ export function NodeInspector({
                 value={parsedNode}
                 onChange={(next) => setText(JSON.stringify(next, null, 2))}
                 outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+              />
+            )}
+            {parsedNode !== null && kind === 'inject' && (
+              <InjectGroupForm
+                value={parsedNode}
+                onChange={(next) => setText(JSON.stringify(next, null, 2))}
               />
             )}
           </div>

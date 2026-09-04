@@ -1,6 +1,6 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates } from '../xray/balancers'
-import { predictedTags, tagScheme, type InjectGroup } from '../xray/inject'
+import { predictedTags, tagScheme, TAG_SCHEME_KEYS, type InjectGroup } from '../xray/inject'
 
 function clone(config: XrayConfig): XrayConfig {
   return structuredClone(config)
@@ -423,8 +423,6 @@ export function disconnectEdge(config: XrayConfig, edgeId: string): XrayConfig {
  * правка всегда снимает парные ключи — тот же приём, что у пары
  * outboundTag/balancerTag: невыразимое состояние лучше проверяемого.
  */
-const TAG_SCHEME_KEYS = ['tagPrefix', 'useHostRemarkAsTag', 'useHostTagAsTag'] as const
-
 export function addInjectGroup(config: XrayConfig): XrayConfig {
   const next = clone(config)
   next.remnawave = next.remnawave ?? {}
