@@ -183,5 +183,8 @@ export function EditorPage() {
 
   if (profile.isPending) return <main style={{ padding: 24 }} className="muted">Загрузка профиля…</main>
   if (profile.isError) return <main style={{ padding: 24 }} className="field-error">{(profile.error as Error).message}</main>
-  return <EditorInner profile={profile.data} />
+  // key: при переходе между двумя закэшированными профилями компонент иначе не
+  // размонтируется, и выбранный узел, вкладка и цель трассировки переезжают на
+  // чужой документ — а позиционные id правил там указывают уже не туда
+  return <EditorInner key={profile.data.uuid} profile={profile.data} />
 }
