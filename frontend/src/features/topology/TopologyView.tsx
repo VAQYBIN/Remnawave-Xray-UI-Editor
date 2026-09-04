@@ -4,8 +4,9 @@ import {
   useReactFlow, useStore, useUpdateNodeInternals, ViewportPortal,
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
-import { expandSelector, type TraceResult, type XrayConfig } from '../../entities/xray'
+import { blockingInjectPrefix, expandSelector, type TraceResult, type XrayConfig } from '../../entities/xray'
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
+import { edgeId, outboundTargets } from '../../entities/graph/edgeIds'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import {
   addBalancer, addInbound, addOutbound, addRule, attachInboundToRule, attachInjectGroupToBalancer,
@@ -152,7 +153,7 @@ function FocusNode({ request }: { request?: { nodeId: string; nonce: number } | 
 }
 
 /** Колонки, куда вообще можно воткнуть кабель. Ключ — префикс id узла. */
-const TARGET_KINDS = ['rule', 'out', 'bal'] as const
+const TARGET_KINDS = ['rule', 'out', 'bal', 'inj'] as const
 
 /**
  * Гнёзда живут внутри масштабируемого вьюпорта: на отдалении 12px-джек
@@ -256,17 +257,24 @@ export function tracedEdgeIds(result: TraceResult | undefined, config: XrayConfi
   if (index === undefined || index === null) return ids
   const rule = config.routing?.rules?.[index]
   if (!rule) return ids
+  // Тот же резолвер, что у buildGraph: иначе подсветка целится в узел, которого нет
+  const targetFor = outboundTargets(config)
   const inboundTags = (config.inbounds ?? []).map((i) => i.tag)
   const scope = rule.inboundTag?.length
     ? rule.inboundTag.filter((t) => inboundTags.includes(t))
     : inboundTags
-  for (const tag of scope) ids.add(`e:in:${tag}->rule:${index}`)
-  if (rule.outboundTag) ids.add(`e:rule:${index}->out:${rule.outboundTag}`)
+  for (const tag of scope) ids.add(edgeId(`in:${tag}`, `rule:${index}`))
+  if (rule.outboundTag) {
+    const target = targetFor(rule.outboundTag)
+    if (target !== undefined) ids.add(edgeId(`rule:${index}`, target))
+  }
   if (rule.balancerTag) {
-    ids.add(`e:rule:${index}->bal:${rule.balancerTag}`)
-    // Победителя среди кандидатов редактор не знает — подсвечиваем всех
+    ids.add(edgeId(`rule:${index}`, `bal:${rule.balancerTag}`))
+    // Победителя среди кандидатов редактор не знает — подсвечиваем всех.
+    // Set сам схлопывает несколько предсказанных тегов одной группы в одно ребро.
     for (const tag of result?.winner?.balancerCandidates ?? []) {
-      ids.add(`e:bal:${rule.balancerTag}->out:${tag}`)
+      const target = targetFor(tag)
+      if (target !== undefined) ids.add(edgeId(`bal:${rule.balancerTag}`, target))
     }
   }
   return ids
@@ -409,6 +417,12 @@ export function TopologyView({
 
   const noRules = (config.routing?.rules?.length ?? 0) === 0
 
+  // Если префикс держит и кандидата, и группу подстановки, expandSelector вернёт тот же
+  // конфиг — кнопка «Развернуть префикс» в диалоге ниже обманывала бы пользователя
+  const blocked = expand
+    ? blockingInjectPrefix(config, expand.balancerTag, expand.outboundTag)
+    : undefined
+
   return (
     <ReactFlow
       nodes={nodes}
@@ -479,27 +493,50 @@ export function TopologyView({
       </Panel>
 
       <Dialog open={expand !== null} title="Убрать выход из балансера" onClose={() => setExpand(null)}>
-        <p>
-          Кандидат «{expand?.outboundTag}» попал в балансер «{expand?.balancerTag}» по префиксу.
-          Чтобы убрать только его, селектор придётся переписать точными тегами остальных кандидатов.
-        </p>
-        <div className="row">
-          <span className="spacer" />
-          <Button variant="ghost" onClick={() => setExpand(null)}>
-            Отмена
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              if (expand) {
-                onChangeConfig(expandSelector(config, expand.balancerTag, expand.outboundTag))
-              }
-              setExpand(null)
-            }}
-          >
-            Развернуть префикс
-          </Button>
-        </div>
+        {blocked !== undefined ? (
+          <>
+            <p>
+              Префикс «{blocked}» ловит и выход «{expand?.outboundTag}», и группу подстановки.
+              Развернуть его в точные теги нельзя: сколько серверов подставит панель, знает только
+              она — в селекторе замёрзли бы три предсказанных тега.
+            </p>
+            <p className="muted">
+              Переименуйте выход так, чтобы он не попадал под префикс, либо правьте селектор в форме
+              балансера.
+            </p>
+            <div className="row">
+              <span className="spacer" />
+              <Button variant="ghost" onClick={() => setExpand(null)}>
+                Понятно
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>
+              Кандидат «{expand?.outboundTag}» попал в балансер «{expand?.balancerTag}» по префиксу.
+              Чтобы убрать только его, селектор придётся переписать точными тегами остальных
+              кандидатов.
+            </p>
+            <div className="row">
+              <span className="spacer" />
+              <Button variant="ghost" onClick={() => setExpand(null)}>
+                Отмена
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  if (expand) {
+                    onChangeConfig(expandSelector(config, expand.balancerTag, expand.outboundTag))
+                  }
+                  setExpand(null)
+                }}
+              >
+                Развернуть префикс
+              </Button>
+            </div>
+          </>
+        )}
       </Dialog>
     </ReactFlow>
   )
