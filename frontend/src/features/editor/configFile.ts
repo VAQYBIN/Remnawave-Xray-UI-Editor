@@ -1,9 +1,11 @@
 /**
  * Имя файла выгрузки: «Germany DE» + 25.07.2026 → germany-de-2026-07-25.json.
  * Кириллицу оставляем — имена профилей у нас русские, а файловые системы её держат.
+ * Имя документа, а не профиля: шаблон подписки выгружается тем же кодом (панель
+ * держит его имя латиницей, так что слаг там выходит короче и проще).
  */
-export function exportFileName(profileName: string, date: Date): string {
-  const slug = profileName
+export function exportFileName(docName: string, date: Date): string {
+  const slug = docName
     .toLowerCase()
     .replace(/[^a-zа-яё0-9-]+/g, '-')
     .replace(/-+/g, '-')
@@ -26,14 +28,17 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Разворачивает обёртки: файл из DATA_DIR/backups лежит как {savedAt, profile:{config}},
- * а ответ API — как {config}. У самого конфига Xray ключа `config` нет, так что
- * неоднозначности не возникает.
+ * Разворачивает обёртки: файл из DATA_DIR/backups лежит как {savedAt, profile:{config}}
+ * у профиля и {savedAt, template:{templateJson}} у шаблона подписки, а ответ API —
+ * как {config}. У самого конфига Xray ключей `config`, `profile` и `template` нет,
+ * так что неоднозначности не возникает.
  */
 function unwrapConfig(value: unknown): Record<string, unknown> | null {
   if (!isObject(value)) return null
   const profile = value['profile']
   if (isObject(profile) && isObject(profile['config'])) return profile['config']
+  const template = value['template']
+  if (isObject(template) && isObject(template['templateJson'])) return template['templateJson']
   if (isObject(value['config'])) return value['config']
   return value
 }
@@ -45,6 +50,17 @@ export function parseImported(raw: string): { text: string } | { error: string }
   } catch (err) {
     return {
       error: `Файл не разбирается как JSON: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+  // Бэкап шаблона не в формате XRAY_JSON: содержимое у него лежит мимо templateJson.
+  // Без этой ветки обёртка целиком уехала бы в черновик. Условие узкое — обёртка
+  // бэкапа, а не случайный ключ `template` в чужом документе: у настоящей рядом
+  // есть savedAt, а внутри — templateType
+  const template = isObject(value) ? value['template'] : undefined
+  if (isObject(template) && 'templateType' in template && !isObject(template['templateJson'])) {
+    return {
+      error:
+        'Это бэкап шаблона не в формате XRAY_JSON: его содержимое не в templateJson, редактор такие не открывает.',
     }
   }
   const config = unwrapConfig(value)

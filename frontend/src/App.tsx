@@ -14,6 +14,9 @@ const EditorPage = lazy(() =>
 const TemplatesPage = lazy(() =>
   import('./features/templates/TemplatesPage').then((m) => ({ default: m.TemplatesPage })),
 )
+const TemplateEditorPage = lazy(() =>
+  import('./features/templates/TemplateEditorPage').then((m) => ({ default: m.TemplateEditorPage })),
+)
 
 function onAuthError(err: unknown) {
   if (err instanceof AuthError && window.location.pathname !== '/login') {
@@ -60,6 +63,14 @@ export function App() {
               element={
                 <RequireAuth>
                   <TemplatesPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/templates/:uuid"
+              element={
+                <RequireAuth>
+                  <TemplateEditorPage />
                 </RequireAuth>
               }
             />

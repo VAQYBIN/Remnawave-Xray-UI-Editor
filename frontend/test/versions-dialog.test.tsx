@@ -25,7 +25,20 @@ const fileData = {
   },
 }
 
-function stubFetch(list: unknown[] = backups) {
+// Бэкап шаблона: содержимое лежит в template.templateJson, а не в profile.config
+const templateFileData = {
+  savedAt: '2026-07-20T10:00:00.000Z',
+  template: {
+    uuid: docUuid,
+    viewPosition: 0,
+    name: 'Xray Default',
+    templateType: 'XRAY_JSON',
+    templateJson: { outbounds: [{ tag: 'direct', protocol: 'freedom' }] },
+    encodedTemplateYaml: null,
+  },
+}
+
+function stubFetch(list: unknown[] = backups, data: unknown = fileData) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -37,7 +50,7 @@ function stubFetch(list: unknown[] = backups) {
         })
       }
       if (url.includes('/backups/')) {
-        return new Response(JSON.stringify(fileData), {
+        return new Response(JSON.stringify(data), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         })
@@ -47,7 +60,13 @@ function stubFetch(list: unknown[] = backups) {
   )
 }
 
-function renderDialog(props: Partial<{ onRestore: (t: string) => void; onClose: () => void }> = {}) {
+function renderDialog(
+  props: Partial<{
+    kind: 'profiles' | 'templates'
+    onRestore: (t: string) => void
+    onClose: () => void
+  }> = {},
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onRestore = props.onRestore ?? vi.fn()
   const onClose = props.onClose ?? vi.fn()
@@ -55,7 +74,7 @@ function renderDialog(props: Partial<{ onRestore: (t: string) => void; onClose: 
     <QueryClientProvider client={qc}>
       <VersionsDialog
         open
-        kind="profiles"
+        kind={props.kind ?? 'profiles'}
         docUuid={docUuid}
         docName="Germany"
         currentText={'{\n  "inbounds": []\n}'}
@@ -130,6 +149,25 @@ describe('VersionsDialog', () => {
     const file = new File(['{"outbounds":[]}'], 'cfg.json', { type: 'application/json' })
     await user.upload(screen.getByLabelText('Файл конфига'), file)
     await waitFor(() => expect(onRestore).toHaveBeenCalledWith('{\n  "outbounds": []\n}'))
+  })
+
+  // Шаблонная ветка: и путь запроса, и поле с содержимым у шаблона свои
+  it('kind=templates ходит в /api/templates и берёт содержимое из template.templateJson', async () => {
+    stubFetch(backups, templateFileData)
+    const user = userEvent.setup()
+    const { onRestore } = renderDialog({ kind: 'templates' })
+    const buttons = await screen.findAllByRole('button', { name: 'В черновик' })
+    await user.click(buttons[0]!)
+    await waitFor(() =>
+      expect(onRestore).toHaveBeenCalledWith(
+        JSON.stringify(templateFileData.template.templateJson, null, 2),
+      ),
+    )
+    const urls = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) =>
+      String(c[0]),
+    )
+    expect(urls).toContain(`/api/templates/${docUuid}/backups`)
+    expect(urls).toContain(`/api/templates/${docUuid}/backups/a.json`)
   })
 
   it('вкладка «Файл»: битый файл показывает ошибку и не трогает черновик', async () => {
