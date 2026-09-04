@@ -10,8 +10,8 @@ import { edgeId, outboundTargets } from '../../entities/graph/edgeIds'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import {
   addBalancer, addInbound, addOutbound, addRule, attachInboundToRule, attachInjectGroupToBalancer,
-  attachOutboundToBalancer, connectRule, disconnectEdge, setRuleBalancer, setRuleInjectGroup,
-  setRuleOutbound,
+  attachOutboundToBalancer, blockingGroupPrefix, connectRule, disconnectEdge, setRuleBalancer,
+  setRuleInjectGroup, setRuleOutbound,
 } from '../../entities/graph/mutations'
 import { Button, Dialog } from '../../shared/ui'
 import { edgeTypes } from './edges'
@@ -43,6 +43,7 @@ interface Props {
 // Рёбра без индекса правила (например squad->inbound) сохраняют относительный порядок в конце.
 const RULE_INDEX = /rule:(\d+)/
 const EDGE_BAL_OUT = /^e:bal:(.+)->out:(.+)$/
+const EDGE_BAL_INJ = /^e:bal:(.+)->inj:(\d+)$/
 
 function ruleIndexOf(edgeId: string): number {
   const m = RULE_INDEX.exec(edgeId)
@@ -352,6 +353,8 @@ export function TopologyView({
 
   // Запрос на разворот префикса selector — ставится при разрыве префиксного ребра
   const [expand, setExpand] = useState<{ balancerTag: string; outboundTag: string } | null>(null)
+  // Запрос про неразрешимый префикс на ребре балансер → группа подстановки
+  const [groupBlock, setGroupBlock] = useState<{ balancerTag: string; prefix: string } | null>(null)
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -397,15 +400,24 @@ export function TopologyView({
       // Ребро балансер → выход, кандидат которого пришёл из префикса, disconnectEdge
       // не трогает: убрать одного, не переписав selector, нельзя. Спрашиваем разрешение.
       let pending: { balancerTag: string; outboundTag: string } | null = null
+      let groupPending: { balancerTag: string; prefix: string } | null = null
       let next = config
       for (const edge of sorted) {
         const before = next
         next = disconnectEdge(next, edge.id)
         const m = EDGE_BAL_OUT.exec(edge.id)
         if (next === before && m) pending = { balancerTag: m[1]!, outboundTag: m[2]! }
+        const inj = EDGE_BAL_INJ.exec(edge.id)
+        if (next === before && inj) {
+          const prefix = blockingGroupPrefix(next, inj[1]!, Number(inj[2]))
+          if (prefix !== undefined) groupPending = { balancerTag: inj[1]!, prefix }
+        }
       }
       if (next !== config) onChangeConfig(next)
+      // Ровно один диалог за раз: разворот префикса предлагает действие,
+      // объяснение тупика группы — только текст, поэтому оно уступает
       if (pending) setExpand(pending)
+      else if (groupPending) setGroupBlock(groupPending)
     },
     [config, onChangeConfig],
   )
@@ -537,6 +549,28 @@ export function TopologyView({
             </div>
           </>
         )}
+      </Dialog>
+
+      <Dialog
+        open={groupBlock !== null}
+        title="Убрать группу из балансера"
+        onClose={() => setGroupBlock(null)}
+      >
+        <p>
+          Префикс «{groupBlock?.prefix}» ловит и группу подстановки, и обычный выход балансера
+          «{groupBlock?.balancerTag}». Убрать одну группу, не потеряв статического кандидата, им
+          нельзя.
+        </p>
+        <p className="muted">
+          Разведите их: переименуйте статический выход либо задайте группе другой префикс тегов в
+          её форме.
+        </p>
+        <div className="row">
+          <span className="spacer" />
+          <Button variant="ghost" onClick={() => setGroupBlock(null)}>
+            Понятно
+          </Button>
+        </div>
       </Dialog>
     </ReactFlow>
   )

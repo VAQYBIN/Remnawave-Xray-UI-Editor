@@ -1,5 +1,5 @@
 import type { XrayConfig } from '../xray'
-import { balancerCandidates } from '../xray/balancers'
+import { balancerCandidates, matchPrefixes } from '../xray/balancers'
 import { predictedTags, tagScheme, TAG_SCHEME_KEYS, type InjectGroup } from '../xray/inject'
 
 function clone(config: XrayConfig): XrayConfig {
@@ -371,6 +371,10 @@ const EDGE_RULE_BAL = /^e:rule:(\d+)->bal:(.+)$/
 // и fallback'ом, а два ребра с одинаковым id ломают React Flow
 const EDGE_BAL_FB = /^e:bal:(.+)->fb:(.+)$/
 const EDGE_BAL_OUT = /^e:bal:(.+)->out:(.+)$/
+// Цели-группы: тег такого выхода в конфиге отсутствует, поэтому ребро ведёт к
+// узлу группы, а не к out:<tag>
+const EDGE_RULE_INJ = /^e:rule:(\d+)->inj:(\d+)$/
+const EDGE_BAL_INJ = /^e:bal:(.+)->inj:(\d+)$/
 
 export function disconnectEdge(config: XrayConfig, edgeId: string): XrayConfig {
   const inRule = EDGE_IN_RULE.exec(edgeId)
@@ -415,7 +419,66 @@ export function disconnectEdge(config: XrayConfig, edgeId: string): XrayConfig {
     next.routing!.balancers![i]!.selector = selector.filter((s) => s !== balOut[2])
     return next
   }
+  const ruleInj = EDGE_RULE_INJ.exec(edgeId)
+  if (ruleInj) {
+    // Правило без назначения бессмысленно — удаляем целиком, как и для rule→out
+    const next = clone(config)
+    next.routing?.rules?.splice(Number(ruleInj[1]), 1)
+    return next
+  }
+  const balInj = EDGE_BAL_INJ.exec(edgeId)
+  if (balInj) {
+    const groupIndex = Number(balInj[2])
+    const group = config.remnawave?.injectHosts?.[groupIndex]
+    const i = balancerIndex(config, balInj[1]!)
+    // Теги группы, которые знает только панель, префиксом не ловятся вовсе —
+    // такого ребра и не бывает
+    const tags = group ? predictedTags(group) : []
+    if (i === -1 || tags.length === 0) return config
+    if (blockingGroupPrefix(config, balInj[1]!, groupIndex) !== undefined) return config
+    const selector = config.routing!.balancers![i]!.selector ?? []
+    // Устаревший id ребра (селектор уже не ловит группу) не должен вернуть новый
+    // объект — инвариант «ничего не поменялось → тот же объект» держим и здесь,
+    // как в соседней ветке EDGE_BAL_OUT
+    if (matchPrefixes(tags, selector).length === 0) return config
+    const next = clone(config)
+    next.routing!.balancers![i]!.selector = selector.filter(
+      (p) => matchPrefixes(tags, [p]).length === 0,
+    )
+    return next
+  }
   return config
+}
+
+/**
+ * Префикс селектора, который ловит и группу, и чужой тег — статический выход
+ * либо тег СОСЕДНЕЙ группы. Убрать группу из балансера, не потеряв чужого
+ * кандидата, таким префиксом нельзя — это тот же тупик, что у
+ * blockingInjectPrefix, только с другой стороны.
+ */
+export function blockingGroupPrefix(
+  config: XrayConfig,
+  balancerTag: string,
+  groupIndex: number,
+): string | undefined {
+  const groups = config.remnawave?.injectHosts ?? []
+  const group = groups[groupIndex]
+  const balancer = (config.routing?.balancers ?? []).find((b) => b.tag === balancerTag)
+  if (!group || !balancer) return undefined
+  const tags = predictedTags(group)
+  if (tags.length === 0) return undefined
+  const statics = (config.outbounds ?? []).map((o) => o.tag)
+  // Чужие теги, которые тот же префикс уводит вместе с нашими: и статические
+  // выходы, и теги соседних групп. Убрать префикс — оторвать их заодно, а
+  // сохранить — не убрать ничего. Развернуть его в точные теги нельзя: сколько
+  // серверов подставит панель, знает только она.
+  const foreign = [
+    ...statics,
+    ...groups.flatMap((g, i) => (i === groupIndex ? [] : predictedTags(g))),
+  ]
+  return (balancer.selector ?? [])
+    .filter((p) => matchPrefixes(tags, [p]).length > 0)
+    .find((p) => matchPrefixes(foreign, [p]).length > 0)
 }
 
 /**
