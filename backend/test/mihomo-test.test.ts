@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { parse } from 'yaml'
 import { describe, expect, it, vi } from 'vitest'
 import { withDummyProxies } from '../src/mihomo/dummyProxies.js'
@@ -74,11 +75,34 @@ describe('проверка ядром', () => {
   })
 
   it('ядро получает файл с подставленными прокси, а не исходный шаблон', async () => {
-    const runner = vi.fn(async () => ({ code: 0, output: 'ok' }))
+    // Раннер замокан, но файл на момент вызова ещё существует (удаление — в
+    // finally, уже после возврата раннера): читаем его по переданному пути,
+    // чтобы проверить именно содержимое, а не просто наличие флагов -t/-f.
+    let written = ''
+    const runner = vi.fn(async (_bin: string, args: string[]) => {
+      const file = args[args.indexOf('-f') + 1]!
+      written = await readFile(file, 'utf8')
+      return { code: 0, output: 'ok' }
+    })
     const service = new MihomoService('mihomo', '/tmp', runner as unknown as SpawnRunner)
     await service.test(TEMPLATE)
+
     const args = (runner.mock.calls[0] as unknown as [string, string[], unknown])[1]
     expect(args).toContain('-t')
     expect(args).toContain('-f')
+
+    const config = parse(written) as {
+      proxies: { name: string }[]
+      'proxy-groups': { name: string; proxies: string[] }[]
+    }
+    // Список фиктивных серверов непуст, а группа с маркером получила их имена —
+    // без подстановки ядро увидело бы исходный шаблон с дырами и пустым списком
+    expect(config.proxies.length).toBeGreaterThan(0)
+    expect(config['proxy-groups'][0]!.proxies).toContain(config.proxies[0]!.name)
+    // Маркер-комментарий — только приглашение подставить прокси; в файле для
+    // ядра его быть не должно, иначе дыра осталась дырой
+    expect(written).not.toContain('LEAVE THIS LINE!')
+    // Ключи remnawave ядро не знает — они обязаны быть сняты перед записью
+    expect(written).not.toContain('remnawave')
   })
 })
