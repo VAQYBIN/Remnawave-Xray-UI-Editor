@@ -361,6 +361,11 @@ npm run dev:frontend   # Vite на http://localhost:5173, проксирует /
 docker compose -f docker-compose.build.yml up -d --build
 ```
 
+Обычный `docker compose up -d` (без `-f`) берёт `docker-compose.yml` и всегда тянет готовый
+образ `:latest` из реестра — `--build` для него не значит ничего, потому что у сервиса нет
+`build:`, и локальные правки в контейнер так не попадут. Собирать текущее рабочее дерево нужно
+явно, флагом `-f docker-compose.build.yml`, как в команде выше.
+
 Здесь `./data` монтируется каталогом, чтобы бэкапы были видны обычным `ls`. На Linux каталог
 нужно подготовить один раз: `mkdir -p data && sudo chown -R 1000:1000 data`.
 

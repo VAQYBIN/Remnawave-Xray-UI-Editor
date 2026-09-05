@@ -1,5 +1,9 @@
 # Готовый образ из GitHub Container Registry — исходники и сборка на машине
-# не нужны. Сборка из исходников: docker-compose.build.yml
+# не нужны. Этот файл ВСЕГДА запускает образ из реестра: локальные правки
+# кода в контейнер не попадут, а `docker compose up --build` здесь ничего
+# не собирает — `--build` молча игнорируется, потому что у сервиса нет
+# ключа `build:`. Для сборки из исходников — отдельный файл и отдельная
+# команда: `docker compose -f docker-compose.build.yml up -d --build`.
 services:
   remnawave-xray-ui-editor:
     image: ghcr.io/vaqybin/remnawave-xray-ui-editor:latest
