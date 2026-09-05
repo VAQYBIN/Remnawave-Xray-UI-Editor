@@ -2,10 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useCreateTemplate } from '../../shared/api'
 import { Button, Dialog, TextInput } from '../../shared/ui'
-
-// Ограничение самой панели Remnawave (проверено на 3.4.3). Расширять нельзя:
-// панель откажет всё равно, только позже и по-английски.
-const NAME_RE = /^[A-Za-z0-9_\s-]{2,30}$/
+import { NAME_RE } from '../../shared/lib/nameRules'
 
 export function CreateTemplateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')

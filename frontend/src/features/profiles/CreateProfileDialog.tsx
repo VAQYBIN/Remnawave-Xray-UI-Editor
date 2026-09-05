@@ -4,8 +4,8 @@ import { useCreateProfile, useRealityKeypair } from '../../shared/api'
 import { randomShortId } from '../../entities/xray/generate'
 import { DEFAULT_PARAMS, XrayConfigSchema, planFor, type RecipeId } from '../../entities/xray'
 import { Button, Checkbox, Dialog, Select, TextInput } from '../../shared/ui'
+import { NAME_RE } from '../../shared/lib/nameRules'
 
-const NAME_RE = /^[A-Za-z0-9_\s-]{2,30}$/
 // Панель Remnawave отклоняет конфиг без единого inbound (500, errorCode A112),
 // поэтому шаблон нового профиля содержит минимальный VLESS-inbound.
 export const TEMPLATE = {
