@@ -32,6 +32,17 @@ describe('группы', () => {
   })
 })
 
+describe('слияние YAML (`<<`)', () => {
+  it('собственный ключ побеждает пришедший из якоря', () => {
+    const md = parseMihomo(
+      'x-anchors:\n  base: &base\n    type: select\n' +
+        'proxy-groups:\n' +
+        '  - name: a\n    <<: *base\n    type: url-test\n',
+    )
+    expect(groupsOf(md)[0]!.type).toBe('url-test')
+  })
+})
+
 describe('подстановка хостов', () => {
   it('корневой маркер есть не везде, и это не ошибка', () => {
     expect(hasRootMarker(parseMihomo(mihomoFixture('default')))).toBe(true)
@@ -59,6 +70,16 @@ describe('подстановка хостов', () => {
     )
     expect(groupGetsHosts(groupsOf(md)[0]!)).toBe(false)
   })
+
+  it('видит маркер перед первым элементом непустого списка', () => {
+    // Библиотека `yaml` вешает такой комментарий на `commentBefore` первого элемента
+    // списка, а не на `comment` значения ключа `proxies` — этот случай отличает
+    // текстовый поиск от чтения поля `comment` у узла (ради которого и сделан текстовым).
+    const md = parseMihomo(
+      'proxy-groups:\n  - name: a\n    proxies:\n      # LEAVE THIS LINE!\n      - p1\n',
+    )
+    expect(groupsOf(md)[0]!.hasMarker).toBe(true)
+  })
 })
 
 describe('провайдеры', () => {
@@ -76,8 +97,12 @@ describe('провайдеры', () => {
 
   it('наборы правил читаются со своим поведением', () => {
     const md = parseMihomo(mihomoFixture('simple'))
-    const names = ruleProvidersOf(md).map((p) => p.name)
-    expect(names).toContain('youtube')
-    expect(names).toContain('geoip-ru')
+    const providers = ruleProvidersOf(md)
+    const byName = Object.fromEntries(providers.map((p) => [p.name, p]))
+    // В `simple` у всех наборов правил нет собственного ключа `behavior` — он
+    // приходит из якорей `&rp_domain`/`&rp_ipcidr` через `<<`. `map.get()` слияние
+    // не разворачивает, поэтому без обхода `<<` это поле было бы всегда undefined.
+    expect(byName.youtube?.behavior).toBe('domain')
+    expect(byName['geoip-ru']?.behavior).toBe('ipcidr')
   })
 })
