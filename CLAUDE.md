@@ -139,7 +139,10 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
   узла группы при схеме, отличной от `tagPrefix`, закрыто (`isConnectable`): предсказанного тега
   нет, мутация вернула бы тот же конфиг и кабель тянулся бы вхолостую. Завести группу с холста
   можно кнопкой «+ Подстановка» — она появляется только у `TemplateEditorPage` (проп
-  `allowInject` через `Workbench`), в редакторе профиля секции `remnawave` нет. UI — `features/templates/*` (`TemplatesPage`,
+  `allowInject` через `Workbench`), в редакторе профиля секции `remnawave` нет. Префикс новой
+  группы нумеруется БЕЗ дефиса (`proxy`, `proxy2`, `proxy3`): дефисом панель называет второй и
+  следующие хосты ВНУТРИ группы, поэтому `proxy-2` столкнулся бы с предсказанным тегом соседней
+  группы. Занятыми считаются `outboundTagsOf` — статические теги и все предсказанные. UI — `features/templates/*` (`TemplatesPage`,
   `TemplateEditorPage`, `CreateTemplateDialog`) и `features/inspector/InjectGroupForm.tsx` (способ
   именования — ровно один из трёх ключей, форма делает состояние «два сразу» невыразимым, как и
   сама `withTagScheme`). Список шаблонов показывает все типы панели, но открыть на редактирование
@@ -186,11 +189,17 @@ npm run e2e -w frontend                   # Playwright e2e (перед перв�
 - `features/topology` + `features/inspector` — граф и формы редактирования выбранного узла (InboundForm/OutboundForm/StreamForm; генератор ключей Reality дергает `/api/tools`).
 - Диагностики несут путь массивом (`ValidationIssue.parts`), а строковый `path` — производный
   (`formatPath`). На `parts` завязаны три резолвера: `features/editor/jsonLocate.ts` (путь →
-  диапазон в документе, спуск по дереву CodeMirror — обратная задача к `intellisense/context.ts`;
-  используется `ensureSyntaxTree`, иначе хвост большого конфига не разобран),
+  диапазон в документе, спуск по дереву CodeMirror — обратная задача к `intellisense/context.ts`),
   `entities/graph/locate.ts` (путь → id узла и счётчики проблем), `entities/graph/search.ts`
   (поиск узлов). Клик по проблеме зависит от вкладки: на топологии ведёт к узлу, в JSON —
   прокручивает к месту; вкладку не переключаем, потому что у `log`/`policy` узла нет.
+- **Синтаксическое дерево берут через `ensureSyntaxTree`, а не `syntaxTree(state)`** — и
+  `jsonLocate.ts`, и `intellisense/context.ts`/`hover.ts`. `syntaxTree` отдаёт снимок, снятый при
+  создании `LanguageState` (`this.tree = context.tree`), а `ensureSyntaxTree` двигает
+  parse-контекст, снимок не обновляя: на большом конфиге начальный тайм-слайс до хвоста не
+  доходит, и обе задачи молча работали бы по недоразобранному дереву. Бюджеты разные по
+  назначению: у перехода по клику он щедрый, у подсказок — 100 мс, они считаются на каждое
+  нажатие клавиши.
 - `features/diagnostics` — трассировщик (`TraceBar` в доке + `TracePanel` оверлеем), `GeoDataDialog`
   и `CheckReportDialog` (проверка ядром и Reality-целями). Логика трассировки живёт в
   `entities/xray/trace.ts`, бэкенд отвечает только на вопрос «входит ли домен/IP в geo-категорию».
