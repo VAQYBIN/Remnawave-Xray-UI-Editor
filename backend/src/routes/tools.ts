@@ -6,6 +6,7 @@ import { registerWarpAccount, type WarpRegister } from '../tools/warp.js'
 
 const deriveSchema = z.object({ privateKey: z.string().min(1) })
 const xrayTestSchema = z.object({ config: z.unknown(), profileUuid: z.string().optional() })
+const mihomoSchema = z.object({ encodedTemplateYaml: z.string() })
 const realitySchema = z.object({
   target: z.string().min(1),
   serverNames: z.array(z.string()).default([]),
@@ -44,6 +45,11 @@ export const toolsRoutes: FastifyPluginAsync<ToolsRoutesOptions> = async (app, o
       }
     }
     return app.xray.test(config, computed)
+  })
+
+  app.post('/api/tools/mihomo-test', async (req) => {
+    const { encodedTemplateYaml } = mihomoSchema.parse(req.body)
+    return app.mihomo.test(Buffer.from(encodedTemplateYaml, 'base64').toString('utf8'))
   })
 
   app.post('/api/tools/reality-target', async (req) => {

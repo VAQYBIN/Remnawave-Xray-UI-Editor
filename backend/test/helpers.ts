@@ -22,6 +22,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     sessionTtlSeconds: 3600,
     geoAllowPrivateUrls: false,
     xrayBin: 'xray',
+    mihomoBin: 'mihomo',
     ...overrides,
   }
 }
