@@ -67,11 +67,34 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
     edges.push({ id, source, target })
   }
 
+  // Единая точка добавления узла. validateMihomo НАМЕРЕННО допускает две группы
+  // с одинаковым `name` (это диагностируемая ошибка документа, а не повод скрыть
+  // граф от пользователя) и никак не резервирует имя `root` от корневого маркера
+  // подстановки — оба случая дают одинаковый id у разных узлов. React Flow на
+  // дубликат id не падает, а тихо теряет узел с холста, поэтому дедупликация
+  // обязана быть одна на все виды узлов, а не по заплатке на коллизию.
+  //
+  // Побеждает первый добавленный узел. Порядок обхода ниже: группы (каждая —
+  // сразу вместе со своим узлом подстановки, если группа его получает) →
+  // корневая подстановка → провайдеры → правила → встроенные цели (заводятся по
+  // мере обнаружения при разборе рёбер групп и правил). Отсюда для двух
+  // одноимённых групп побеждает первая по порядку в `proxy-groups`; для группы,
+  // названной `root` и получающей хосты, — её собственный узел `hosts:root`, а
+  // не корневая подстановка: группа объявлена явно автором документа, маркер на
+  // `proxies` — общий и безымянный, и если бы победил он, фильтр группы исчез
+  // бы из графа без следа.
+  const nodeIds = new Set<string>()
+  const pushNode = (node: FlowNode) => {
+    if (nodeIds.has(node.id)) return
+    nodeIds.add(node.id)
+    nodes.push(node)
+  }
+
   const builtins = new Set<string>()
   const ensureBuiltin = (name: string) => {
     if (builtins.has(name)) return
     builtins.add(name)
-    nodes.push({
+    pushNode({
       id: `builtin:${name}`,
       type: 'mihomoBuiltin',
       position: { x: outputColumn * MIHOMO_COLUMN_W, y: 0 },
@@ -83,7 +106,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
     // Глубина считается от выходов — группа без исходящих ссылок на другие
     // группы стоит в колонке, ближайшей к выходам (column = maxDepth+1).
     const column = maxDepth - (depths.get(group.name) ?? 0) + 1
-    nodes.push({
+    pushNode({
       id: `group:${group.name}`,
       type: 'mihomoGroup',
       position: { x: column * MIHOMO_COLUMN_W, y: 0 },
@@ -102,7 +125,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
     // САМА (не через use — провайдер уже даёт свой узел, дублировать нечего).
     if (groupGetsHosts(group) && group.use.length === 0) {
       const id = `hosts:${group.name}`
-      nodes.push({
+      pushNode({
         id,
         type: 'mihomoHosts',
         position: { x: outputColumn * MIHOMO_COLUMN_W, y: 0 },
@@ -119,7 +142,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
   })
 
   if (hasRootMarker(md)) {
-    nodes.push({
+    pushNode({
       id: 'hosts:root',
       type: 'mihomoHosts',
       position: { x: outputColumn * MIHOMO_COLUMN_W, y: 0 },
@@ -128,7 +151,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
   }
 
   providers.forEach((provider) => {
-    nodes.push({
+    pushNode({
       id: `provider:${provider.name}`,
       type: 'mihomoProvider',
       position: { x: outputColumn * MIHOMO_COLUMN_W, y: 0 },
@@ -156,7 +179,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
 
   rulesOf(md).forEach((entry) => {
     const id = `rule:${entry.index}`
-    nodes.push({
+    pushNode({
       id,
       type: 'mihomoRule',
       position: { x: 0, y: entry.index * MIHOMO_ROW_H },

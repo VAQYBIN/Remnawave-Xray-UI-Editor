@@ -46,4 +46,31 @@ describe('граф Mihomo', () => {
     const { edges } = buildMihomoGraph(parseMihomo(mihomoFixture('bundle')))
     expect(new Set(edges.map((e) => e.id)).size).toBe(edges.length)
   })
+
+  it('дубликат имени группы не даёт два узла с одним id', () => {
+    // validateMihomo помечает повтор ошибкой, но граф всё равно обязан
+    // нарисоваться — иначе пользователь с опечаткой в имени не поймёт, что
+    // сломалось: React Flow на дубликат id молча теряет узел, а не падает.
+    const md = parseMihomo(
+      'proxy-groups:\n  - name: dup\n    include-all: true\n  - name: dup\n    include-all: true\n',
+    )
+    const { nodes } = buildMihomoGraph(md)
+    expect(nodes.filter((n) => n.id === 'group:dup').length).toBe(1)
+    expect(nodes.filter((n) => n.id === 'hosts:dup').length).toBe(1)
+    expect(new Set(nodes.map((n) => n.id)).size).toBe(nodes.length)
+  })
+
+  it('группа «root», получающая хосты, не сталкивается id с корневой подстановкой', () => {
+    const md = parseMihomo(
+      'proxies:\n  # LEAVE THIS LINE!\n  - existing\n' +
+        'proxy-groups:\n  - name: root\n    include-all: true\n    filter: onlyme\n',
+    )
+    const { nodes } = buildMihomoGraph(md)
+    const hostsNodes = nodes.filter((n) => n.id === 'hosts:root')
+    expect(hostsNodes.length).toBe(1)
+    // Побеждает узел группы: она объявлена явно автором документа, а не
+    // безымянным маркером — иначе фильтр группы пропал бы из графа без следа.
+    expect((hostsNodes[0]?.data as { filter?: string }).filter).toBe('onlyme')
+    expect(new Set(nodes.map((n) => n.id)).size).toBe(nodes.length)
+  })
 })
