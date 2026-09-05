@@ -26,6 +26,26 @@ import { useConfigDraft } from '../editor/useConfigDraft'
 // бы мемоизацию графа.
 const NO_CONTEXT: GraphContext = {}
 
+// Шаблон, заведённый в самой панели и ни разу не заполненный вторым шагом
+// создания, приходит с `templateJson: null` (либо, в теории, с массивом или
+// примитивом — панель это тоже не запрещает). Открывать такое как документ
+// с текстом `null`/`[]` бессмысленно: подставляем пустой объект. Константа,
+// а не литерал в пропсе useConfigDraft — по той же причине, что и NO_CONTEXT
+// выше: новый литерал на каждый рендер был бы новым по ссылке и сбрасывал
+// мемоизацию (formatConfig в useMemo по panelConfig).
+const EMPTY_TEMPLATE_CONFIG: Record<string, never> = {}
+
+/**
+ * `templateJson` панели — словарь только у заполненного шаблона. `null` (пустой
+ * шаблон панели), массив и примитив — не конфиг Xray, открывать их как документ
+ * незачем. Не переиспользуем `isObject` из `configFile.ts`: там она локальна для
+ * своего файла (разбор бэкапов) и заведена под другую задачу — тащить её наружу
+ * ради одной проверки здесь не стоит.
+ */
+function isDictionary(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /** Состояние конфликта: хэш здесь уже сужен до строки — без него перезаписывать нечем */
 interface ConflictState {
   template: SubscriptionTemplate
@@ -34,10 +54,11 @@ interface ConflictState {
 
 function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; hash: string }) {
   const qc = useQueryClient()
+  const hasContent = isDictionary(template.templateJson)
   const draft = useConfigDraft({
     docKind: 'template',
     docKey: template.uuid,
-    panelConfig: template.templateJson,
+    panelConfig: hasContent ? template.templateJson : EMPTY_TEMPLATE_CONFIG,
     baseVersion: hash,
     ctx: NO_CONTEXT,
   })
@@ -76,6 +97,15 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
       ? (save.error as Error).message
       : undefined
 
+  // Пропадает сам собой после сохранения: useSaveTemplate кладёт в кэш
+  // {template, hash} с уже заполненным templateJson, hasContent пересчитается.
+  const emptyNotice = !hasContent ? (
+    <span className="field-warning">
+      Шаблон в панели пуст — редактор открыл его как пустой документ. Сохранение
+      запишет в панель то, что вы здесь соберёте.
+    </span>
+  ) : undefined
+
   return (
     <Workbench
       draft={draft}
@@ -84,7 +114,13 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
       title={template.name}
       subtitle={`шаблон ${template.templateType}`}
       allowInject
-      statusExtra={saveError ? <span className="field-error">{saveError}</span> : undefined}
+      statusExtra={
+        saveError ? (
+          <span className="field-error">{saveError}</span>
+        ) : (
+          emptyNotice
+        )
+      }
       save={
         <Button
           variant="primary"

@@ -36,6 +36,25 @@ function templatePayload(uuid: string, name: string, type: string, hash: string)
   }
 }
 
+/**
+ * Шаблон панели, у которого XRAY_JSON, но содержимого нет: `templateJson`
+ * подставляется явно (`null`, `[]` и т.п.) — в отличие от `templatePayload`,
+ * которая привязывает `null` к типу, отличному от XRAY_JSON.
+ */
+function emptyTemplatePayload(uuid: string, name: string, hash: string, templateJson: unknown) {
+  return {
+    template: {
+      uuid,
+      viewPosition: 0,
+      name,
+      templateType: 'XRAY_JSON',
+      templateJson,
+      encodedTemplateYaml: null,
+    },
+    hash,
+  }
+}
+
 const HASH1 = 'b'.repeat(64)
 const HASH2 = 'c'.repeat(64)
 const HASH3 = 'd'.repeat(64)
@@ -93,6 +112,52 @@ function mockPanel(type = 'XRAY_JSON', patch: PatchReply[] = []) {
           : url.includes(UUID2)
             ? templatePayload(UUID2, 'Второй шаблон', 'XRAY_JSON', HASH2)
             : templatePayload(UUID, state.name, type, state.hash)
+      return json(body)
+    }),
+  )
+  return bodies
+}
+
+/**
+ * Панель с шаблоном XRAY_JSON без содержимого: `templateJson` — то, что передали
+ * (`null`, `[]`…). В отличие от `mockPanel`, тип не привязан к содержимому — так
+ * можно смоделировать ровно ту панель, что заводит пустой XRAY_JSON-шаблон.
+ */
+function mockEmptyPanel(templateJson: unknown, patch: PatchReply[] = []) {
+  const bodies: Record<string, unknown>[] = []
+  const queue = [...patch]
+  // templateJson тоже часть состояния «панели»: успешный PATCH обязан сдвинуть
+  // его, иначе последующий GET (его дёргает invalidateQueries после сохранения)
+  // вернёт прежний пустой шаблон, и сообщение «шаблон пуст» не исчезнет
+  const state = { name: 'Пустой шаблон', hash: HASH1, templateJson }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        bodies.push(body)
+        const reply = queue.shift()
+        if (reply === undefined) throw new Error(`неожиданный PATCH: ${url}`)
+        if ('hash' in reply) {
+          state.hash = reply.hash
+          state.templateJson = body.templateJson
+          return json(emptyTemplatePayload(UUID, state.name, state.hash, state.templateJson))
+        }
+        return json(
+          {
+            message: 'Шаблон изменён в панели',
+            current: emptyTemplatePayload(UUID, reply.name, '', state.templateJson).template,
+            ...(reply.conflictHash === null ? {} : { hash: reply.conflictHash }),
+          },
+          409,
+        )
+      }
+      const body = url.includes('/api/panel/token')
+        ? { expiresAt: null, daysLeft: null, expired: false, expiringSoon: false }
+        : url.includes('/api/geo')
+          ? { geosite: { url: '', present: false }, geoip: { url: '', present: false } }
+          : emptyTemplatePayload(UUID, state.name, state.hash, state.templateJson)
       return json(body)
     }),
   )
@@ -246,5 +311,71 @@ describe('редактор шаблона', () => {
     expect(await screen.findByRole('heading', { name: 'Версия из панели' })).toBeInTheDocument()
     // Черновик отброшен вместе с конфликтом: осталась версия панели
     expect(screen.queryByText('черновик')).not.toBeInTheDocument()
+  }, 30_000)
+
+  // Шаблон, заведённый в панели и ни разу не заполненный вторым шагом создания:
+  // templateJson === null. Редактор обязан открыть пустой документ, а не текст
+  // «null», и честно сказать пользователю, что происходит
+  it('пустой шаблон панели (templateJson: null) открывается как {}, а не как текст null', async () => {
+    mockEmptyPanel(null)
+    const user = userEvent.setup()
+    renderEditor()
+
+    expect(await screen.findByRole('heading', { name: 'Пустой шаблон' })).toBeInTheDocument()
+    expect(screen.getByText(/Шаблон в панели пуст/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'JSON' }))
+    expect(document.querySelector('.cm-content')?.textContent).toBe('{}')
+  })
+
+  // Массив — тоже не конфиг Xray, и открывать его как документ так же бессмысленно,
+  // как и null. Дешёвая проверка: то же поведение, другой примитив на входе
+  it('templateJson: [] тоже открывается как пустой документ', async () => {
+    mockEmptyPanel([])
+    renderEditor()
+
+    expect(await screen.findByRole('heading', { name: 'Пустой шаблон' })).toBeInTheDocument()
+    expect(screen.getByText(/Шаблон в панели пуст/)).toBeInTheDocument()
+  })
+
+  // Защита от того, чтобы плашка «шаблон пуст» не висела на каждом шаблоне —
+  // у обычного, заполненного, её быть не должно
+  it('у обычного шаблона с содержимым сообщение о пустом шаблоне не появляется', async () => {
+    mockPanel()
+    renderEditor()
+
+    await screen.findByRole('heading', { name: 'Xray Default' })
+    expect(screen.queryByText(/Шаблон в панели пуст/)).not.toBeInTheDocument()
+  })
+
+  // Пустой документ не блокирует работу: пользователь собирает шаблон с нуля,
+  // и сохранение уходит обычным путём с тем, что он тут насобирал. {} валиден,
+  // но панель не примет конфиг без outbounds, а «Настройки конфига» их не
+  // редактирует — черновик с собранным документом заводим напрямую, как
+  // profiles-page.test.tsx, а не вводом в CodeMirror (незачем гонять реальный
+  // ввод текста ради шага, который тут не проверяется)
+  it('сохранение пустого шаблона отправляет собранный документ', async () => {
+    const bodies = mockEmptyPanel(null, [{ hash: HASH2 }])
+    useDraftStore
+      .getState()
+      .setDraft(
+        docStorageKey('template', UUID),
+        JSON.stringify({ outbounds: [{ tag: 'direct', protocol: 'freedom' }] }),
+        HASH1,
+      )
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Пустой шаблон' })
+
+    await saveToPanel(user)
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]!.expectedHash).toBe(HASH1)
+    expect(
+      (bodies[0]!.templateJson as { outbounds: Array<{ tag: string }> }).outbounds[0]!.tag,
+    ).toBe('direct')
+    // Сообщение о пустом шаблоне исчезает: панель после сохранения отдаёт
+    // уже заполненный templateJson
+    expect(screen.queryByText(/Шаблон в панели пуст/)).not.toBeInTheDocument()
   }, 30_000)
 })
