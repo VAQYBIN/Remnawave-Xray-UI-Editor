@@ -118,3 +118,30 @@ describe('пустой блочный список', () => {
     expect(groupsOf(parseMihomo(out))[0]!.proxies).toEqual(['DIRECT'])
   })
 })
+
+// Конец файла без завершающего перевода строки — сквозная слабость вставок по
+// `indexOf('\n', ...)`: когда его нет, наивная точка вставки — это конец файла,
+// но это ещё СЕРЕДИНА последней строки (после неё нет \n), и новый элемент
+// приклеивается к ключу/предыдущему элементу на одной строке — невалидный YAML.
+// Сравнение только текста такое пропустило бы, поэтому здесь дополнительно
+// проверяем, что результат вообще разбирается и без ошибок YAML-парсера.
+describe('конец файла без перевода строки', () => {
+  it('пустой список, ключ — последняя строка файла', () => {
+    const noEol =
+      'proxy-groups:\n  - name: Fast\n    include-all: true\n  - name: VPN\n    type: select\n    proxies:'
+    const md = parseMihomo(noEol)
+    const out = applyEdits(noEol, connectMihomo(md, 'group:VPN', 'builtin:DIRECT'))
+    const parsedOut = parseMihomo(out)
+    expect(parsedOut.issues).toEqual([])
+    expect(groupsOf(parsedOut).find((g) => g.name === 'VPN')!.proxies).toEqual(['DIRECT'])
+  })
+
+  it('непустой список, последний элемент — последняя строка файла', () => {
+    const noEol = 'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT'
+    const md = parseMihomo(noEol)
+    const out = applyEdits(noEol, connectMihomo(md, 'group:VPN', 'builtin:REJECT'))
+    const parsedOut = parseMihomo(out)
+    expect(parsedOut.issues).toEqual([])
+    expect(groupsOf(parsedOut).find((g) => g.name === 'VPN')!.proxies).toEqual(['DIRECT', 'REJECT'])
+  })
+})

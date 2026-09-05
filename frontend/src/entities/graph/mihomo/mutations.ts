@@ -69,6 +69,19 @@ function detectIndentStep(text: string): number {
   return 2
 }
 
+/**
+ * Точка вставки сразу ПОСЛЕ строки, на которой лежит `searchFrom` — конец этой
+ * строки плюс перевод строки. Если перевод строки после `searchFrom` не нашёлся,
+ * это последняя строка файла без завершающего \n: вставка пришлась бы прямо в
+ * конец этой строки (`proxies:      - DIRECT` в одну строку — невалидный YAML),
+ * поэтому в таком случае сами добавляем ведущий `\n` к вставляемому тексту, а не
+ * полагаемся на то, что он уже есть в файле.
+ */
+function afterLine(text: string, searchFrom: number): { at: number; prefix: string } {
+  const lineEnd = text.indexOf('\n', searchFrom)
+  return lineEnd === -1 ? { at: text.length, prefix: '\n' } : { at: lineEnd + 1, prefix: '' }
+}
+
 export function connectMihomo(md: MihomoDoc, source: string, target: string): TextEdit[] {
   if (!isValidMihomoConnection(source, target)) return []
   const from = split(source)!
@@ -97,9 +110,8 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
     if (range === null) return []
     const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
     const indent = md.text.slice(lineStart, range.from).replace(/-\s*$/, '')
-    const lineEnd = md.text.indexOf('\n', range.to)
-    const insertAt = lineEnd === -1 ? md.text.length : lineEnd + 1
-    return [{ from: insertAt, to: insertAt, insert: `${indent}- ${stringify(name).trimEnd()}\n` }]
+    const { at, prefix } = afterLine(md.text, range.to)
+    return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name).trimEnd()}\n` }]
   }
 
   // Элементов нет — список либо пуст, либо ключ вообще без значения (частый случай:
@@ -109,11 +121,10 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   const keyRange = rangeOf(pair.key as unknown)
   if (keyRange === null) return []
   const keyLineStart = md.text.lastIndexOf('\n', keyRange.from - 1) + 1
-  const keyLineEnd = md.text.indexOf('\n', keyRange.from)
-  const insertAt = keyLineEnd === -1 ? md.text.length : keyLineEnd + 1
   const keyIndent = md.text.slice(keyLineStart, keyRange.from)
   const indent = keyIndent + ' '.repeat(detectIndentStep(md.text))
-  return [{ from: insertAt, to: insertAt, insert: `${indent}- ${stringify(name).trimEnd()}\n` }]
+  const { at, prefix } = afterLine(md.text, keyRange.from)
+  return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name).trimEnd()}\n` }]
 }
 
 export function disconnectMihomo(md: MihomoDoc, edge: string): TextEdit[] {
