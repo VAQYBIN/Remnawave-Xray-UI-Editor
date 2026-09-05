@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { toGraphContext } from '../src/features/editor/EditorPage'
 import {
   escapeTarget,
   formatConfig,
@@ -6,9 +7,8 @@ import {
   nextSelection,
   renamedNodeId,
   resolveEditorText,
-  toGraphContext,
   traceOf,
-} from '../src/features/editor/EditorPage'
+} from '../src/features/editor/useConfigDraft'
 import type { XrayConfig } from '../src/entities/xray'
 
 describe('editor logic', () => {
@@ -17,7 +17,7 @@ describe('editor logic', () => {
   })
 
   it('resolveEditorText: черновик приоритетнее конфига панели', () => {
-    expect(resolveEditorText({ text: 'draft', baseUpdatedAt: 't', savedAt: 's' }, { a: 1 })).toBe('draft')
+    expect(resolveEditorText({ text: 'draft', baseVersion: 't', savedAt: 's' }, { a: 1 })).toBe('draft')
     expect(resolveEditorText(undefined, { a: 1 })).toBe('{\n  "a": 1\n}')
   })
 })
@@ -54,6 +54,18 @@ describe('nextSelection', () => {
     const next = { ...prev, routing: { rules: [{ type: 'field', outboundTag: 'x' }] } }
     expect(nextSelection('rule:1', prev, next)).toBeNull()
   })
+  it('inj:N сбрасывается при изменении числа групп', () => {
+    const prevInj = { remnawave: { injectHosts: [{}, {}] } } as unknown as XrayConfig
+    const nextInj = { remnawave: { injectHosts: [{}] } } as unknown as XrayConfig
+    expect(nextSelection('inj:0', prevInj, nextInj)).toBeNull()
+  })
+
+  it('inj:N переживает правку самой группы', () => {
+    const prevInj = { remnawave: { injectHosts: [{ tagPrefix: 'a' }] } } as unknown as XrayConfig
+    const nextInj = { remnawave: { injectHosts: [{ tagPrefix: 'b' }] } } as unknown as XrayConfig
+    expect(nextSelection('inj:0', prevInj, nextInj)).toBe('inj:0')
+  })
+
   it('null остаётся null', () => {
     expect(nextSelection(null, prev, prev)).toBeNull()
   })

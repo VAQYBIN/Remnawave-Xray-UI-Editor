@@ -3590,6 +3590,247 @@ git commit --allow-empty -m "chore: UI шаблонов проверен на ж
 
 ---
 
+
+---
+
+### Task 18: Разрыв рёбер, ведущих в группы подстановки
+
+Добавлена по итогам ревью задачи 11. План 1 отложил этот вопрос словами «пока
+рёбра не отрисованы и не удаляемы пользователем, он не горит» — задача 10 их
+отрисовала, и он загорелся. Сейчас `disconnectEdge` не знает целей `inj:<index>`,
+поэтому разрыв такого кабеля возвращает тот же конфиг: React Flow уже убрал ребро
+из своего состояния, а пересборки графа не будет (конфиг-то не изменился), и
+кабель молча исчезает с холста, ничего не изменив в документе. Это ложь
+интерфейса, а не просто отсутствие фичи.
+
+**Files:**
+- Modify: `frontend/src/entities/graph/mutations.ts`
+- Modify: `frontend/src/features/topology/TopologyView.tsx`
+- Test: `frontend/test/graph-inject-disconnect.test.ts` (создать)
+
+**Interfaces:**
+- Consumes: `predictedTags`, `injectGroupsOf` из `entities/xray/inject`; `matchPrefixes` из `entities/xray/balancers`.
+- Produces: `disconnectEdge` понимает `e:rule:<i>->inj:<g>` и `e:bal:<tag>->inj:<g>`; экспортируется `blockingGroupPrefix(config, balancerTag, groupIndex): string | undefined` из `entities/graph/mutations.ts`.
+
+**Семантика, симметричная существующей:**
+
+| Ребро | Что делает разрыв | Почему так |
+|---|---|---|
+| `rule:<i> -> inj:<g>` | удаляет правило целиком | ровно как `rule -> out`: правило без назначения бессмысленно |
+| `bal:<tag> -> inj:<g>` | убирает из селектора префиксы, ловящие эту группу | обратная операция к `attachInjectGroupToBalancer`, которая их туда и добавила |
+| `bal:<tag> -> inj:<g>`, где префикс ловит ещё и статический выход | ТОТ ЖЕ конфиг | убрать группу, не потеряв статического кандидата, нечем — тот же тупик, что у `blockingInjectPrefix` в обратную сторону |
+
+- [ ] **Step 1: Написать падающий тест**
+
+Создать `frontend/test/graph-inject-disconnect.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { blockingGroupPrefix, disconnectEdge } from '../src/entities/graph/mutations'
+import type { XrayConfig } from '../src/entities/xray'
+
+const base = (selector: string[], outbounds: string[]): XrayConfig =>
+  ({
+    remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }] },
+    outbounds: outbounds.map((tag) => ({ tag, protocol: 'freedom' })),
+    routing: {
+      balancers: [{ tag: 'bal', selector }],
+      rules: [
+        { type: 'field', domain: ['a.test'], outboundTag: 'proxy' },
+        { type: 'field', domain: ['b.test'], outboundTag: 'direct' },
+      ],
+    },
+  }) as unknown as XrayConfig
+
+describe('разрыв ребра «правило → группа»', () => {
+  it('удаляет правило целиком, как и ребро правило → выход', () => {
+    const next = disconnectEdge(base(['proxy'], ['direct']), 'e:rule:0->inj:0')
+    expect(next.routing!.rules).toHaveLength(1)
+    expect(next.routing!.rules![0]!.domain).toEqual(['b.test'])
+  })
+
+  it('несуществующее правило не роняет и ничего не портит', () => {
+    const config = base(['proxy'], ['direct'])
+    const next = disconnectEdge(config, 'e:rule:9->inj:0')
+    expect(next.routing!.rules).toHaveLength(2)
+  })
+})
+
+describe('разрыв ребра «балансер → группа»', () => {
+  it('убирает из селектора префикс, ловящий группу', () => {
+    const next = disconnectEdge(base(['proxy', 'eu-'], ['eu-1']), 'e:bal:bal->inj:0')
+    expect(next.routing!.balancers![0]!.selector).toEqual(['eu-'])
+  })
+
+  it('убирает все префиксы, ловящие эту группу', () => {
+    const next = disconnectEdge(base(['proxy', 'proxy-', 'eu-'], ['eu-1']), 'e:bal:bal->inj:0')
+    expect(next.routing!.balancers![0]!.selector).toEqual(['eu-'])
+  })
+
+  // Тот же тупик, что у blockingInjectPrefix, только с другой стороны
+  it('префикс, ловящий заодно статический выход, убрать нельзя — тот же конфиг', () => {
+    const config = base(['proxy'], ['proxy-eu'])
+    expect(blockingGroupPrefix(config, 'bal', 0)).toBe('proxy')
+    expect(disconnectEdge(config, 'e:bal:bal->inj:0')).toBe(config)
+  })
+
+  it('обычный разрыв блокировкой не считается', () => {
+    expect(blockingGroupPrefix(base(['proxy', 'eu-'], ['eu-1']), 'bal', 0)).toBeUndefined()
+  })
+
+  it('неизвестный балансер возвращает тот же конфиг', () => {
+    const config = base(['proxy'], ['direct'])
+    expect(disconnectEdge(config, 'e:bal:нет-такого->inj:0')).toBe(config)
+  })
+
+  it('группа с тегами от панели префиксов не имеет — ребра к ней не бывает', () => {
+    const config = {
+      remnawave: { injectHosts: [{ selector: { type: 'tagRegex' }, useHostTagAsTag: true }] },
+      outbounds: [{ tag: 'direct' }],
+      routing: { balancers: [{ tag: 'bal', selector: ['direct'] }], rules: [] },
+    } as unknown as XrayConfig
+    expect(disconnectEdge(config, 'e:bal:bal->inj:0')).toBe(config)
+  })
+})
+```
+
+- [ ] **Step 2: Запустить тест и убедиться, что он падает**
+
+Run из каталога `frontend`: `npx vitest run test/graph-inject-disconnect.test.ts`
+Expected: FAIL — `blockingGroupPrefix` не экспортируется, `disconnectEdge` возвращает тот же конфиг.
+
+- [ ] **Step 3: Научить `disconnectEdge` целям `inj:`**
+
+В `frontend/src/entities/graph/mutations.ts`, рядом с остальными регулярками рёбер:
+
+```ts
+// Цели-группы: тег такого выхода в конфиге отсутствует, поэтому ребро ведёт к
+// узлу группы, а не к out:<tag>
+const EDGE_RULE_INJ = /^e:rule:(\d+)->inj:(\d+)$/
+const EDGE_BAL_INJ = /^e:bal:(.+)->inj:(\d+)$/
+```
+
+Рядом с `blockingInjectPrefix` по смыслу, но в этом файле:
+
+```ts
+/**
+ * Префикс селектора, который ловит и группу, и статический выход. Убрать группу
+ * из балансера, не потеряв статического кандидата, таким префиксом нельзя —
+ * это тот же тупик, что у blockingInjectPrefix, только с другой стороны.
+ */
+export function blockingGroupPrefix(
+  config: XrayConfig,
+  balancerTag: string,
+  groupIndex: number,
+): string | undefined {
+  const group = config.remnawave?.injectHosts?.[groupIndex]
+  const balancer = (config.routing?.balancers ?? []).find((b) => b.tag === balancerTag)
+  if (!group || !balancer) return undefined
+  const tags = predictedTags(group)
+  if (tags.length === 0) return undefined
+  const statics = (config.outbounds ?? []).map((o) => o.tag)
+  return (balancer.selector ?? [])
+    .filter((p) => matchPrefixes(tags, [p]).length > 0)
+    .find((p) => matchPrefixes(statics, [p]).length > 0)
+}
+```
+
+И две ветки в `disconnectEdge`, перед возвратом по умолчанию:
+
+```ts
+  const ruleInj = EDGE_RULE_INJ.exec(edgeId)
+  if (ruleInj) {
+    // Правило без назначения бессмысленно — удаляем целиком, как и для rule→out
+    const next = clone(config)
+    next.routing?.rules?.splice(Number(ruleInj[1]), 1)
+    return next
+  }
+  const balInj = EDGE_BAL_INJ.exec(edgeId)
+  if (balInj) {
+    const groupIndex = Number(balInj[2])
+    const group = config.remnawave?.injectHosts?.[groupIndex]
+    const i = balancerIndex(config, balInj[1]!)
+    // Теги группы, которые знает только панель, префиксом не ловятся вовсе —
+    // такого ребра и не бывает
+    const tags = group ? predictedTags(group) : []
+    if (i === -1 || tags.length === 0) return config
+    if (blockingGroupPrefix(config, balInj[1]!, groupIndex) !== undefined) return config
+    const selector = config.routing!.balancers![i]!.selector ?? []
+    const next = clone(config)
+    next.routing!.balancers![i]!.selector = selector.filter(
+      (p) => matchPrefixes(tags, [p]).length === 0,
+    )
+    return next
+  }
+```
+
+Импорты `predictedTags` и `matchPrefixes` в этом файле уже есть либо добавляются.
+
+- [ ] **Step 4: Объяснить тупик на холсте**
+
+В `frontend/src/features/topology/TopologyView.tsx` разрыв ребра к группе, упёршийся
+в общий префикс, сейчас молча ничего не делает. Диалог для этого уже есть — он
+рассказывает про неразрешимый префикс; расширяем его на второй случай.
+
+Рядом с `EDGE_BAL_OUT` добавить:
+
+```ts
+const EDGE_BAL_INJ = /^e:bal:(.+)->inj:(\d+)$/
+```
+
+В `onEdgesDelete`, там где считается `pending`, распознать и второй случай:
+
+```ts
+        const inj = EDGE_BAL_INJ.exec(edge.id)
+        if (next === before && inj) {
+          const prefix = blockingGroupPrefix(next, inj[1]!, Number(inj[2]))
+          if (prefix !== undefined) setGroupBlock({ balancerTag: inj[1]!, prefix })
+        }
+```
+
+и завести под это состояние рядом с `expand`:
+
+```ts
+  const [groupBlock, setGroupBlock] = useState<{ balancerTag: string; prefix: string } | null>(null)
+```
+
+плюс диалог тем же языком, что и соседний:
+
+```tsx
+      <Dialog
+        open={groupBlock !== null}
+        title="Убрать группу из балансера"
+        onClose={() => setGroupBlock(null)}
+      >
+        <p>
+          Префикс «{groupBlock?.prefix}» ловит и группу подстановки, и обычный выход балансера
+          «{groupBlock?.balancerTag}». Убрать одну группу, не потеряв статического кандидата, им
+          нельзя.
+        </p>
+        <p className="muted">
+          Разведите их: переименуйте статический выход либо задайте группе другой префикс тегов в
+          её форме.
+        </p>
+        <div className="row">
+          <span className="spacer" />
+          <Button variant="ghost" onClick={() => setGroupBlock(null)}>
+            Понятно
+          </Button>
+        </div>
+      </Dialog>
+```
+
+- [ ] **Step 5: Прогнать тесты**
+
+Run из корня: `npm test && npm run typecheck -w frontend && npm run e2e -w frontend`
+Expected: PASS.
+
+- [ ] **Step 6: Коммит**
+
+```bash
+git add frontend/src/entities/graph/mutations.ts frontend/src/features/topology/TopologyView.tsx frontend/test/graph-inject-disconnect.test.ts
+git commit -m "feat(frontend): разрыв кабеля к группе подстановки"
+```
 ## Что этот план НЕ делает
 
 - **Редакторы MIHOMO, CLASH, STASH, SINGBOX, XRAY_BASE64.** Порядок следующих итераций задан пользователем: Mihomo, Clash, Stash, затем Sing-box. Их содержимое лежит в `encodedTemplateYaml`, а не в `templateJson`, и требует своего разбора и своего графа.

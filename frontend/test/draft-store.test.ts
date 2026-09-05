@@ -11,7 +11,7 @@ describe('draftStore', () => {
     useDraftStore.getState().setDraft('u1', '{"a":1}', '2026-07-20T10:00:00Z')
     const d = useDraftStore.getState().drafts['u1']
     expect(d?.text).toBe('{"a":1}')
-    expect(d?.baseUpdatedAt).toBe('2026-07-20T10:00:00Z')
+    expect(d?.baseVersion).toBe('2026-07-20T10:00:00Z')
     expect(d?.savedAt).toMatch(/^\d{4}-/)
   })
 

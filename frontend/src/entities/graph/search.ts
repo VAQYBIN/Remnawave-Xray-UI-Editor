@@ -3,11 +3,12 @@
 
 import type { XrayConfig } from '../xray'
 import { streamNetwork } from '../xray/compat'
+import { describeSelector, injectGroupsOf, predictedTags } from '../xray/inject'
 import type { GraphContext } from './types'
 
 export interface SearchHit {
   nodeId: string
-  kind: 'inbound' | 'outbound' | 'rule' | 'squad' | 'dns' | 'balancer'
+  kind: 'inbound' | 'outbound' | 'rule' | 'squad' | 'dns' | 'balancer' | 'inject'
   title: string
   /** Чем совпало — иначе в списке правил непонятно, почему они там */
   matchedOn: string
@@ -64,6 +65,25 @@ export function searchNodes(config: XrayConfig, ctx: GraphContext, query: string
       push({ nodeId: `out:${out.tag}`, kind: 'outbound', title: out.tag, matchedOn: matched })
     }
   }
+
+  injectGroupsOf(config).forEach((group, index) => {
+    const matched = firstMatch(needle, [
+      { label: 'селектор', value: describeSelector(group) },
+      { label: 'префикс тегов', value: group.tagPrefix },
+      // Предсказанные теги ищутся наравне с настоящими: пользователь помнит
+      // proxy-2 из правила и не обязан знать, что физически его в конфиге нет
+      { label: 'тег', value: predictedTags(group) },
+      { label: 'пул', value: group.selectFrom },
+    ])
+    if (matched) {
+      push({
+        nodeId: `inj:${index}`,
+        kind: 'inject',
+        title: `подстановка ${index + 1}`,
+        matchedOn: matched,
+      })
+    }
+  })
 
   for (const bal of config.routing?.balancers ?? []) {
     const matched = firstMatch(needle, [

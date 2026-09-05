@@ -1,13 +1,8 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates } from '../xray/balancers'
 import { streamNetwork } from '../xray/compat'
-import {
-  describeSelector,
-  injectedTagOwners,
-  injectGroupsOf,
-  predictedTags,
-  tagScheme,
-} from '../xray/inject'
+import { describeSelector, injectGroupsOf, predictedTags, tagScheme } from '../xray/inject'
+import { edgeId, fallbackEdgeId, outboundTargets } from './edgeIds'
 import type { FlowEdge, FlowNode, GraphContext } from './types'
 
 export const COLUMN_X = { squad: -380, inbound: 0, rule: 430, balancer: 860, outbound: 1290 } as const
@@ -40,12 +35,7 @@ export function buildGraph(
 
   // Тег может принадлежать группе подстановки: тогда ребро ведёт к её узлу,
   // а не к несуществующему out:<tag>
-  const injectOwners = injectedTagOwners(config)
-  const targetForTag = (tag: string): string | undefined => {
-    const owner = injectOwners.get(tag)
-    if (owner !== undefined) return `inj:${owner}`
-    return outboundTags.has(tag) ? `out:${tag}` : undefined
-  }
+  const targetForTag = outboundTargets(config)
 
   const inboundSquads = ctx.inboundSquads ?? {}
   // Учитываем сквады только тех тегов, что реально есть среди inbound'ов текущего
@@ -92,7 +82,7 @@ export function buildGraph(
     for (const uuid of squadUuids) {
       if (usedSquads.has(uuid) && knownSquads.has(uuid)) {
         edges.push({
-          id: `e:squad:${uuid}->in:${inb.tag}`,
+          id: edgeId(`squad:${uuid}`, `in:${inb.tag}`),
           source: `squad:${uuid}`,
           target: `in:${inb.tag}`,
         })
@@ -144,13 +134,17 @@ export function buildGraph(
       },
     })
     for (const tag of ruleTags) {
-      edges.push({ id: `e:in:${tag}->rule:${index}`, source: `in:${tag}`, target: `rule:${index}` })
+      edges.push({
+        id: edgeId(`in:${tag}`, `rule:${index}`),
+        source: `in:${tag}`,
+        target: `rule:${index}`,
+      })
     }
     if (rule.outboundTag) {
       const target = targetForTag(rule.outboundTag)
       if (target !== undefined) {
         edges.push({
-          id: `e:rule:${index}->${target}`,
+          id: edgeId(`rule:${index}`, target),
           source: `rule:${index}`,
           target,
         })
@@ -185,7 +179,7 @@ export function buildGraph(
       if (target === undefined || seenTargets.has(target)) continue
       seenTargets.add(target)
       edges.push({
-        id: `e:bal:${bal.tag}->${target}`,
+        id: edgeId(`bal:${bal.tag}`, target),
         source: `bal:${bal.tag}`,
         target,
       })
@@ -193,7 +187,7 @@ export function buildGraph(
     // Запасной выход — не кандидат балансировки: отдельный id ребра и свой стиль
     if (bal.fallbackTag !== undefined && outboundTags.has(bal.fallbackTag)) {
       edges.push({
-        id: `e:bal:${bal.tag}->fb:${bal.fallbackTag}`,
+        id: fallbackEdgeId(bal.tag, bal.fallbackTag),
         source: `bal:${bal.tag}`,
         target: `out:${bal.fallbackTag}`,
       })
@@ -203,7 +197,7 @@ export function buildGraph(
   rules.forEach((rule, index) => {
     if (rule.balancerTag && seenBalancerTags.has(rule.balancerTag)) {
       edges.push({
-        id: `e:rule:${index}->bal:${rule.balancerTag}`,
+        id: edgeId(`rule:${index}`, `bal:${rule.balancerTag}`),
         source: `rule:${index}`,
         target: `bal:${rule.balancerTag}`,
       })
@@ -234,7 +228,7 @@ export function buildGraph(
       if (!needed || !seenBalancerTags.has(bal.tag)) continue
       // Зависимость, а не поток трафика: ребро нельзя разорвать кабелем
       edges.push({
-        id: `e:obs->bal:${bal.tag}`,
+        id: edgeId('obs', `bal:${bal.tag}`),
         source: 'obs',
         target: `bal:${bal.tag}`,
         deletable: false,

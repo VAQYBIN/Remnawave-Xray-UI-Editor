@@ -12,6 +12,7 @@ import type {
   ProfileInboundDetail,
   RealityProbeResult,
   SquadInfo,
+  SubscriptionTemplate,
   WarpAccount,
   XrayTestResult,
 } from './types'
@@ -151,12 +152,65 @@ export function useRealityPublicKey() {
   })
 }
 
-export function useBackups(uuid: string, enabled = true) {
+export function useBackups(kind: 'profiles' | 'templates', uuid: string, enabled = true) {
   return useQuery({
-    queryKey: ['profiles', uuid, 'backups'],
+    queryKey: [kind, uuid, 'backups'],
     queryFn: () =>
-      apiFetch<{ backups: BackupEntry[] }>(`/api/profiles/${uuid}/backups`).then((r) => r.backups),
+      apiFetch<{ backups: BackupEntry[] }>(`/api/${kind}/${uuid}/backups`).then((r) => r.backups),
     enabled,
+  })
+}
+
+export function useTemplates() {
+  return useQuery({
+    queryKey: ['templates'],
+    queryFn: () =>
+      apiFetch<{ templates: SubscriptionTemplate[] }>('/api/templates').then((r) => r.templates),
+  })
+}
+
+/** Шаблон вместе с хэшем содержимого: хэш возвращается в expectedHash при сохранении */
+export function useTemplate(uuid: string) {
+  return useQuery({
+    queryKey: ['templates', uuid],
+    queryFn: () =>
+      apiFetch<{ template: SubscriptionTemplate; hash: string }>(`/api/templates/${uuid}`),
+  })
+}
+
+export function useCreateTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { name: string }) =>
+      apiFetch<{ template: SubscriptionTemplate }>('/api/templates', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }).then((r) => r.template),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
+  })
+}
+
+export function useDeleteTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (uuid: string) =>
+      apiFetch<{ ok: boolean }>(`/api/templates/${uuid}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
+  })
+}
+
+export function useSaveTemplate(uuid: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { templateJson: unknown; name?: string; expectedHash: string }) =>
+      apiFetch<{ template: SubscriptionTemplate; hash: string }>(`/api/templates/${uuid}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(['templates', uuid], data)
+      qc.invalidateQueries({ queryKey: ['templates'] })
+    },
   })
 }
 

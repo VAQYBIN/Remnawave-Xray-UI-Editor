@@ -32,6 +32,51 @@ describe('parseImported', () => {
     expect(parseImported('{"config":{"inbounds":[]}}')).toEqual({ text: '{\n  "inbounds": []\n}' })
   })
 
+  it('файл бэкапа шаблона с template.templateJson разворачивается', () => {
+    const raw = JSON.stringify({
+      savedAt: 'x',
+      template: {
+        uuid: 'u1',
+        name: 'Xray Default',
+        templateType: 'XRAY_JSON',
+        templateJson: { inbounds: [] },
+        encodedTemplateYaml: null,
+      },
+    })
+    expect(parseImported(raw)).toEqual({ text: '{\n  "inbounds": []\n}' })
+  })
+
+  it('бэкап YAML-шаблона отвергается с объяснением, а не кладёт обёртку в черновик', () => {
+    const raw = JSON.stringify({
+      savedAt: 'x',
+      template: {
+        uuid: 'u1',
+        name: 'Mihomo',
+        templateType: 'MIHOMO',
+        templateJson: null,
+        encodedTemplateYaml: 'cHJveGllczoge30=',
+      },
+    })
+    const result = parseImported(raw)
+    expect('error' in result && result.error).toMatch(/не в templateJson/)
+  })
+
+  it('посторонний объект под ключом template обёрткой не считается', () => {
+    // Отличие от бэкапа — отсутствие templateType внутри: без этого признака
+    // отказ выше съел бы обычный конфиг со своим ключом `template`
+    const raw = JSON.stringify({ inbounds: [], template: { foo: 1 } })
+    expect(parseImported(raw)).toEqual({
+      text: '{\n  "inbounds": [],\n  "template": {\n    "foo": 1\n  }\n}',
+    })
+  })
+
+  it('строка под ключом template обёрткой не считается', () => {
+    const raw = JSON.stringify({ inbounds: [], template: 'что-то своё' })
+    expect(parseImported(raw)).toEqual({
+      text: '{\n  "inbounds": [],\n  "template": "что-то своё"\n}',
+    })
+  })
+
   it('не JSON — понятная ошибка', () => {
     const result = parseImported('не json')
     expect('error' in result && result.error).toMatch(/не разбирается как JSON/)

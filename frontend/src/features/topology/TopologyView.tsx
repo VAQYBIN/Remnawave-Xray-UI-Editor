@@ -4,13 +4,17 @@ import {
   useReactFlow, useStore, useUpdateNodeInternals, ViewportPortal,
   type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
 } from '@xyflow/react'
-import { expandSelector, type TraceResult, type XrayConfig } from '../../entities/xray'
+import {
+  blockingInjectPrefix, expandBlockedByPanelTags, expandSelector,
+  type TraceResult, type XrayConfig,
+} from '../../entities/xray'
 import { buildGraph, COLUMN_X, layoutColumns } from '../../entities/graph/buildGraph'
+import { edgeId, outboundTargets } from '../../entities/graph/edgeIds'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import {
-  addBalancer, addInbound, addOutbound, addRule, attachInboundToRule, attachInjectGroupToBalancer,
-  attachOutboundToBalancer, connectRule, disconnectEdge, setRuleBalancer, setRuleInjectGroup,
-  setRuleOutbound,
+  addBalancer, addInbound, addInjectGroup, addOutbound, addRule, attachInboundToRule,
+  attachInjectGroupToBalancer, attachOutboundToBalancer, blockingGroupPrefix, connectRule,
+  disconnectEdge, setRuleBalancer, setRuleInjectGroup, setRuleOutbound,
 } from '../../entities/graph/mutations'
 import { Button, Dialog } from '../../shared/ui'
 import { edgeTypes } from './edges'
@@ -36,12 +40,19 @@ interface Props {
   focus?: { nodeId: string; nonce: number } | null
   /** Открыть библиотеку рецептов; кнопка появляется только когда обработчик передан */
   onOpenRecipes?: () => void
+  /**
+   * Разрешить заводить группы подстановки с холста. Директива `remnawave` бывает
+   * только у шаблона подписки, поэтому в редакторе профиля кнопки нет — тот же
+   * приём, что у onOpenRecipes: кнопка появляется, только когда её передали.
+   */
+  allowInject?: boolean
 }
 
 // Индекс правила, зашитый в id ребра (`rule:{i}`), для сортировки перед батч-удалением.
 // Рёбра без индекса правила (например squad->inbound) сохраняют относительный порядок в конце.
 const RULE_INDEX = /rule:(\d+)/
 const EDGE_BAL_OUT = /^e:bal:(.+)->out:(.+)$/
+const EDGE_BAL_INJ = /^e:bal:(.+)->inj:(\d+)$/
 
 function ruleIndexOf(edgeId: string): number {
   const m = RULE_INDEX.exec(edgeId)
@@ -152,7 +163,7 @@ function FocusNode({ request }: { request?: { nodeId: string; nonce: number } | 
 }
 
 /** Колонки, куда вообще можно воткнуть кабель. Ключ — префикс id узла. */
-const TARGET_KINDS = ['rule', 'out', 'bal'] as const
+const TARGET_KINDS = ['rule', 'out', 'bal', 'inj'] as const
 
 /**
  * Гнёзда живут внутри масштабируемого вьюпорта: на отдалении 12px-джек
@@ -256,17 +267,24 @@ export function tracedEdgeIds(result: TraceResult | undefined, config: XrayConfi
   if (index === undefined || index === null) return ids
   const rule = config.routing?.rules?.[index]
   if (!rule) return ids
+  // Тот же резолвер, что у buildGraph: иначе подсветка целится в узел, которого нет
+  const targetFor = outboundTargets(config)
   const inboundTags = (config.inbounds ?? []).map((i) => i.tag)
   const scope = rule.inboundTag?.length
     ? rule.inboundTag.filter((t) => inboundTags.includes(t))
     : inboundTags
-  for (const tag of scope) ids.add(`e:in:${tag}->rule:${index}`)
-  if (rule.outboundTag) ids.add(`e:rule:${index}->out:${rule.outboundTag}`)
+  for (const tag of scope) ids.add(edgeId(`in:${tag}`, `rule:${index}`))
+  if (rule.outboundTag) {
+    const target = targetFor(rule.outboundTag)
+    if (target !== undefined) ids.add(edgeId(`rule:${index}`, target))
+  }
   if (rule.balancerTag) {
-    ids.add(`e:rule:${index}->bal:${rule.balancerTag}`)
-    // Победителя среди кандидатов редактор не знает — подсвечиваем всех
+    ids.add(edgeId(`rule:${index}`, `bal:${rule.balancerTag}`))
+    // Победителя среди кандидатов редактор не знает — подсвечиваем всех.
+    // Set сам схлопывает несколько предсказанных тегов одной группы в одно ребро.
     for (const tag of result?.winner?.balancerCandidates ?? []) {
-      ids.add(`e:bal:${rule.balancerTag}->out:${tag}`)
+      const target = targetFor(tag)
+      if (target !== undefined) ids.add(edgeId(`bal:${rule.balancerTag}`, target))
     }
   }
   return ids
@@ -285,6 +303,7 @@ export function TopologyView({
   issues,
   focus,
   onOpenRecipes,
+  allowInject,
 }: Props) {
   const saved = usePositionsStore((s) => s.positions[profileUuid])
   const setPosition = usePositionsStore((s) => s.setPosition)
@@ -344,6 +363,8 @@ export function TopologyView({
 
   // Запрос на разворот префикса selector — ставится при разрыве префиксного ребра
   const [expand, setExpand] = useState<{ balancerTag: string; outboundTag: string } | null>(null)
+  // Запрос про неразрешимый префикс на ребре балансер → группа подстановки
+  const [groupBlock, setGroupBlock] = useState<{ balancerTag: string; prefix: string } | null>(null)
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -389,15 +410,24 @@ export function TopologyView({
       // Ребро балансер → выход, кандидат которого пришёл из префикса, disconnectEdge
       // не трогает: убрать одного, не переписав selector, нельзя. Спрашиваем разрешение.
       let pending: { balancerTag: string; outboundTag: string } | null = null
+      let groupPending: { balancerTag: string; prefix: string } | null = null
       let next = config
       for (const edge of sorted) {
         const before = next
         next = disconnectEdge(next, edge.id)
         const m = EDGE_BAL_OUT.exec(edge.id)
         if (next === before && m) pending = { balancerTag: m[1]!, outboundTag: m[2]! }
+        const inj = EDGE_BAL_INJ.exec(edge.id)
+        if (next === before && inj) {
+          const prefix = blockingGroupPrefix(next, inj[1]!, Number(inj[2]))
+          if (prefix !== undefined) groupPending = { balancerTag: inj[1]!, prefix }
+        }
       }
       if (next !== config) onChangeConfig(next)
+      // Ровно один диалог за раз: разворот префикса предлагает действие,
+      // объяснение тупика группы — только текст, поэтому оно уступает
       if (pending) setExpand(pending)
+      else if (groupPending) setGroupBlock(groupPending)
     },
     [config, onChangeConfig],
   )
@@ -408,6 +438,15 @@ export function TopologyView({
   }, [computed.nodes])
 
   const noRules = (config.routing?.rules?.length ?? 0) === 0
+
+  // Если префикс держит и кандидата, и группу подстановки, expandSelector вернёт тот же
+  // конфиг — кнопка «Развернуть префикс» в диалоге ниже обманывала бы пользователя.
+  // Теги от панели запрещают разворот целиком, и объяснение у него своё
+  const panelBlocked = expand ? expandBlockedByPanelTags(config, expand.balancerTag) : false
+  const blocked =
+    expand && !panelBlocked
+      ? blockingInjectPrefix(config, expand.balancerTag, expand.outboundTag)
+      : undefined
 
   return (
     <ReactFlow
@@ -466,6 +505,9 @@ export function TopologyView({
             <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
             <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
             <Button onClick={() => onChangeConfig(addBalancer(config))}>+ Балансер</Button>
+            {allowInject && (
+              <Button onClick={() => onChangeConfig(addInjectGroup(config))}>+ Подстановка</Button>
+            )}
             {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
             <span className="wb-dock-sep" aria-hidden="true" />
             {dockExtra}
@@ -479,25 +521,89 @@ export function TopologyView({
       </Panel>
 
       <Dialog open={expand !== null} title="Убрать выход из балансера" onClose={() => setExpand(null)}>
+        {panelBlocked ? (
+          <>
+            <p>
+              В шаблоне есть группа подстановки, теги которой задаёт панель. Какие именно выходы
+              она подставит, редактор не знает — значит любой префикс селектора может ловить их, и
+              развернуть селектор в точные теги нельзя: подставленные выходы молча выпали бы из
+              балансера.
+            </p>
+            <p className="muted">
+              Уберите кандидата вручную в форме балансера либо переведите группу на префикс тегов
+              в её форме — тогда разворот снова станет возможен.
+            </p>
+            <div className="row">
+              <span className="spacer" />
+              <Button variant="ghost" onClick={() => setExpand(null)}>
+                Понятно
+              </Button>
+            </div>
+          </>
+        ) : blocked !== undefined ? (
+          <>
+            <p>
+              Префикс «{blocked}» ловит и выход «{expand?.outboundTag}», и группу подстановки.
+              Развернуть его в точные теги нельзя: сколько серверов подставит панель, знает только
+              она — в селекторе замёрзли бы три предсказанных тега.
+            </p>
+            <p className="muted">
+              Переименуйте выход так, чтобы он не попадал под префикс, либо правьте селектор в форме
+              балансера.
+            </p>
+            <div className="row">
+              <span className="spacer" />
+              <Button variant="ghost" onClick={() => setExpand(null)}>
+                Понятно
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>
+              Кандидат «{expand?.outboundTag}» попал в балансер «{expand?.balancerTag}» по префиксу.
+              Чтобы убрать только его, селектор придётся переписать точными тегами остальных
+              кандидатов.
+            </p>
+            <div className="row">
+              <span className="spacer" />
+              <Button variant="ghost" onClick={() => setExpand(null)}>
+                Отмена
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  if (expand) {
+                    onChangeConfig(expandSelector(config, expand.balancerTag, expand.outboundTag))
+                  }
+                  setExpand(null)
+                }}
+              >
+                Развернуть префикс
+              </Button>
+            </div>
+          </>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={groupBlock !== null}
+        title="Убрать группу из балансера"
+        onClose={() => setGroupBlock(null)}
+      >
         <p>
-          Кандидат «{expand?.outboundTag}» попал в балансер «{expand?.balancerTag}» по префиксу.
-          Чтобы убрать только его, селектор придётся переписать точными тегами остальных кандидатов.
+          Префикс «{groupBlock?.prefix}» ловит и группу подстановки, и обычный выход балансера
+          «{groupBlock?.balancerTag}». Убрать одну группу, не потеряв статического кандидата, им
+          нельзя.
+        </p>
+        <p className="muted">
+          Разведите их: переименуйте статический выход либо задайте группе другой префикс тегов в
+          её форме.
         </p>
         <div className="row">
           <span className="spacer" />
-          <Button variant="ghost" onClick={() => setExpand(null)}>
-            Отмена
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              if (expand) {
-                onChangeConfig(expandSelector(config, expand.balancerTag, expand.outboundTag))
-              }
-              setExpand(null)
-            }}
-          >
-            Развернуть префикс
+          <Button variant="ghost" onClick={() => setGroupBlock(null)}>
+            Понятно
           </Button>
         </div>
       </Dialog>

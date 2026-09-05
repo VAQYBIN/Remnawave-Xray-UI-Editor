@@ -88,20 +88,40 @@ export function TracePanel({
           <span className="field-error">Выходов нет — трафику некуда идти</span>
         ) : winner.ruleIndex === null ? (
           <>
-            <span className="muted">Ни одно правило не совпало — трафик уходит в первый выход</span>
-            {winner.outboundTag && <span className="metric metric-accent">{winner.outboundTag}</span>}
+            <span className="muted">
+              {winner.injected
+                ? 'Ни одно правило не совпало — трафик уйдёт в первый выход, а его подставит панель'
+                : 'Ни одно правило не совпало — трафик уходит в первый выход'}
+            </span>
+            {winner.outboundTag && (
+              <span className="metric metric-accent">{winner.outboundTag}</span>
+            )}
+            {winner.injected && <span className="metric metric-predicted">{winner.injected.selector}</span>}
           </>
         ) : (
           <>
             <span>{`Победило правило #${winner.ruleIndex + 1} →`}</span>
             {winner.outboundTag && <span className="metric metric-accent">{winner.outboundTag}</span>}
+            {winner.injected && (
+              <span className="metric metric-predicted" title="Выход подставит панель — в документе его нет">
+                подстановка: {winner.injected.selector}
+              </span>
+            )}
             {winner.balancerTag && (
               <span className="metric">
                 {`балансер ${winner.balancerTag} · ${winner.balancerStrategy ?? 'random'}`}
               </span>
             )}
             {winner.balancerCandidates?.map((tag) => (
-              <span key={tag} className="metric metric-accent">
+              <span
+                key={tag}
+                className={
+                  winner.injectedTags?.includes(tag)
+                    ? 'metric metric-predicted'
+                    : 'metric metric-accent'
+                }
+                title={winner.injectedTags?.includes(tag) ? 'Тег предсказан по префиксу' : undefined}
+              >
                 {tag}
               </span>
             ))}

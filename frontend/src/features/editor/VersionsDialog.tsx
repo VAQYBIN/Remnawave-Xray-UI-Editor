@@ -1,5 +1,10 @@
 import { useRef, useState, type ChangeEvent } from 'react'
-import { apiFetch, useBackups, type BackupFileData } from '../../shared/api'
+import {
+  apiFetch,
+  useBackups,
+  type BackupFileData,
+  type TemplateBackupFileData,
+} from '../../shared/api'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Dialog } from '../../shared/ui'
 import { DiffView } from './DiffView'
@@ -7,8 +12,9 @@ import { downloadJson, exportFileName, parseImported } from './configFile'
 
 interface Props {
   open: boolean
-  profileUuid: string
-  profileName: string
+  kind: 'profiles' | 'templates'
+  docUuid: string
+  docName: string
   /** Текущий текст черновика: он же уходит в файл и стоит справа в сравнении */
   currentText: string
   onRestore: (configText: string) => void
@@ -17,13 +23,14 @@ interface Props {
 
 export function VersionsDialog({
   open,
-  profileUuid,
-  profileName,
+  kind,
+  docUuid,
+  docName,
   currentText,
   onRestore,
   onClose,
 }: Props) {
-  const backups = useBackups(profileUuid, open)
+  const backups = useBackups(kind, docUuid, open)
   const [tab, setTab] = useState<'backups' | 'file'>('backups')
   const [compare, setCompare] = useState<{ label: string; text: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -34,8 +41,15 @@ export function VersionsDialog({
     setBusy(true)
     setError(null)
     try {
-      const data = await apiFetch<BackupFileData>(`/api/profiles/${profileUuid}/backups/${file}`)
-      return JSON.stringify(data.profile.config, null, 2)
+      const data = await apiFetch<BackupFileData | TemplateBackupFileData>(
+        `/api/${kind}/${docUuid}/backups/${file}`,
+      )
+      // У профиля содержимое лежит в profile.config, у шаблона — в template.templateJson
+      const config =
+        kind === 'profiles'
+          ? (data as BackupFileData).profile.config
+          : (data as TemplateBackupFileData).template.templateJson
+      return JSON.stringify(config, null, 2)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       return null
@@ -139,7 +153,7 @@ export function VersionsDialog({
               </p>
               <div className="row">
                 <Button
-                  onClick={() => downloadJson(currentText, exportFileName(profileName, new Date()))}
+                  onClick={() => downloadJson(currentText, exportFileName(docName, new Date()))}
                 >
                   ↓ Скачать JSON
                 </Button>

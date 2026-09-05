@@ -164,3 +164,26 @@ export interface WarpAccount {
   reserved: number[]
   peer: { publicKey: string; endpoint: string }
 }
+
+export type TemplateType = 'XRAY_JSON' | 'XRAY_BASE64' | 'MIHOMO' | 'STASH' | 'CLASH' | 'SINGBOX'
+
+/**
+ * Шаблон подписки. Полей createdAt/updatedAt здесь НЕТ — защита при сохранении
+ * строится на хэше содержимого, который считает бэкенд.
+ */
+export interface SubscriptionTemplate {
+  uuid: string
+  viewPosition: number
+  name: string
+  tags?: string[]
+  templateType: TemplateType
+  /** JSON-типы (XRAY_JSON, SINGBOX); у YAML-типов здесь null */
+  templateJson: unknown
+  /** YAML-типы (MIHOMO, CLASH, STASH) в base64; у JSON-типов null */
+  encodedTemplateYaml: string | null
+}
+
+export interface TemplateBackupFileData {
+  savedAt: string
+  template: SubscriptionTemplate
+}

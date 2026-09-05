@@ -45,7 +45,7 @@ describe('apiFetch', () => {
     mockFetch(409, { message: 'Профиль был изменён в панели после открытия', current })
     const err = (await apiFetch('/api/profiles/u1', { method: 'PATCH' }).catch((e) => e)) as ConflictError
     expect(err).toBeInstanceOf(ConflictError)
-    expect(err.current.uuid).toBe('u1')
+    expect((err.current as { uuid: string }).uuid).toBe('u1')
   })
 
   it('500 → ApiError; сетевые сбои → ApiError со status 0 и русским текстом', async () => {

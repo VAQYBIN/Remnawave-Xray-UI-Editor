@@ -4,6 +4,13 @@
 import { balancerCandidates, findBalancer } from './balancers'
 import type { XrayConfig } from './config'
 import {
+  describeSelector,
+  hasPanelNamedTags,
+  injectedTagOwners,
+  injectGroupsOf,
+  predictedTags,
+} from './inject'
+import {
   isIpAddress,
   matchDomainField,
   matchExactField,
@@ -25,6 +32,14 @@ export interface RuleVerdict {
   fields: FieldVerdict[]
 }
 
+/** Выход, которого в конфиге физически нет: его подставит панель по группе */
+export interface InjectedOutbound {
+  groupIndex: number
+  /** Подпись селектора для человека: describeSelector(group) */
+  selector: string
+  selectFrom?: string
+}
+
 export interface TraceWinner {
   /** null — ни одно правило не совпало, сработал дефолт (первый outbound) */
   ruleIndex: number | null
@@ -33,6 +48,10 @@ export interface TraceWinner {
   /** Выходы, между которыми балансер будет выбирать; сам выбор — за ядром */
   balancerCandidates?: string[]
   balancerStrategy?: string
+  /** Выход победителя подставит панель */
+  injected?: InjectedOutbound
+  /** Кандидаты балансера, которых подставит панель (подмножество balancerCandidates) */
+  injectedTags?: string[]
 }
 
 export interface TraceResult {
@@ -137,15 +156,57 @@ function withBalancer(winner: TraceWinner, config: XrayConfig): TraceWinner {
   }
 }
 
+/** Помечает победителя, чей выход или кандидаты придут из подстановки */
+function withInject(winner: TraceWinner, config: XrayConfig): TraceWinner {
+  const groups = injectGroupsOf(config)
+  if (groups.length === 0) return winner
+  const owners = injectedTagOwners(config)
+  const next = { ...winner }
+  const owner = winner.outboundTag !== undefined ? owners.get(winner.outboundTag) : undefined
+  if (owner !== undefined) {
+    next.injected = {
+      groupIndex: owner,
+      selector: describeSelector(groups[owner]!),
+      selectFrom: groups[owner]!.selectFrom,
+    }
+  }
+  const injectedCandidates = (winner.balancerCandidates ?? []).filter((t) => owners.has(t))
+  if (injectedCandidates.length > 0) next.injectedTags = injectedCandidates
+  return next
+}
+
 function pickWinner(verdicts: RuleVerdict[], config: XrayConfig): TraceWinner | undefined {
   const hit = verdicts.find((v) => v.state === 'yes')
   if (hit) {
-    return withBalancer(
-      { ruleIndex: hit.index, outboundTag: hit.outboundTag, balancerTag: hit.balancerTag },
+    return withInject(
+      withBalancer(
+        { ruleIndex: hit.index, outboundTag: hit.outboundTag, balancerTag: hit.balancerTag },
+        config,
+      ),
       config,
     )
   }
-  // Ни одно правило не совпало — ядро отправляет трафик в первый outbound
+  // Панель вставляет инжектируемые outbound'ы в НАЧАЛО массива, поэтому в шаблоне
+  // подписки дефолтом становится первый подставленный сервер, а не outbounds[0].
+  // Группа-победитель известна безусловно (это первая группа), а вот её тег — не
+  // всегда: для схемы `panel` он неизвестен заранее, поэтому injected ставим
+  // напрямую, а не через withInject (та ищет владельца по outboundTag и для
+  // схемы `panel` ничего бы не нашла).
+  const groups = injectGroupsOf(config)
+  if (groups.length > 0) {
+    const first = groups[0]!
+    return {
+      ruleIndex: null,
+      outboundTag: predictedTags(first)[0],
+      balancerTag: undefined,
+      injected: {
+        groupIndex: 0,
+        selector: describeSelector(first),
+        selectFrom: first.selectFrom,
+      },
+    }
+  }
+  // Ни одно правило не совпало и групп подстановки нет — ядро отправляет трафик в первый outbound
   const fallback = config.outbounds?.[0]?.tag
   if (fallback === undefined) return undefined
   return { ruleIndex: null, outboundTag: fallback, balancerTag: undefined }
@@ -212,6 +273,28 @@ function collectCaveats(
   if (strategy === 'IPIfNonMatch' && target.ip === undefined && !isIpAddress(target.address)) {
     caveats.push(
       'Стратегия IPIfNonMatch делает второй проход по разрешённому адресу — укажите IP назначения, чтобы увидеть его.',
+    )
+  }
+
+  const groups = injectGroupsOf(config)
+  if (groups.length > 0 && winner?.ruleIndex === null) {
+    caveats.push(
+      'Ни одно правило не совпало. В шаблоне подписки дефолтом становится не первый outbound из документа: панель вставляет подставленные серверы в начало массива, и трафик уйдёт в первый из них.',
+    )
+  }
+  if (winner?.injected) {
+    caveats.push(
+      `Выход подставит панель по группе «${winner.injected.selector}» (пул ${winner.injected.selectFrom ?? 'HIDDEN'}) — в самом документе такого outbound'а нет.`,
+    )
+  }
+  if (winner?.injectedTags?.length) {
+    caveats.push(
+      `Кандидаты ${winner.injectedTags.join(', ')} предсказаны по префиксу: сколько серверов подставится на самом деле, знает только панель.`,
+    )
+  }
+  if (groups.length > 0 && hasPanelNamedTags(config)) {
+    caveats.push(
+      'Часть групп именует выходы по примечанию или тегу хоста — такие теги предсказать нельзя, и связи по ним показаны не полностью.',
     )
   }
 

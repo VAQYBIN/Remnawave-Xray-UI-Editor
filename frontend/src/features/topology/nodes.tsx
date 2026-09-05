@@ -1,7 +1,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type {
-  BalancerNodeData, DnsNodeData, InboundNodeData, IssueCount, ObservatoryNodeData, OutboundNodeData,
-  RuleNodeData, SquadNodeData,
+  BalancerNodeData, DnsNodeData, InboundNodeData, InjectNodeData, IssueCount, ObservatoryNodeData,
+  OutboundNodeData, RuleNodeData, SquadNodeData,
 } from '../../entities/graph/types'
 
 function frame(kind: string, selected: boolean | undefined): string {
@@ -11,6 +11,7 @@ function frame(kind: string, selected: boolean | undefined): string {
     kind === 'outbound' ? 'fnode-out' : '',
     kind === 'squad' ? 'fnode-squad' : '',
     kind === 'balancer' ? 'fnode-bal' : '',
+    kind === 'inject' ? 'fnode-inj' : '',
     selected ? 'fnode-selected' : '',
   ]
     .filter(Boolean)
@@ -20,7 +21,7 @@ function frame(kind: string, selected: boolean | undefined): string {
 // Узлы появляются волной слева направо — в порядке движения сигнала по патчбею.
 // Задержку отдаём CSS-переменной, саму анимацию держит .fnode в tokens.css.
 const ENTER_DELAY: Record<string, number> = {
-  squad: 0, inbound: 70, dns: 70, rule: 140, balancer: 210, observatory: 210, outbound: 280,
+  squad: 0, inbound: 70, dns: 70, rule: 140, balancer: 210, observatory: 210, outbound: 280, inject: 280,
 }
 function enter(kind: string): React.CSSProperties {
   return { '--enter-delay': `${ENTER_DELAY[kind] ?? 0}ms` } as React.CSSProperties
@@ -191,6 +192,37 @@ function ObservatoryNode({ data, selected }: { data: ObservatoryNodeData; select
   )
 }
 
+function InjectNode({ data, selected }: { data: InjectNodeData; selected?: boolean }) {
+  return (
+    <div className={frame('inject', selected)} style={enter('inject')}>
+      {/* Ссылку на группу задаёт ПРЕДСКАЗАННЫЙ тег, а при именовании от панели его нет:
+          мутации всё равно вернули бы тот же конфиг, и кабель дотягивался бы вхолостую.
+          Закрываем гнездо, как у сквадов и обсерватории */}
+      <Handle type="target" position={Position.Left} isConnectable={data.scheme === 'prefix'} />
+      <div className="fnode-head">
+        <span className="fnode-kind">подстановка</span>
+        <IssueBadge count={data.issueCount} />
+      </div>
+      <div className="fnode-title">{data.selector}</div>
+      <div className="metrics">
+        {/* Пул по умолчанию задаёт панель, а не документ */}
+        <Metric accent>{data.selectFrom ?? 'HIDDEN'}</Metric>
+        {data.scheme === 'prefix' && <Metric>{data.tags.join(', ')}</Metric>}
+        {data.scheme === 'panel' && <Metric>теги задаст панель</Metric>}
+        {data.scheme === 'none' && <Metric>способ именования не задан</Metric>}
+      </div>
+      {/* Свой класс заводить не за чем — одна строка на одной карточке; размер берём
+          тем же токеном, что у .metric, чтобы пояснение не спорило с приборным рядом */}
+      {data.scheme !== 'prefix' && (
+        <div className="muted" style={{ marginTop: 6, fontSize: 'var(--t-micro)' }}>
+          Гнездо закрыто: тег ссылки знает только панель — впишите его в JSON
+        </div>
+      )}
+      {/* Гнезда-источника нет: из группы никуда не ведут — её выходы создаст панель */}
+    </div>
+  )
+}
+
 export const nodeTypes = {
   inbound: InboundNode,
   outbound: OutboundNode,
@@ -199,4 +231,5 @@ export const nodeTypes = {
   squad: SquadNode,
   balancer: BalancerNode,
   observatory: ObservatoryNode,
+  inject: InjectNode,
 } as unknown as Record<string, React.ComponentType<NodeProps>>
