@@ -624,3 +624,92 @@ describe('Раунд 3, находка 3: постусловие ловит пр
     expect(renameGroup(md, 'G', 'G2')).toEqual([])
   })
 })
+
+describe('Раунд 4, хвост 1: use ссылается на провайдеров, а не на группы', () => {
+  it('переименование не трогает use — объявление провайдера остаётся прежним', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      '  - name: Sel',
+      '    type: select',
+      '    use:',
+      '      - G',
+      'proxy-providers:',
+      '  G:',
+      '    type: http',
+      '    url: https://example.com/list',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(out).toContain('name: G2')
+    expect(out).toContain('use:\n      - G\n')
+    expect(out).toContain('proxy-providers:\n  G:\n')
+  })
+})
+
+describe('Раунд 4, хвост 2: под dns правится только суффикс после #', () => {
+  it('голое значение в nameserver и nameserver-policy не трогается, суффикс — трогается', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'dns:',
+      '  nameserver:',
+      '    - G',
+      '    - https://8.8.8.8/dns-query#G',
+      '  nameserver-policy:',
+      '    "some.domain": G',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(out).toContain('name: G2')
+    // голое значение в nameserver — НЕ ссылка (нет # перед именем), не трогаем
+    expect(out).toContain('nameserver:\n    - G\n')
+    // суффикс после # — ссылка, чиним
+    expect(out).toContain('dns-query#G2')
+    expect(out).not.toContain('dns-query#G\n')
+    // голое значение в nameserver-policy — тоже не ссылка
+    expect(out).toContain('"some.domain": G\n')
+  })
+})
+
+describe('Раунд 4, хвост 3: перевод строки в значении даёт отказ, а не порчу', () => {
+  it('setRuleTarget отказывает, если новая цель содержит перевод строки', () => {
+    const text = 'rules:\n  - MATCH,DIRECT\n'
+    const md = parseMihomo(text)
+    expect(setRuleTarget(md, 0, 'a\nb')).toEqual([])
+  })
+
+  it('addRule отказывает, если правило содержит перевод строки', () => {
+    const text = 'rules:\n  - MATCH,DIRECT\n'
+    const md = parseMihomo(text)
+    expect(addRule(md, 'DOMAIN,a.com,a\nb')).toEqual([])
+  })
+
+  it('setGroupField (own) отказывает, если значение содержит перевод строки', () => {
+    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
+    const md = parseMihomo(text)
+    expect(setGroupField(md, 0, 'type', 'a\nb')).toEqual([])
+  })
+
+  it('setGroupField (absent) отказывает, если значение содержит перевод строки', () => {
+    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
+    const md = parseMihomo(text)
+    expect(setGroupField(md, 0, 'hidden', 'a\nb')).toEqual([])
+  })
+
+  it('renameGroup отказывает целиком, если новое имя содержит перевод строки', () => {
+    const text = 'proxy-groups:\n  - name: G\n    type: select\nrules:\n  - MATCH,DIRECT\n'
+    const md = parseMihomo(text)
+    expect(renameGroup(md, 'G', 'a\nb')).toEqual([])
+  })
+})

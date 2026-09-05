@@ -62,25 +62,42 @@ export function applyEdits(text: string, edits: TextEdit[]): string {
 }
 
 /**
- * Печать одного скалярного значения так, как его записал бы YAML.
+ * Печать одного скалярного значения так, как его записал бы YAML — ОБЯЗАНА
+ * уместиться в одну строку, иначе `null`.
+ *
  * `lineWidth: 0` отключает перенос длинных строк (по умолчанию у `stringify`
  * порог 80 символов, «мягкий», но реальный) — находка ревью, раунд 3: без
  * этого длинное значение с пробелом сериализатор МОЛЧА переносит на две
- * строки, а сплайс вставляет в документ разорванный посередине скаляр. Это
- * не отображается ни одной диагностикой формы — документ просто перестаёт
- * разбираться после применения правки.
+ * строки, а сплайс вставляет в документ разорванный посередине скаляр.
+ *
+ * Но перенос по ширине — не единственный способ получить многострочный
+ * результат: если в САМОМ значении есть перевод строки, `stringify` печатает
+ * его блочным скаляром (`|-`) — тоже валидный YAML сам по себе, но сплайс
+ * вставляет этот блок туда, где документ ждёт ОДНУ строку (например, значение
+ * посреди `key: <тут>` или элемент списка `- <тут>`), и результат синтаксически
+ * рвётся. Находка ревью, раунд 4: то же семейство дефекта, что и перенос по
+ * ширине, только другая причина переноса — значит, чинить нужно ОБЩИМ
+ * правилом («печать обязана быть одной строкой»), а не отдельно под каждую
+ * форму переноса, которую мы уже встретили (жду и не жду третью).
+ *
+ * Каждый вызывающий ОБЯЗАН трактовать `null` как отказ КОНКРЕТНОЙ правки —
+ * вернуть пустой список (или, в `renameGroup`, где правок несколько за один
+ * проход, — заблокировать всю операцию целиком), а не подставить `null` в
+ * шаблон строки (тогда получилась бы буквальная строка `"null"`).
  */
-function scalar(value: string | boolean): string {
-  return stringify(value, { lineWidth: 0 }).trimEnd()
+function scalar(value: string | boolean): string | null {
+  const printed = stringify(value, { lineWidth: 0 }).trimEnd()
+  return printed.includes('\n') ? null : printed
 }
 
 /**
  * Печать ЦЕЛОЙ строки правила сериализатором (решение Г), а не склейкой через
  * запятую: цель с двоеточием, решёткой или пробелами при склейке даёт либо
  * невалидный YAML, либо превращает строку правила в отображение с комментарием
- * (находка I3) — сериализатор сам решает, нужны ли кавычки и какие.
+ * (находка I3) — сериализатор сам решает, нужны ли кавычки и какие. `null` —
+ * см. `scalar()`: печать самой строки правила не уместилась в одну строку.
  */
-function ruleText(rule: MihomoRule): string {
+function ruleText(rule: MihomoRule): string | null {
   return scalar(formatRule(rule))
 }
 
@@ -166,10 +183,12 @@ export function setGroupField(
   if (origin === 'own') {
     const range = rangeOf(ownPair(node, key)?.value)
     if (range === null) return []
+    const printed = scalar(value)
+    if (printed === null) return [] // печать не уместилась в одну строку (раунд 4) — отказ
     // Минорная находка: пустое значение («type:» без содержимого) начинается
     // сразу после двоеточия без пробела — без пробела склейка даст «type:url-test».
     const needsSpace = md.text[range.from - 1] === ':'
-    return [{ from: range.from, to: range.to, insert: (needsSpace ? ' ' : '') + scalar(value) }]
+    return [{ from: range.from, to: range.to, insert: (needsSpace ? ' ' : '') + printed }]
   }
 
   // Остаток 1: группа целиком записана во flow-стиле (`{name: a, type: select}`) —
@@ -189,12 +208,14 @@ export function setGroupField(
   const namePair = ownPair(node, 'name')
   const nameRange = rangeOf(namePair?.value)
   if (nameRange === null) return []
+  const printed = scalar(value)
+  if (printed === null) return [] // печать не уместилась в одну строку (раунд 4) — отказ
   const keyStart = rangeOf(namePair?.key as unknown)?.from ?? nameRange.from
   const indent = indentAt(md.text, keyStart)
   // Вставляем в конец СТРОКИ, а не в конец значения (находка I5): иначе хвостовой
   // комментарий («- name: g  # важный») окажется приклеен уже к новому полю.
   const at = lineEndFrom(md.text, nameRange.to)
-  return [{ from: at, to: at, insert: `\n${indent}${key}: ${scalar(value)}` }]
+  return [{ from: at, to: at, insert: `\n${indent}${key}: ${printed}` }]
 }
 
 /** Разбор строк-правил произвольного списка (`rules`, любой список в `sub-rules`) */
@@ -226,7 +247,12 @@ function ruleEntriesIn(md: MihomoDoc, node: unknown): { rule: MihomoRule | null;
  *    имя группы может встретиться как случайная подстрока/суффикс;
  *  - `payload` — элементы набора правил (IP/домен-паттерны), не имена групп;
  *  - `hosts`/`fake-ip-filter` — статические host-записи и правила fake-ip,
- *    имя группы там в принципе не ссылка ни на что.
+ *    имя группы там в принципе не ссылка ни на что;
+ *  - `use` — список имён ПРОВАЙДЕРОВ (`proxy-providers`), а не групп (находка
+ *    ревью, раунд 4): провайдер, названный так же, как переименовываемая
+ *    группа, иначе получил бы переписанную ссылку при неизменном собственном
+ *    объявлении — тихий разрыв, который постусловие ниже не ловит вообще
+ *    (старого имени в документе не останется, для него всё будет чисто).
  * Асимметрия рисков объясняет выбор в пользу точности: пропущенную ссылку
  * ловит постусловие ниже и операция честно отказывает (пользователь видит
  * «не сработало» и правит руками) — а лишнюю правку постусловие не ловит
@@ -234,7 +260,7 @@ function ruleEntriesIn(md: MihomoDoc, node: unknown): { rule: MihomoRule | null;
  */
 const EXCLUDED_REFERENCE_KEYS = new Set([
   'filter', 'exclude-filter', 'exclude-type', 'name', 'icon', 'url', 'path',
-  'additional-prefix', 'payload', 'hosts', 'fake-ip-filter',
+  'additional-prefix', 'payload', 'hosts', 'fake-ip-filter', 'use',
 ])
 
 /**
@@ -257,23 +283,35 @@ const EXCLUDED_REFERENCE_KEYS = new Set([
  * ГДЕ ФИЗИЧЕСКИ ОБЪЯВЛЕН якорь: правка внутри такой коллекции не безопаснее,
  * чем правка внутри `rules: [A, B]`, потому что там нет «строк», к которым
  * привязана арифметика правок.
+ *
+ * `dnsOnly` — тем же способом, что `insideFlow`, взводится один раз при входе
+ * в поддерево ключа `dns` и остаётся взведённым до конца поддерева. Находка
+ * ревью, раунд 4: под `dns` (`nameserver`, `nameserver-policy` и подобные)
+ * ссылка на группу — это ТОЛЬКО суффикс `#<имя>` в DNS-строке вида
+ * `https://.../dns-query#🌍 VPN` (задокументированное поведение mihomo), а
+ * голый скаляр, равный имени группы целиком, — совпадение, а не ссылка: там
+ * в принципе ожидаются адреса/IP/ключевые слова, а не имена групп. Вне `dns`
+ * голое совпадение остаётся ссылкой (участник группы, `dialer-proxy`, `proxy`
+ * у провайдера и так далее) — поэтому это именно РЕЖИМ обхода, а не ещё один
+ * исключённый ключ.
  */
 function walkScalars(
   node: unknown,
   insideFlow: boolean,
+  dnsOnly: boolean,
   skip: Set<unknown>,
-  onScalar: (node: unknown, value: string, insideFlow: boolean) => void,
+  onScalar: (node: unknown, value: string, insideFlow: boolean, dnsOnly: boolean) => void,
 ): void {
   if (node === undefined || node === null || skip.has(node)) return
   if (isAlias(node)) return // текст — у объявления, не здесь; см. комментарий выше
   if (isScalar(node)) {
     const value = (node as { value?: unknown }).value
-    if (typeof value === 'string') onScalar(node, value, insideFlow)
+    if (typeof value === 'string') onScalar(node, value, insideFlow, dnsOnly)
     return
   }
   if (isSeq(node)) {
     const flow = insideFlow || isFlowNode(node)
-    for (const item of node.items) walkScalars(item, flow, skip, onScalar)
+    for (const item of node.items) walkScalars(item, flow, dnsOnly, skip, onScalar)
     return
   }
   if (isMap(node)) {
@@ -281,24 +319,30 @@ function walkScalars(
     for (const pair of node.items) {
       const key = (pair.key as { value?: unknown } | null)?.value
       if (typeof key === 'string' && EXCLUDED_REFERENCE_KEYS.has(key)) continue
-      walkScalars(pair.value, flow, skip, onScalar)
+      const dns = dnsOnly || key === 'dns'
+      walkScalars(pair.value, flow, dns, skip, onScalar)
     }
   }
 }
 
-/** Значение скаляра ссылается на группу `from` — целиком или как суффикс `#<имя>` в DNS-строке */
-function referenceReplacement(value: string, from: string, to: string): string | null {
-  if (value === from) return to
+/**
+ * Значение скаляра ссылается на группу `from` — целиком (кроме `dnsOnly`,
+ * находка ревью раунд 4 — см. `walkScalars`) или как суффикс `#<имя>` в
+ * DNS-строке (везде, включая `dnsOnly`).
+ */
+function referenceReplacement(value: string, from: string, to: string, dnsOnly: boolean): string | null {
   const suffix = `#${from}`
   if (value.endsWith(suffix)) return value.slice(0, value.length - suffix.length) + `#${to}`
+  if (dnsOnly) return null
+  if (value === from) return to
   return null
 }
 
 /** Есть ли в поддереве хоть один скаляр, всё ещё ссылающийся на `name` (часть Б — постусловие) */
 function hasDanglingReference(node: unknown, name: string): boolean {
   let found = false
-  walkScalars(node, false, new Set(), (_node, value) => {
-    if (referenceReplacement(value, name, name) !== null) found = true
+  walkScalars(node, false, false, new Set(), (_node, value, _insideFlow, dnsOnly) => {
+    if (referenceReplacement(value, name, name, dnsOnly) !== null) found = true
   })
   return found
 }
@@ -325,7 +369,7 @@ function hasDanglingReference(node: unknown, name: string): boolean {
  */
 function hasDanglingRuleTarget(node: unknown, from: string): boolean {
   let found = false
-  walkScalars(node, false, new Set(), (_node, value) => {
+  walkScalars(node, false, false, new Set(), (_node, value) => {
     const rule = parseRule(value)
     if (rule !== null && rule.type !== 'SUB-RULE' && rule.target === from) found = true
   })
@@ -388,15 +432,22 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
   const nameValueNode = namePair?.value
   const nameRange = rangeOf(nameValueNode)
   if (nameRange === null) return []
+  const printedTo = scalar(to)
+  if (printedTo === null) return [] // новое имя не печатается одной строкой (раунд 4) — отказ
 
-  const edits: TextEdit[] = [{ from: nameRange.from, to: nameRange.to, insert: scalar(to) }]
+  const edits: TextEdit[] = [{ from: nameRange.from, to: nameRange.to, insert: printedTo }]
   let blocked = false
 
   // Правила уже обрабатываются отдельно (см. ниже) — исключаем их из общего
   // обхода, а не потому что там не может быть совпадений, а чтобы не задать
-  // один и тот же диапазон правкой дважды. Собственное имя группы (`nameValueNode`)
-  // отдельно в `skip` добавлять не нужно: ключ `name` теперь и так исключён из
-  // обхода целиком через `EXCLUDED_REFERENCE_KEYS` (находка 2, раунд 3).
+  // один и тот же диапазон правкой дважды. Собственное имя группы
+  // (`nameValueNode`) отдельно в `skip` НЕ добавлено — вместо этого обход
+  // пропускает ЛЮБОЕ значение ключа `name` через `EXCLUDED_REFERENCE_KEYS`
+  // (находка 2, раунд 3). Это не «стало избыточным», а НЕЯВНАЯ ЗАВИСИМОСТЬ:
+  // убери `name` из списка исключений — и правка выше (объявление) столкнётся
+  // со второй правкой того же диапазона от общего обхода, applyEdits кинет
+  // исключение о пересечении. Список исключений — это не просто оптимизация
+  // точности, а ЕДИНСТВЕННОЕ, что не даёт объявлению получить двойную правку.
   const skip = new Set<unknown>()
   skip.add(sectionNode(md, 'rules'))
   const subRules = sectionNode(md, 'sub-rules')
@@ -420,7 +471,17 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
       continue
     }
     for (const entry of entries) {
-      edits.push({ from: entry.range.from, to: entry.range.to, insert: ruleText({ ...entry.rule!, target: to }) })
+      const printed = ruleText({ ...entry.rule!, target: to })
+      if (printed === null) {
+        // Печать не уместилась в одну строку (раунд 4) — отказ всей операции,
+        // а не пропуск этой одной правки: пропуск оставил бы СТАРУЮ цель,
+        // и постусловие (`hasDanglingRuleTarget`) поймало бы её как висячую
+        // ссылку — тот же итог, только после лишней работы. Проще и честнее
+        // отказать сразу.
+        blocked = true
+        continue
+      }
+      edits.push({ from: entry.range.from, to: entry.range.to, insert: printed })
     }
   }
 
@@ -429,8 +490,8 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
   // одним обходом всего документа. Совпадение внутри flow-коллекции (решение А,
   // распространено и на место объявления якоря) правку не получает — вместо
   // этого блокирует всю операцию, чтобы не оставить половинчатое переименование.
-  walkScalars(md.doc.contents, false, skip, (node, value, insideFlow) => {
-    const replacement = referenceReplacement(value, from, to)
+  walkScalars(md.doc.contents, false, false, skip, (node, value, insideFlow, dnsOnly) => {
+    const replacement = referenceReplacement(value, from, to, dnsOnly)
     if (replacement === null) return
     if (insideFlow) {
       blocked = true
@@ -438,7 +499,14 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
     }
     const range = rangeOf(node)
     if (range === null) return
-    edits.push({ from: range.from, to: range.to, insert: scalar(replacement) })
+    const printed = scalar(replacement)
+    if (printed === null) {
+      // Тот же случай, что и с правилами выше: печать не уместилась в одну
+      // строку — отказ всей операции, а не тихий пропуск ссылки.
+      blocked = true
+      return
+    }
+    edits.push({ from: range.from, to: range.to, insert: printed })
   })
 
   return blocked ? [] : maybeBlockOnUnsafePostcondition(md, from, edits)
@@ -473,7 +541,12 @@ export function setRuleTarget(md: MihomoDoc, ruleIndex: number, target: string):
   if (isFlowNode(sectionNode(md, 'rules'))) return []
   const entry = rulesOf(md).find((r) => r.index === ruleIndex)
   if (entry?.rule === undefined || entry.rule === null) return []
-  return [{ from: entry.range.from, to: entry.range.to, insert: ruleText({ ...entry.rule, target }) }]
+  const printed = ruleText({ ...entry.rule, target })
+  // Находка ревью, раунд 4: печать могла не уместиться в одну строку (перевод
+  // строки в `target`) — здесь, в отличие от `renameGroup`, постусловия нет,
+  // поэтому отказ обязан быть явным, а не понадеявшимся на что-то ещё.
+  if (printed === null) return []
+  return [{ from: entry.range.from, to: entry.range.to, insert: printed }]
 }
 
 /** Удаление элемента списка забирает строку целиком — иначе останется «- » */
@@ -504,9 +577,15 @@ export function addRule(md: MihomoDoc, raw: string, at?: number): TextEdit[] {
   if (rules.length === 0) return []
   const anchor = at === undefined ? rules[rules.length - 1]! : rules.find((r) => r.index === at)
   if (anchor === undefined) return []
+  const printed = ruleText(rule)
+  // Находка ревью, раунд 4: перевод строки внутри `raw` (например, в цели)
+  // заставил бы сериализатор напечатать блочный скаляр (`|-`) вместо одной
+  // строки — сплайс вставил бы многострочный кусок туда, где список правил
+  // ждёт ровно одну новую строку. Отказ, а не порча.
+  if (printed === null) return []
   const lineStart = md.text.lastIndexOf('\n', anchor.range.from - 1) + 1
   const indent = md.text.slice(lineStart, anchor.range.from).replace(/-\s*$/, '')
-  const line = `${indent}- ${ruleText(rule)}\n`
+  const line = `${indent}- ${printed}\n`
   if (at === undefined) {
     const lineEnd = md.text.indexOf('\n', anchor.range.to)
     const insertAt = lineEnd === -1 ? md.text.length : lineEnd + 1
