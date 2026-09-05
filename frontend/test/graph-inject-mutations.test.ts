@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { XrayConfigSchema } from '../src/entities/xray/config'
+import { analyzeIntegrity, XrayConfigSchema } from '../src/entities/xray/config'
+import { predictedTags } from '../src/entities/xray/inject'
 import {
   addInjectGroup,
   attachInjectGroupToBalancer,
@@ -28,6 +29,45 @@ describe('мутации групп подстановки', () => {
   it('вторая группа получает неконфликтующий префикс', () => {
     const next = addInjectGroup(base)
     expect(next.remnawave?.injectHosts?.[1]?.tagPrefix).not.toBe('proxy')
+  })
+
+  // Тег proxy-2 панель отдаст ПЕРВОЙ группе (injectedTagOwners), и ребро от
+  // правила к новой группе на глазах перескочило бы на соседнюю
+  it('вторая группа не берёт тег, уже предсказанный первой', () => {
+    const next = addInjectGroup(base)
+    const prefix = next.remnawave!.injectHosts![1]!.tagPrefix!
+    expect(predictedTags(base.remnawave!.injectHosts![0]!)).not.toContain(prefix)
+  })
+
+  it('группа не берёт тег существующего статического outbound’а', () => {
+    const withProxy = parse({
+      outbounds: [{ tag: 'proxy', protocol: 'freedom' }],
+      routing: {},
+    })
+    const next = addInjectGroup(withProxy)
+    expect(next.remnawave?.injectHosts?.[0]?.tagPrefix).not.toBe('proxy')
+    expect(analyzeIntegrity(next).filter((i) => i.message.includes('«proxy»'))).toEqual([])
+  })
+
+  it('предсказанные теги двух групп после добавления не пересекаются', () => {
+    const next = addInjectGroup(base)
+    const [first, second] = next.remnawave!.injectHosts!.map((g) => predictedTags(g))
+    expect(first!.filter((t) => second!.includes(t))).toEqual([])
+  })
+
+  // Префикс proxy-2 порождает proxy-2-2 и proxy-2-3 — и сам он ровно тот тег,
+  // которым панель назовёт второй хост соседней группы proxy. Нумерация
+  // кандидатов поэтому идёт без дефиса
+  it('префикс новой группы не выглядит номерным вариантом соседа', () => {
+    let config = base
+    for (let n = 0; n < 4; n += 1) config = addInjectGroup(config)
+    const prefixes = config.remnawave!.injectHosts!.map((g) => g.tagPrefix!)
+    for (const prefix of prefixes) {
+      const others = prefixes.filter((p) => p !== prefix)
+      expect(others.some((p) => /^-\d+$/.test(prefix.slice(p.length)) && prefix.startsWith(p))).toBe(
+        false,
+      )
+    }
   })
 
   it('правило цепляется за первый предсказанный тег группы', () => {

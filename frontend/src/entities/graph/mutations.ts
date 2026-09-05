@@ -1,5 +1,5 @@
 import type { XrayConfig } from '../xray'
-import { balancerCandidates, matchPrefixes } from '../xray/balancers'
+import { balancerCandidates, matchPrefixes, outboundTagsOf } from '../xray/balancers'
 import { predictedTags, tagScheme } from '../xray/inject'
 
 function clone(config: XrayConfig): XrayConfig {
@@ -208,6 +208,28 @@ function uniqueTag(existing: Set<string>, base: string): string {
   let n = 2
   while (existing.has(`${base}-${n}`)) n += 1
   return `${base}-${n}`
+}
+
+/**
+ * Свободный tagPrefix для новой группы подстановки. От uniqueTag отличается
+ * двумя вещами, и обе — про то, что префикс порождает не один тег, а серию.
+ *
+ * 1. Кандидаты нумеруются БЕЗ дефиса (proxy, proxy2, proxy3…). Дефис с номером —
+ *    ровно та схема, которой панель именует второй и следующие хосты группы:
+ *    префикс `proxy-2` рядом с соседом `proxy` занят не тремя предсказанными
+ *    тегами, а любым числом подставленных серверов, и предсказание из трёх
+ *    тегов такого пересечения не увидело бы.
+ * 2. Кандидат проверяется вместе со своим хвостом: занят и он сам, и всё, что
+ *    начинается с `<кандидат>-`, — иначе proxy2 разошёлся бы со статическим
+ *    proxy2-7.
+ */
+function uniqueInjectPrefix(taken: string[], base: string): string {
+  const free = (prefix: string) =>
+    !taken.some((tag) => tag === prefix || tag.startsWith(`${prefix}-`))
+  if (free(base)) return base
+  let n = 2
+  while (!free(`${base}${n}`)) n += 1
+  return `${base}${n}`
 }
 
 export function addInbound(config: XrayConfig): XrayConfig {
@@ -490,14 +512,14 @@ export function addInjectGroup(config: XrayConfig): XrayConfig {
   const next = clone(config)
   next.remnawave = next.remnawave ?? {}
   next.remnawave.injectHosts = next.remnawave.injectHosts ?? []
-  const taken = new Set(
-    next.remnawave.injectHosts
-      .map((g) => g.tagPrefix)
-      .filter((t): t is string => typeof t === 'string'),
-  )
+  // Занятыми считаются ВСЕ теги выходов (outboundTagsOf), а не только tagPrefix'ы
+  // соседних групп: иначе новая группа взяла бы тег, который панель уже отдаст
+  // соседке (injectedTagOwners назначает владельцем первую), и ребро от правила
+  // рисовалось бы в чужой узел.
+  const tagPrefix = uniqueInjectPrefix(outboundTagsOf(next), 'proxy')
   next.remnawave.injectHosts.push({
     selector: { type: 'sameTagAsRecipient' },
-    tagPrefix: uniqueTag(taken, 'proxy'),
+    tagPrefix,
     selectFrom: 'HIDDEN',
   })
   return next

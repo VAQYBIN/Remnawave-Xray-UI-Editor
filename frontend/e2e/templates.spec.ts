@@ -39,8 +39,10 @@ test('группа подстановки заводится кнопкой с �
   await page.getByRole('button', { name: '+ Подстановка' }).click()
   const added = page.locator('.react-flow__node[data-id="inj:1"]')
   await expect(added).toBeVisible()
-  // Префикс уникален: proxy занят первой группой
-  await expect(added).toContainText('proxy-2')
+  // Префикс уникален: первая группа занимает не только proxy, но и предсказанные
+  // proxy-2/proxy-3, а нумерация через дефис — ровно та, которой панель называет
+  // второй и следующие хосты группы. Поэтому кандидат нумеруется без дефиса
+  await expect(added).toContainText('proxy2')
 })
 
 test('в топбаре шаблона нет проверки ядром и рецептов', async ({ page }) => {
