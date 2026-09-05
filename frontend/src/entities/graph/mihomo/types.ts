@@ -1,0 +1,42 @@
+import type { IssueCount } from '../types'
+
+export interface MihomoRuleNodeData extends Record<string, unknown> {
+  kind: 'mihomo-rule'
+  index: number
+  type: string
+  payload?: string
+  modifiers: string[]
+  issueCount?: IssueCount
+}
+export interface MihomoGroupNodeData extends Record<string, unknown> {
+  kind: 'mihomo-group'
+  index: number
+  name: string
+  type?: string
+  /** Сколько имён перечислено вручную */
+  manual: number
+  hidden: boolean
+  /** Положит ли панель в группу хосты */
+  getsHosts: boolean
+  issueCount?: IssueCount
+}
+export interface MihomoProviderNodeData extends Record<string, unknown> {
+  kind: 'mihomo-provider'
+  name: string
+  type?: string
+  dialerProxy?: string
+  issueCount?: IssueCount
+}
+export interface MihomoHostsNodeData extends Record<string, unknown> {
+  kind: 'mihomo-hosts'
+  /** 'root' — корневой proxies, иначе имя группы */
+  owner: string
+  filter?: string
+  excludeFilter?: string
+  /** Как панель выберет хосты: все, один случайный, все вперемешку */
+  pick: 'all' | 'random' | 'shuffled'
+}
+export interface MihomoBuiltinNodeData extends Record<string, unknown> {
+  kind: 'mihomo-builtin'
+  name: string
+}
