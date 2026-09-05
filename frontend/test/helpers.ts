@@ -46,3 +46,20 @@ export function selectedValue(target: string | HTMLElement): string | null {
   const trigger = typeof target === 'string' ? screen.getByLabelText(target) : target
   return trigger.getAttribute('data-value')
 }
+
+import { readFileSync } from 'node:fs'
+import { fileURLToPath, URL as NodeURL } from 'node:url'
+
+/**
+ * Настоящие шаблоны из remnawave/templates: якоря, слияния и обе роли маркера.
+ * Глобальный `URL` в тестах — это whatwg-url из jsdom (`environment: 'jsdom'`), а не
+ * реализация Node: на Windows она валит относительное разрешение `file:`-адреса с буквой
+ * диска, теряя часть пути (`.../frontend/test/helpers.ts` + `./fixtures/...` схлопывается
+ * в `D:/test/fixtures/...`). Берём `URL` из `node:url` явно, в обход глобальной.
+ */
+export function mihomoFixture(name: 'default' | 'simple' | 'bundle'): string {
+  return readFileSync(
+    fileURLToPath(new NodeURL(`./fixtures/mihomo/${name}.yaml`, import.meta.url)),
+    'utf8',
+  )
+}
