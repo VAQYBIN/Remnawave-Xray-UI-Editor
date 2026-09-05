@@ -180,3 +180,38 @@ describe('находка 1 (раунд 3): длинное имя не перен
     expect(groupsOf(parsedOut)[0]!.proxies).toEqual([longName])
   })
 })
+
+// Находка ревью (раунд 5): в этом модуле те же две точки печати имени, что и
+// `scalar()` в `entities/mihomo/edits.ts`, не проверяли результат на перевод
+// строки — тот же класс дефекта (раунд 4), просто не долетевший до соседнего
+// модуля. Валидный документ («a\nb» — обычный YAML double-quote escape, а не
+// испорченный ввод) со значением, содержащим перевод строки, при печати без
+// проверки даёт блочный скаляр (`|-`) вместо одной строки — сплайс вставляет
+// многострочный кусок туда, где список проксей ждёт ровно одну новую строку.
+describe('находка (раунд 5): перевод строки в имени группы даёт отказ, а не порчу', () => {
+  const withNewlineName =
+    'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT\n  - name: "a\\nb"\n    include-all: true\n' +
+    'rules:\n  - MATCH,VPN\n'
+
+  it('документ валиден и группа с таким именем действительно есть', () => {
+    expect(parseMihomo(withNewlineName).issues).toEqual([])
+    expect(groupsOf(parseMihomo(withNewlineName)).some((g) => g.name === 'a\nb')).toBe(true)
+  })
+
+  it('соединение с такой группой отказывает — правок нет, документ не меняется', () => {
+    const md = parseMihomo(withNewlineName)
+    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`)
+    expect(edits).toEqual([])
+    expect(applyEdits(withNewlineName, edits)).toBe(withNewlineName)
+  })
+
+  it('то же самое для ветки с пустым списком proxies', () => {
+    const emptyBlock =
+      'proxy-groups:\n  - name: VPN\n    type: select\n    proxies:\n  - name: "a\\nb"\n    include-all: true\n' +
+      'rules:\n  - MATCH,VPN\n'
+    const md = parseMihomo(emptyBlock)
+    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`)
+    expect(edits).toEqual([])
+    expect(applyEdits(emptyBlock, edits)).toBe(emptyBlock)
+  })
+})

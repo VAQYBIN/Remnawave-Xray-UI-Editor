@@ -1,9 +1,9 @@
 // Коммутация кабелем поверх сплайсов. Ни одна операция не печатает документ:
 // все возвращают TextEdit[], которые накладывает вызывающий.
 
-import { isMap, isSeq, stringify } from 'yaml'
+import { isMap, isSeq } from 'yaml'
 import { groupsOf } from '../../mihomo/groups'
-import { setRuleTarget, type TextEdit } from '../../mihomo/edits'
+import { scalar, setRuleTarget, type TextEdit } from '../../mihomo/edits'
 import { rangeOf, sectionNode, type MihomoDoc } from '../../mihomo/parse'
 import { rulesOf } from '../../mihomo/rules'
 
@@ -86,11 +86,13 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   if (!isValidMihomoConnection(source, target)) return []
   const from = split(source)!
   const name = nameOf(target)
-  // Обе печати `stringify(name, ...)` ниже задают `lineWidth: 0`: без этого
-  // длинное имя с пробелом сериализатор молча переносит на две строки при
-  // ширине по умолчанию (80), и сплайс вставляет в документ разорванный
-  // посередине скаляр — YAML перестаёт разбираться без единой диагностики
-  // (тот же дефект, что и в `entities/mihomo/edits.ts:scalar()`).
+  // Обе точки вставки ниже печатают имя через общий `scalar()` из
+  // `entities/mihomo/edits.ts` (не переизобретаем здесь ту же проверку —
+  // находка ревью, раунд 5): он и отключает перенос по ширине (раунд 3), и
+  // отказывает `null`-ом, если в САМОМ имени есть перевод строки и результат
+  // всё равно многострочный (раунд 4) — без этого сплайс вставил бы блочный
+  // скаляр туда, где список `proxies` ждёт одну строку, и документ бы
+  // молча сломался.
 
   if (from.kind === 'rule') {
     const index = Number(from.rest)
@@ -110,26 +112,30 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   if (isSeq(list) && list.flow === true) return []
 
   if (isSeq(list) && list.items.length > 0) {
+    const printedName = scalar(name)
+    if (printedName === null) return [] // перевод строки в имени — отказ, а не порча (раунд 5)
     const last = list.items[list.items.length - 1]
     const range = rangeOf(last)
     if (range === null) return []
     const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
     const indent = md.text.slice(lineStart, range.from).replace(/-\s*$/, '')
     const { at, prefix } = afterLine(md.text, range.to)
-    return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name, { lineWidth: 0 }).trimEnd()}\n` }]
+    return [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }]
   }
 
   // Элементов нет — список либо пуст, либо ключ вообще без значения (частый случай:
   // `proxies: # LEAVE THIS LINE!` — панель нальёт сюда хостов сама). Якоря-элемента
   // нет, поэтому отступ считаем от строки ключа, а не от несуществующей записи —
   // и вставляем ПОСЛЕ всей строки ключа, чтобы не задеть комментарий-маркер на ней.
+  const printedName = scalar(name)
+  if (printedName === null) return [] // перевод строки в имени — отказ, а не порча (раунд 5)
   const keyRange = rangeOf(pair.key as unknown)
   if (keyRange === null) return []
   const keyLineStart = md.text.lastIndexOf('\n', keyRange.from - 1) + 1
   const keyIndent = md.text.slice(keyLineStart, keyRange.from)
   const indent = keyIndent + ' '.repeat(detectIndentStep(md.text))
   const { at, prefix } = afterLine(md.text, keyRange.from)
-  return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name, { lineWidth: 0 }).trimEnd()}\n` }]
+  return [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }]
 }
 
 export function disconnectMihomo(md: MihomoDoc, edge: string): TextEdit[] {
