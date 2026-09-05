@@ -360,3 +360,108 @@ describe('I6: каждая операция проверена на настоя
     }
   })
 })
+
+describe('Раунд 2, критическая находка: висячие ссылки при переименовании', () => {
+  it('переименование 🌍 VPN в simple.yaml не оставляет ни одной ссылки на старое имя', () => {
+    const text = mihomoFixture('simple')
+    const md = parseMihomo(text)
+    const edits = renameGroup(md, '🌍 VPN', '🌍 ВПН')
+    // это не должен быть отказ — находки Part А достаточно, чтобы починить всё
+    expect(edits.length).toBeGreaterThan(0)
+    const out = applyEdits(text, edits)
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    // сильный тест по просьбе координатора: старое имя не встречается НИ РАЗУ —
+    // ни как самостоятельное значение, ни как суффикс после `#`
+    expect(out).not.toContain('🌍 VPN')
+    expect(groupsOf(parsed).some((g) => g.name === '🌍 ВПН')).toBe(true)
+  })
+
+  it('чинит и якорь rule-providers.proxy (через двойное слияние), и DNS-суффикс #<имя>', () => {
+    const text = mihomoFixture('simple')
+    const out = edit(text, (md) => renameGroup(md, '🌍 VPN', '🌍 ВПН'))
+    // якорь pr_http.proxy: 🌍 VPN — единственная физическая запись, её тянут
+    // ВСЕ rule-providers через rp_domain/rp_ipcidr/rp_classical
+    expect(out).toContain('proxy: 🌍 ВПН')
+    // якорь dns_proxy — две DNS-строки с суффиксом #🌍 VPN
+    expect((out.match(/dns-query#🌍 ВПН/g) ?? []).length).toBe(2)
+    expect(out).not.toContain('#🌍 VPN')
+  })
+
+  it('находит ссылку в proxy-providers[].proxy — верхнеуровневый ключ, не override.dialer-proxy', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'proxy-providers:',
+      '  p1:',
+      '    type: http',
+      '    url: https://example.com/list',
+      '    proxy: G',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(out).toContain('proxy: G2')
+    expect(out).not.toContain('proxy: G\n')
+  })
+
+  it('находит ссылку в rule-providers[].proxy — верхнеуровневый ключ набора правил', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'rule-providers:',
+      '  r1:',
+      '    type: http',
+      '    behavior: domain',
+      '    url: https://example.com/list',
+      '    path: ./r1.mrs',
+      '    proxy: G',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(out).toContain('proxy: G2')
+    expect(out).not.toContain('proxy: G\n')
+  })
+})
+
+describe('Раунд 2, остаток 1: решение А распространено на добавление поля группе', () => {
+  it('setGroupField отказывает, если группа целиком записана во flow-стиле', () => {
+    const text = 'proxy-groups: [{name: a, type: select}]\n'
+    const md = parseMihomo(text)
+    expect(setGroupField(md, 0, 'hidden', true)).toEqual([])
+  })
+
+  it('setGroupField по-прежнему меняет СОБСТВЕННОЕ поле flow-группы (замена скаляра безопасна)', () => {
+    const text = 'proxy-groups: [{name: a, type: select}]\n'
+    const md = parseMihomo(text)
+    const out = applyEdits(text, setGroupField(md, 0, 'type', 'url-test'))
+    expect(out).toBe('proxy-groups: [{name: a, type: url-test}]\n')
+  })
+})
+
+describe('Раунд 2, остаток 2: addRule печатает правило сериализатором', () => {
+  it('addRule квотит значение, если сериализатор считает нужным', () => {
+    const text = 'rules:\n  - MATCH,DIRECT\n'
+    const md = parseMihomo(text)
+    const out = applyEdits(text, addRule(md, 'DOMAIN,a.com,B: c #d', 0))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(rulesOf(parsed)).toHaveLength(2)
+    expect(rulesOf(parsed)[0]!.rule?.target).toBe('B: c #d')
+  })
+
+  it('addRule отказывает, если raw не разбирается как правило', () => {
+    const text = 'rules:\n  - MATCH,DIRECT\n'
+    const md = parseMihomo(text)
+    expect(addRule(md, 'непонятно-что-это')).toEqual([])
+  })
+})
