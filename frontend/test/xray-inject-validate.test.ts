@@ -73,6 +73,59 @@ describe('валидации подстановки', () => {
     expect(messages(parse(base)).some((m) => m.includes('группы подстановки'))).toBe(false)
   })
 
+  it('предупреждает, если предсказанный тег группы перекрывает статический outbound', () => {
+    const config = parse({
+      ...base,
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }, { tag: 'proxy', protocol: 'freedom' }],
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }] },
+    })
+    const matches = messages(config).filter((m) => m.startsWith('Тег «proxy»'))
+    expect(matches).toEqual([
+      'Тег «proxy» производит и эта группа, и статический outbound: панель вставляет подставленные серверы в начало массива, и ссылки по этому тегу уйдут в них',
+    ])
+  })
+
+  it('без совпадения тегов группы и статических outbound не ругается', () => {
+    const config = parse({
+      ...base,
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }] },
+    })
+    expect(messages(config).some((m) => m.includes('производит и эта группа'))).toBe(false)
+  })
+
+  it('при тегах от панели проверка перекрытия молчит: предсказанных тегов нет', () => {
+    const config = parse({
+      ...base,
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }, { tag: 'proxy', protocol: 'freedom' }],
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, useHostTagAsTag: true }] },
+    })
+    expect(messages(config).some((m) => m.includes('производит и эта группа'))).toBe(false)
+  })
+
+  it('предупреждает о пустом pattern у tagRegex/remarkRegex', () => {
+    const config = parse({
+      ...base,
+      remnawave: { injectHosts: [{ selector: { type: 'tagRegex', pattern: '' }, tagPrefix: 'p' }] },
+    })
+    expect(messages(config)).toContain('Пустой шаблон подберёт все хосты — уточните выражение или смените тип селектора')
+  })
+
+  it('предупреждает об отсутствующем pattern у tagRegex/remarkRegex', () => {
+    const config = parse({
+      ...base,
+      remnawave: { injectHosts: [{ selector: { type: 'remarkRegex' }, tagPrefix: 'p' }] },
+    })
+    expect(messages(config)).toContain('Пустой шаблон подберёт все хосты — уточните выражение или смените тип селектора')
+  })
+
+  it('непустой pattern не даёт предупреждения о пустом шаблоне', () => {
+    const config = parse({
+      ...base,
+      remnawave: { injectHosts: [{ selector: { type: 'tagRegex', pattern: '^ru-' }, tagPrefix: 'p' }] },
+    })
+    expect(messages(config).some((m) => m.includes('Пустой шаблон подберёт все хосты'))).toBe(false)
+  })
+
   it('путь проблемы ведёт внутрь injectHosts', () => {
     const config = parse({
       ...base,

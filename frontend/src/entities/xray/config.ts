@@ -13,6 +13,7 @@ import {
   hasPanelNamedTags,
   injectedTagsOf,
   injectGroupsOf,
+  predictedTags,
   RemnawaveDirectivesSchema,
   SELECT_FROM,
   SELECTOR_TYPES,
@@ -456,6 +457,22 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
       )
     }
 
+    // Панель вставляет подставленные группой outbound'ы В НАЧАЛО массива, а не
+    // добавляет их к статическим. Если предсказанный тег совпал с тегом
+    // статического outbound'а, ссылки по этому тегу после сохранения станут
+    // резолвиться в подставленный сервер — статический выход останется в
+    // документе, но окажется недостижим, и это не видно ни в форме, ни в JSON.
+    const overlapTag = predictedTags(group).find((tag) => outbounds.some((out) => out.tag === tag))
+    if (overlapTag !== undefined) {
+      issues.push(
+        issue(
+          ['remnawave', 'injectHosts', i, 'tagPrefix'],
+          `Тег «${overlapTag}» производит и эта группа, и статический outbound: панель вставляет подставленные серверы в начало массива, и ссылки по этому тегу уйдут в них`,
+          'warning',
+        ),
+      )
+    }
+
     if (group.selectFrom !== undefined && !SELECT_FROM.includes(group.selectFrom as (typeof SELECT_FROM)[number])) {
       issues.push(
         issue(
@@ -489,6 +506,18 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
             ['remnawave', 'injectHosts', i, 'selector', 'pattern'],
             `Селектор не компилируется как регулярное выражение: ${(err as Error).message}`,
             'error',
+          ),
+        )
+      }
+      // Пустая строка — валидное регулярное выражение, которое матчит ЛЮБОЙ
+      // хост: группа молча заберёт весь пул вместо тех, что имел в виду
+      // пользователь. Скорее всего, это недописанный шаблон, а не осознанный выбор.
+      if (selector.pattern === undefined || selector.pattern === '') {
+        issues.push(
+          issue(
+            ['remnawave', 'injectHosts', i, 'selector', 'pattern'],
+            'Пустой шаблон подберёт все хосты — уточните выражение или смените тип селектора',
+            'warning',
           ),
         )
       }
