@@ -47,19 +47,23 @@ export function selectedValue(target: string | HTMLElement): string | null {
   return trigger.getAttribute('data-value')
 }
 
-import { readFileSync } from 'node:fs'
-import { fileURLToPath, URL as NodeURL } from 'node:url'
+import defaultYaml from './fixtures/mihomo/default.yaml?raw'
+import simpleYaml from './fixtures/mihomo/simple.yaml?raw'
+import bundleYaml from './fixtures/mihomo/bundle.yaml?raw'
+
+const mihomoFixtures = {
+  default: defaultYaml,
+  simple: simpleYaml,
+  bundle: bundleYaml,
+}
 
 /**
  * Настоящие шаблоны из remnawave/templates: якоря, слияния и обе роли маркера.
- * Глобальный `URL` в тестах — это whatwg-url из jsdom (`environment: 'jsdom'`), а не
- * реализация Node: на Windows она валит относительное разрешение `file:`-адреса с буквой
- * диска, теряя часть пути (`.../frontend/test/helpers.ts` + `./fixtures/...` схлопывается
- * в `D:/test/fixtures/...`). Берём `URL` из `node:url` явно, в обход глобальной.
+ * Читаем через `?raw`-импорт Vite (тип объявлен в `vite/client`), а не `node:fs`/`node:url`:
+ * фронтенд намеренно не тянет амбиентные типы Node в `src/`, а глобальный `URL` в jsdom —
+ * это whatwg-url, а не реализация Node, и она на Windows ломает относительное разрешение
+ * `file:`-адреса с буквой диска.
  */
 export function mihomoFixture(name: 'default' | 'simple' | 'bundle'): string {
-  return readFileSync(
-    fileURLToPath(new NodeURL(`./fixtures/mihomo/${name}.yaml`, import.meta.url)),
-    'utf8',
-  )
+  return mihomoFixtures[name]
 }

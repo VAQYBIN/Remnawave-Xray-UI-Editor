@@ -12,11 +12,17 @@ describe('разбор шаблона Mihomo', () => {
     }
   })
 
-  it('диапазон узла указывает на его текст', () => {
-    const md = parseMihomo('rules:\n  - MATCH,DIRECT\n')
-    const range = rangeOf(sectionNode(md, 'rules'))
+  it('диапазон узла указывает на текст значения, без хвостового комментария', () => {
+    // Хвостовой комментарий — третий элемент тройки node.range (конец узла), а не второй
+    // (конец значения). Правки в следующих задачах режут документ сплайсами по диапазону
+    // значения: захват комментария означал бы порчу пользовательского файла.
+    const md = parseMihomo('rules:\n  - MATCH,DIRECT # хвост\n')
+    const item = md.doc.getIn(['rules', 0], true)
+    const range = rangeOf(item)
     expect(range).not.toBeNull()
-    expect(md.text.slice(range!.from, range!.to)).toContain('MATCH,DIRECT')
+    const slice = md.text.slice(range!.from, range!.to)
+    expect(slice).toBe('MATCH,DIRECT')
+    expect(slice).not.toContain('хвост')
   })
 
   it('синтаксическая ошибка становится диагностикой, а не исключением', () => {
