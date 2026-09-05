@@ -458,19 +458,72 @@ export function analyzeIntegrity(config: XrayConfig): ValidationIssue[] {
     }
 
     // Панель вставляет подставленные группой outbound'ы В НАЧАЛО массива, а не
-    // добавляет их к статическим. Если предсказанный тег совпал с тегом
-    // статического outbound'а, ссылки по этому тегу после сохранения станут
-    // резолвиться в подставленный сервер — статический выход останется в
-    // документе, но окажется недостижим, и это не видно ни в форме, ни в JSON.
-    const overlapTag = predictedTags(group).find((tag) => outbounds.some((out) => out.tag === tag))
-    if (overlapTag !== undefined) {
+    // добавляет их к статическим. Если предсказанный тег совпал с чужим, ссылки
+    // по этому тегу после сохранения уйдут в подставленный сервер, а прежний
+    // владелец останется в документе недостижимым — и это не видно ни в форме,
+    // ни в JSON.
+    //
+    // Достоверен здесь ТОЛЬКО базовый тег (сам tagPrefix): он появляется при
+    // любом непустом подборе. Номерные варианты (proxy-2, proxy-3) — догадка
+    // PREDICTED_COUNT: сколько серверов подставит панель, знает только она, и
+    // при одном подошедшем хосте никакого proxy-2 не будет. Прежние потребители
+    // предсказания используют его в безопасную сторону (лишний тег только ГАСИТ
+    // проверки «неизвестный тег»), а здесь догадка СОЗДАЁТ диагностику —
+    // поэтому у номерного варианта формулировка условная.
+    const [baseTag, ...numberedTags] = predictedTags(group)
+
+    const staticOverlap = (tag: string) => outbounds.some((out) => out.tag === tag)
+    if (baseTag !== undefined && staticOverlap(baseTag)) {
       issues.push(
         issue(
           ['remnawave', 'injectHosts', i, 'tagPrefix'],
-          `Тег «${overlapTag}» производит и эта группа, и статический outbound: панель вставляет подставленные серверы в начало массива, и ссылки по этому тегу уйдут в них`,
+          `Тег «${baseTag}» производит и эта группа, и статический outbound: панель вставляет подставленные серверы в начало массива, и ссылки по этому тегу уйдут в них`,
           'warning',
         ),
       )
+    } else {
+      const numbered = numberedTags.find(staticOverlap)
+      if (numbered !== undefined) {
+        issues.push(
+          issue(
+            ['remnawave', 'injectHosts', i, 'tagPrefix'],
+            `Если панель подставит этой группе больше одного сервера, она произведёт тег «${numbered}» — такой статический outbound уже есть, и ссылки по этому тегу уйдут в подставленный сервер`,
+            'warning',
+          ),
+        )
+      }
+    }
+
+    // То же столкновение между двумя группами: панель подставит два outbound'а с
+    // одним тегом, а редактор молча отдаст тег первой (injectedTagOwners).
+    // Предупреждение вешаем на группу с БОЛЬШИМ индексом — теряется её выход.
+    // Фактом здесь столкновение считается, только когда совпали БАЗОВЫЕ теги
+    // обеих групп: любой номерной вариант — с той и с другой стороны — держится
+    // на догадке о числе подставленных серверов.
+    const earlier = injectGroups.slice(0, i)
+    const earlierBases = earlier.map((g) => predictedTags(g)[0])
+    const earlierTags = earlier.flatMap((g) => predictedTags(g))
+    if (baseTag !== undefined && earlierBases.includes(baseTag)) {
+      issues.push(
+        issue(
+          ['remnawave', 'injectHosts', i, 'tagPrefix'],
+          `Тег «${baseTag}» производит и группа выше: панель подставит два сервера с одним тегом, и ссылки по нему уйдут в первую группу`,
+          'warning',
+        ),
+      )
+    } else {
+      const numbered = [baseTag, ...numberedTags].find(
+        (tag) => tag !== undefined && earlierTags.includes(tag),
+      )
+      if (numbered !== undefined) {
+        issues.push(
+          issue(
+            ['remnawave', 'injectHosts', i, 'tagPrefix'],
+            `Если панель подставит достаточно серверов, эта группа и группа выше произведут общий тег «${numbered}» — ссылки по нему уйдут в первую группу`,
+            'warning',
+          ),
+        )
+      }
     }
 
     if (group.selectFrom !== undefined && !SELECT_FROM.includes(group.selectFrom as (typeof SELECT_FROM)[number])) {

@@ -85,6 +85,21 @@ describe('валидации подстановки', () => {
     ])
   })
 
+  // Номерной вариант — догадка PREDICTED_COUNT, а не факт: при одном подошедшем
+  // хосте панель произведёт только «proxy». Формулировка обязана это признавать
+  it('на номерной вариант формулировка условная, а не утверждающая факт', () => {
+    const config = parse({
+      ...base,
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }, { tag: 'proxy-2', protocol: 'freedom' }],
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }] },
+    })
+    const m = messages(config)
+    expect(m).toContain(
+      'Если панель подставит этой группе больше одного сервера, она произведёт тег «proxy-2» — такой статический outbound уже есть, и ссылки по этому тегу уйдут в подставленный сервер',
+    )
+    expect(m.some((x) => x.startsWith('Тег «proxy-2» производит'))).toBe(false)
+  })
+
   it('без совпадения тегов группы и статических outbound не ругается', () => {
     const config = parse({
       ...base,
@@ -124,6 +139,69 @@ describe('валидации подстановки', () => {
       remnawave: { injectHosts: [{ selector: { type: 'tagRegex', pattern: '^ru-' }, tagPrefix: 'p' }] },
     })
     expect(messages(config).some((m) => m.includes('Пустой шаблон подберёт все хосты'))).toBe(false)
+  })
+
+  it('предупреждает о столкновении базовых тегов двух групп', () => {
+    const config = parse({
+      ...base,
+      remnawave: {
+        injectHosts: [
+          { selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' },
+          { selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' },
+        ],
+      },
+    })
+    const found = analyzeIntegrity(config).filter((i) => i.message.includes('и группа выше'))
+    expect(found.map((i) => i.message)).toEqual([
+      'Тег «proxy» производит и группа выше: панель подставит два сервера с одним тегом, и ссылки по нему уйдут в первую группу',
+    ])
+    // Предупреждение висит на группе с БОЛЬШИМ индексом — теряется её выход
+    expect(found[0]?.parts).toEqual(['remnawave', 'injectHosts', 1, 'tagPrefix'])
+  })
+
+  // Здесь фактом является только базовый тег второй группы, а «proxy-2» первой —
+  // догадка: при одном подошедшем хосте столкновения не будет
+  it('на пересечение через номерной вариант формулировка условная', () => {
+    const config = parse({
+      ...base,
+      remnawave: {
+        injectHosts: [
+          { selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' },
+          { selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy-2' },
+        ],
+      },
+    })
+    const m = messages(config)
+    expect(m).toContain(
+      'Если панель подставит достаточно серверов, эта группа и группа выше произведут общий тег «proxy-2» — ссылки по нему уйдут в первую группу',
+    )
+    expect(m.some((x) => x.startsWith('Тег «proxy-2» производит и группа выше'))).toBe(false)
+  })
+
+  it('непересекающиеся группы предупреждения не дают', () => {
+    const config = parse({
+      ...base,
+      remnawave: {
+        injectHosts: [
+          { selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' },
+          { selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy2' },
+        ],
+      },
+    })
+    expect(messages(config).some((m) => m.includes('и группа выше'))).toBe(false)
+  })
+
+  it('при тегах от панели проверка пересечения групп молчит', () => {
+    const config = parse({
+      ...base,
+      remnawave: {
+        injectHosts: [
+          { selector: { type: 'sameTagAsRecipient' }, useHostTagAsTag: true },
+          { selector: { type: 'sameTagAsRecipient' }, useHostRemarkAsTag: true },
+        ],
+      },
+    })
+    expect(messages(config).some((m) => m.includes('и группа выше'))).toBe(false)
   })
 
   it('путь проблемы ведёт внутрь injectHosts', () => {
