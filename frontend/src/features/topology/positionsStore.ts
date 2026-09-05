@@ -27,10 +27,19 @@ export function migratePositionsState(state: unknown, version: number): Position
     typeof source === 'object' && source !== null ? (source as Record<string, unknown>) : {}
   const positions: Record<string, NodePositions> = {}
   // Данные из localStorage мы не контролируем: битую запись пропускаем, иначе
-  // одна такая унесла бы расположение узлов всех документов
+  // одна такая унесла бы расположение узлов всех документов. Координаты
+  // просеиваем поштучно: значение отсюда уходит прямо в position узла React
+  // Flow, и нечисловая пара развалила бы весь граф, а не одну карточку.
   for (const [uuid, nodes] of Object.entries(old)) {
     if (typeof nodes !== 'object' || nodes === null) continue
-    positions[docStorageKey(LEGACY_DOC_KIND, uuid)] = nodes as NodePositions
+    const clean: NodePositions = {}
+    for (const [nodeId, pos] of Object.entries(nodes as Record<string, unknown>)) {
+      const p = pos as { x?: unknown; y?: unknown } | null
+      if (typeof p !== 'object' || p === null) continue
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue
+      clean[nodeId] = { x: p.x as number, y: p.y as number }
+    }
+    positions[docStorageKey(LEGACY_DOC_KIND, uuid)] = clean
   }
   return { ...base, positions }
 }

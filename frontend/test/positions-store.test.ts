@@ -54,6 +54,27 @@ describe('миграция позиций', () => {
     ).toEqual(['profile:u-2'])
   })
 
+  // Значение отсюда уходит прямо в position узла React Flow: нечисловая пара
+  // развалила бы весь граф, а не одну карточку
+  it('нечисловые координаты отсеиваются поштучно', () => {
+    const migrated = migratePositionsState(
+      {
+        positions: {
+          'u-1': {
+            dns: 'мусор',
+            'in:socks': { x: 1, y: 2 },
+            'out:direct': { x: '3', y: 4 },
+            'rule:0': { x: 5 },
+            'bal:b': null,
+            'inj:0': { x: Number.NaN, y: 0 },
+          },
+        },
+      },
+      0,
+    )
+    expect(migrated.positions['profile:u-1']).toEqual({ 'in:socks': { x: 1, y: 2 } })
+  })
+
   // Проводка: у хранилища не было `version` вовсе, и без него (или без migrate)
   // расположение узлов всех существующих графов молча осталось бы под старым ключом
   it('persist подключён: запись v0 из localStorage приезжает уже под префиксом', async () => {
