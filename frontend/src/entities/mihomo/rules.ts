@@ -2,7 +2,7 @@
 // прячут вложенные условия в скобках, поэтому разрез идёт по запятым ВЕРХНЕГО
 // уровня: наивный split(',') разорвал бы ((DOMAIN,a),(NETWORK,UDP)) пополам.
 
-import { isSeq } from 'yaml'
+import { isScalar, isSeq } from 'yaml'
 import { rangeOf, sectionNode, type MihomoDoc, type Range } from './parse'
 
 export const RULE_TYPES = [
@@ -70,6 +70,13 @@ export interface RuleEntry {
   index: number
   /** null — строку разобрать не удалось; validate.ts сделает из этого ошибку */
   rule: MihomoRule | null
+  /**
+   * Точный срез исходного ТЕКСТА документа по `range` — включая кавычки, если строка
+   * правила была в кавычках YAML (`- "MATCH,DIRECT"`). Это не то же самое, что
+   * `rule.raw`: тот хранит значение, из которого разобран `rule` (кавычки уже сняты
+   * YAML-парсером). `raw` здесь нужен будущим правкам сплайсами по `range` — заменять
+   * им можно только сам исходный текст, а не собранное из полей `rule`.
+   */
   raw: string
   range: Range
 }
@@ -82,7 +89,11 @@ export function rulesOf(md: MihomoDoc): RuleEntry[] {
     const range = rangeOf(item)
     if (range === null) return
     const raw = md.text.slice(range.from, range.to)
-    out.push({ index, rule: parseRule(raw), raw, range })
+    // Разбираем ДЕКОДИРОВАННОЕ значение скаляра, а не срез текста: в кавычках их
+    // YAML уже снял, а если парсить raw как есть, кавычка попадёт в тип правила
+    // (`"MATCH`) и валидное правило превратится в диагностику на ровном месте.
+    const value = isScalar(item) && typeof item.value === 'string' ? item.value : raw
+    out.push({ index, rule: parseRule(value), raw, range })
   })
   return out
 }

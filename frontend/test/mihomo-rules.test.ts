@@ -59,6 +59,12 @@ describe('разбор строки правила', () => {
   it('разрез по запятым верхнего уровня не лезет в скобки', () => {
     expect(splitTopLevel('AND,((A,b),(C,d)),X')).toEqual(['AND', '((A,b),(C,d))', 'X'])
   })
+
+  it('несбалансированная скобка и пустая строка не бросают исключение', () => {
+    expect(() => splitTopLevel('AND,(A,b')).not.toThrow()
+    expect(splitTopLevel('')).toEqual([''])
+    expect(parseRule('AND,(A,b')).toBeNull()
+  })
 })
 
 describe('правила документа', () => {
@@ -69,5 +75,17 @@ describe('правила документа', () => {
     const last = rules[rules.length - 1]!
     expect(last.rule?.type).toBe('MATCH')
     expect(md.text.slice(last.range.from, last.range.to)).toBe(last.raw)
+  })
+
+  it('правило в кавычках YAML разбирается по декодированному значению', () => {
+    const md = parseMihomo('rules:\n  - "MATCH,DIRECT"\n  - \'DOMAIN,a.com,VPN\'\n')
+    const rules = rulesOf(md)
+    expect(rules).toHaveLength(2)
+    expect(rules[0]?.rule?.type).toBe('MATCH')
+    expect(rules[0]?.rule?.target).toBe('DIRECT')
+    expect(rules[1]?.rule?.type).toBe('DOMAIN')
+    expect(rules[1]?.rule?.target).toBe('VPN')
+    // range остаётся на исходном тексте ВМЕСТЕ с кавычками — по нему строятся правки сплайсами
+    expect(md.text.slice(rules[0]!.range.from, rules[0]!.range.to)).toBe('"MATCH,DIRECT"')
   })
 })
