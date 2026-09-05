@@ -103,6 +103,35 @@ export function scalar(value: string | boolean): string | null {
 }
 
 /**
+ * Шаг вложенности, которым в ЭТОМ документе оформлены блочные списки под ключом
+ * (`key:` на своей строке, элементы — следующей строкой глубже). Не хардкодим 2
+ * пробела: автор шаблона мог выбрать 4 — берём первую же пару «ключ → список» из
+ * текста и меряем разницу отступов. Ничего не нашли — 2 пробела, обычный YAML-стиль.
+ *
+ * Живёт здесь, а не в `entities/graph/mihomo/mutations.ts` (коммутация кабелем,
+ * единственный текущий вызывающий): это общая забота вставки в пустой блочный
+ * список, а не свойство коммутации — план 2 добавит форму «добавить участника
+ * группы», и её тоже придётся звать отсюда. Направление зависимости прежнее:
+ * модуль графа импортирует из модуля модели, обратного импорта нет.
+ */
+export function detectIndentStep(text: string): number {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const line = lines[i]!
+    if (!/^\s*\S.*:(?:\s*#.*)?$/.test(line) || /^\s*-/.test(line)) continue
+    const keyIndent = /^ */.exec(line)![0].length
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const next = lines[j]!
+      if (next.trim() === '') continue
+      const m = /^( *)-\s/.exec(next)
+      if (m !== null && m[1]!.length > keyIndent) return m[1]!.length - keyIndent
+      break
+    }
+  }
+  return 2
+}
+
+/**
  * Печать ЦЕЛОЙ строки правила сериализатором (решение Г), а не склейкой через
  * запятую: цель с двоеточием, решёткой или пробелами при склейке даёт либо
  * невалидный YAML, либо превращает строку правила в отображение с комментарием
@@ -434,8 +463,13 @@ function hasDanglingRuleTarget(node: unknown, from: string): boolean {
  */
 export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[] {
   const groups = groupsOf(md)
-  const target = groups.find((g) => g.name === from)
-  if (target === undefined) return []
+  const matches = groups.filter((g) => g.name === from)
+  // Дубликат имени — допустимое состояние документа (диагностика уже метит
+  // его ошибкой, но документ читается и рисуется): find() переименовал бы
+  // только первую, вторая осталась бы сиротой без единого способа её
+  // адресовать. Лучше не сделать ничего, чем сделать половину.
+  if (matches.length !== 1) return []
+  const target = matches[0]!
 
   const groupOrigin = fieldOrigin(md, target.index, 'name')
   if (groupOrigin !== 'own') return []

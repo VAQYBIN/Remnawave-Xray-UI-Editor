@@ -83,4 +83,33 @@ describe('диагностики', () => {
   it('отсутствие MATCH — предупреждение', () => {
     expect(messages('rules:\n  - DOMAIN,a.com,DIRECT\n').join(' ')).toContain('MATCH')
   })
+
+  it('правило-алиас — валидный YAML, ни одной ошибки; предупреждение честно про якорь', () => {
+    const text = 'rules:\n  - &r1 MATCH,DIRECT\n  - *r1\n'
+    const issues = validateMihomo(parseMihomo(text))
+    expect(issues.filter((i) => i.level === 'error')).toEqual([])
+    expect(issues.map((i) => i.message).join(' ')).toMatch(/алиас|якор/i)
+  })
+
+  it('алиас в конце списка не даёт ложного «нет MATCH» — содержимое якоря редактору не видно', () => {
+    const text = 'rules:\n  - &r1 DOMAIN,a.com,DIRECT\n  - *r1\n'
+    const issues = validateMihomo(parseMihomo(text))
+    expect(issues.filter((i) => i.level === 'error')).toEqual([])
+    expect(issues.map((i) => i.message).join(' ')).not.toMatch(/нет MATCH/)
+  })
+
+  it('include-proxies: true у группы — предупреждение, ключ значим только у провайдера', () => {
+    const text = 'proxy-groups:\n  - name: a\n    remnawave:\n      include-proxies: true\n'
+    expect(messages(text).join(' ')).toContain('proxy-providers')
+  })
+
+  it('незнакомый модификатор правила — предупреждение (опечатка no-resolv вместо no-resolve)', () => {
+    const text = 'rules:\n  - DOMAIN,a.com,DIRECT,no-resolv\n'
+    expect(messages(text).join(' ')).toContain('no-resolv')
+  })
+
+  it('известный модификатор правила не даёт диагностики', () => {
+    const text = 'rules:\n  - DOMAIN,a.com,DIRECT,no-resolve\n'
+    expect(messages(text).some((m) => m.includes('модифи'))).toBe(false)
+  })
 })

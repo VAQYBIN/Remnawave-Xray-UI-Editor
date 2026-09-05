@@ -48,11 +48,23 @@ describe('переименование группы', () => {
     expect(count(out, '&rp_domain')).toBe(count(text, '&rp_domain'))
   })
 
-  it('пустой список правок оставляет файл побайтово тем же', () => {
-    for (const name of ['default', 'simple', 'bundle'] as const) {
-      const text = mihomoFixture(name)
-      expect(applyEdits(text, [])).toBe(text)
-    }
+  // Прежняя версия этого теста накладывала [] на фикстуру и сравнивала с ней же —
+  // результат совпадает по построению applyEdits (правок нет — разбирать нечего),
+  // само название группы или наличие анализа никак не проверялось. Это ложное
+  // чувство покрытия главного заявления ветки («текст — источник истины, половинных
+  // правок не бывает»), а не тест самого инварианта.
+  //
+  // Настоящая проверка: реальная операция на реальной фикстуре, которая ОБЯЗАНА
+  // отказать целиком (новое имя группы не печатается в одну строку — тот же отказ,
+  // которым `scalar()` защищает список `proxies` от порчи блочным скаляром), и
+  // подтверждение, что после наложения пустого результата документ не тронут ни
+  // одним байтом — не только «совпадает с самим собой», а «остался тем, чем был».
+  it('операция, обязанная отказать на реальной фикстуре, не трогает ни одного байта', () => {
+    const text = mihomoFixture('bundle')
+    const md = parseMihomo(text)
+    const edits = renameGroup(md, '🌍 VPN', 'a\nb')
+    expect(edits).toEqual([])
+    expect(applyEdits(text, edits)).toBe(text)
   })
 })
 
@@ -711,5 +723,25 @@ describe('Раунд 4, хвост 3: перевод строки в значе�
     const text = 'proxy-groups:\n  - name: G\n    type: select\nrules:\n  - MATCH,DIRECT\n'
     const md = parseMihomo(text)
     expect(renameGroup(md, 'G', 'a\nb')).toEqual([])
+  })
+})
+
+describe('renameGroup при дубликате имени', () => {
+  it('документ с двумя группами одного имени — операция отказывает целиком', () => {
+    // Дубликат имени — допустимое состояние документа (диагностика уже
+    // помечает его ошибкой, но документ читается и рисуется). find() по имени
+    // переименовал бы первую попавшуюся, вторая осталась бы сиротой без
+    // единого способа её переименовать — лучше не делать ничего, чем половину.
+    const text =
+      'proxy-groups:\n  - name: G\n    type: select\n  - name: G\n    include-all: true\n' +
+      'rules:\n  - MATCH,G\n'
+    const md = parseMihomo(text)
+    expect(renameGroup(md, 'G', 'G2')).toEqual([])
+  })
+
+  it('уникальное имя по-прежнему переименовывается', () => {
+    const text = 'proxy-groups:\n  - name: G\n    type: select\nrules:\n  - MATCH,G\n'
+    const md = parseMihomo(text)
+    expect(renameGroup(md, 'G', 'G2').length).toBeGreaterThan(0)
   })
 })

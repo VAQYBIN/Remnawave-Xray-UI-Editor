@@ -7,7 +7,7 @@ import { conflictingKeys, groupGetsHosts } from './inject'
 import { groupsOf, providersOf, ruleProvidersOf, subRuleNames, type MihomoGroup } from './groups'
 import type { MihomoDoc } from './parse'
 import { resolveTarget } from './resolve'
-import { RULE_TYPES, rulesOf } from './rules'
+import { RULE_MODIFIERS, RULE_TYPES, rulesOf } from './rules'
 
 function issue(parts: PathParts, message: string, level: 'error' | 'warning'): ValidationIssue {
   return { parts, path: parts.join('.'), message, level }
@@ -71,6 +71,20 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
       )
     }
 
+    // Симметрично провайдеру ниже: include-proxies: true значим только у
+    // proxy-providers (включает подстановку хостов панели в payload); у
+    // группы этот ключ ничего не делает — там подстановку регулирует сам
+    // факт наличия маркера, а не include-proxies.
+    if (group.remnawave.includeProxies === true) {
+      issues.push(
+        issue(
+          [...at, 'remnawave', 'include-proxies'],
+          `include-proxies: true допустим только в proxy-providers; у группы «${group.name}» он ничего не значит`,
+          'warning',
+        ),
+      )
+    }
+
     if (conflictingKeys(group)) {
       issues.push(
         issue(
@@ -113,16 +127,40 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
 
   const rules = rulesOf(md)
   let matchAt = -1
+  // Строка-алиас (`*r1`) — валидный YAML: содержимое лежит у якоря (`&r1`) в другом
+  // месте документа, а parseRule() тут неизбежно возвращает null (текст среза — сам
+  // алиас, не разрешённое значение). Раз такое правило не разбирается редактором
+  // ПРИНЦИПИАЛЬНО, а не по ошибке автора, флаг гасит и текущую ошибку разбора, и
+  // последующую проверку «нет MATCH»: алиас может резолвиться хоть в MATCH.
+  let hasAliasRule = false
   rules.forEach((entry) => {
     const at: PathParts = ['rules', entry.index]
     if (entry.rule === null) {
+      if (entry.raw.trim().startsWith('*')) {
+        hasAliasRule = true
+        issues.push(
+          issue(
+            at,
+            `Правило задано алиасом «${entry.raw.trim()}» — содержимое лежит у якоря, редактор не может проверить цель`,
+            'warning',
+          ),
+        )
+        return
+      }
       issues.push(issue(at, `«${entry.raw}» не похоже на правило: нужны тип, значение и цель`, 'error'))
       return
     }
-    const { type, target, payload } = entry.rule
+    const { type, target, payload, modifiers } = entry.rule
     if (!(RULE_TYPES as readonly string[]).includes(type)) {
       issues.push(issue(at, `Неизвестный тип правила «${type}»`, 'warning'))
     }
+    // Тип уже проверен по словарю выше — та же логика для модификаторов:
+    // без неё опечатка вроде no-resolv вместо no-resolve проходит молча
+    modifiers.forEach((modifier) => {
+      if (!(RULE_MODIFIERS as readonly string[]).includes(modifier)) {
+        issues.push(issue(at, `Неизвестный модификатор правила «${modifier}»`, 'warning'))
+      }
+    })
     if (type === 'MATCH' && matchAt === -1) matchAt = entry.index
     else if (matchAt !== -1) {
       issues.push(issue(at, `Правило никогда не сработает: выше стоит MATCH`, 'warning'))
@@ -149,7 +187,7 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
     }
   })
 
-  if (rules.length > 0 && matchAt === -1) {
+  if (rules.length > 0 && matchAt === -1 && !hasAliasRule) {
     issues.push(
       issue(['rules'], 'В конце списка нет MATCH — трафик, не подошедший ни под одно правило, пойдёт напрямую', 'warning'),
     )

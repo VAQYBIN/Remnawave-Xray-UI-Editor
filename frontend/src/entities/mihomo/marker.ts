@@ -5,6 +5,10 @@
 import { isMap } from 'yaml'
 import { rangeOf, type MihomoDoc } from './parse'
 
+// Вторая копия этой строки — backend/src/mihomo/dummyProxies.ts (MARKER). Общих
+// файлов между workspace быть не должно, поэтому дублирование неизбежно, но
+// связи между копиями нет: правка одной не заметит другую. Меняешь текст
+// маркера — проверь и вторую копию.
 export const INJECT_MARKER = 'LEAVE THIS LINE!'
 
 /**
