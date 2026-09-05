@@ -37,6 +37,38 @@ function nameOf(id: string): string {
   return split(id)?.rest ?? ''
 }
 
+/** Пара `proxies` группы по её индексу в `proxy-groups` — общая точка для connect/disconnect */
+function proxiesPair(md: MihomoDoc, groupIndex: number) {
+  const section = sectionNode(md, 'proxy-groups')
+  const item = isSeq(section) ? section.items[groupIndex] : undefined
+  return isMap(item)
+    ? item.items.find((p) => (p.key as { value?: unknown } | null)?.value === 'proxies')
+    : undefined
+}
+
+/**
+ * Шаг вложенности, которым в ЭТОМ документе оформлены блочные списки под ключом
+ * (`key:` на своей строке, элементы — следующей строкой глубже). Не хардкодим 2
+ * пробела: автор шаблона мог выбрать 4 — берём первую же пару «ключ → список» из
+ * текста и меряем разницу отступов. Ничего не нашли — 2 пробела, обычный YAML-стиль.
+ */
+function detectIndentStep(text: string): number {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const line = lines[i]!
+    if (!/^\s*\S.*:(?:\s*#.*)?$/.test(line) || /^\s*-/.test(line)) continue
+    const keyIndent = /^ */.exec(line)![0].length
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const next = lines[j]!
+      if (next.trim() === '') continue
+      const m = /^( *)-\s/.exec(next)
+      if (m !== null && m[1]!.length > keyIndent) return m[1]!.length - keyIndent
+      break
+    }
+  }
+  return 2
+}
+
 export function connectMihomo(md: MihomoDoc, source: string, target: string): TextEdit[] {
   if (!isValidMihomoConnection(source, target)) return []
   const from = split(source)!
@@ -52,21 +84,35 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   const group = groupsOf(md).find((g) => g.name === from.rest)
   if (group === undefined || group.proxies.includes(name)) return []
 
-  const section = sectionNode(md, 'proxy-groups')
-  const item = isSeq(section) ? section.items[group.index] : undefined
-  const pair = isMap(item)
-    ? item.items.find((p) => (p.key as { value?: unknown } | null)?.value === 'proxies')
-    : undefined
-  const list = pair?.value
-  if (!isSeq(list) || list.items.length === 0) return []
+  const pair = proxiesPair(md, group.index)
+  if (pair === undefined) return [] // ключа proxies нет вовсе — структуру группы не выдумываем
+  const list = pair.value
+  // Список в одну строку (`[DIRECT, Fast]`) физическая строка держит и ключ, и все
+  // элементы разом — дописать элемент сплайсом по диапазону нельзя, не сломав YAML
+  if (isSeq(list) && list.flow === true) return []
 
-  const last = list.items[list.items.length - 1]
-  const range = rangeOf(last)
-  if (range === null) return []
-  const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
-  const indent = md.text.slice(lineStart, range.from).replace(/-\s*$/, '')
-  const lineEnd = md.text.indexOf('\n', range.to)
-  const insertAt = lineEnd === -1 ? md.text.length : lineEnd + 1
+  if (isSeq(list) && list.items.length > 0) {
+    const last = list.items[list.items.length - 1]
+    const range = rangeOf(last)
+    if (range === null) return []
+    const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
+    const indent = md.text.slice(lineStart, range.from).replace(/-\s*$/, '')
+    const lineEnd = md.text.indexOf('\n', range.to)
+    const insertAt = lineEnd === -1 ? md.text.length : lineEnd + 1
+    return [{ from: insertAt, to: insertAt, insert: `${indent}- ${stringify(name).trimEnd()}\n` }]
+  }
+
+  // Элементов нет — список либо пуст, либо ключ вообще без значения (частый случай:
+  // `proxies: # LEAVE THIS LINE!` — панель нальёт сюда хостов сама). Якоря-элемента
+  // нет, поэтому отступ считаем от строки ключа, а не от несуществующей записи —
+  // и вставляем ПОСЛЕ всей строки ключа, чтобы не задеть комментарий-маркер на ней.
+  const keyRange = rangeOf(pair.key as unknown)
+  if (keyRange === null) return []
+  const keyLineStart = md.text.lastIndexOf('\n', keyRange.from - 1) + 1
+  const keyLineEnd = md.text.indexOf('\n', keyRange.from)
+  const insertAt = keyLineEnd === -1 ? md.text.length : keyLineEnd + 1
+  const keyIndent = md.text.slice(keyLineStart, keyRange.from)
+  const indent = keyIndent + ' '.repeat(detectIndentStep(md.text))
   return [{ from: insertAt, to: insertAt, insert: `${indent}- ${stringify(name).trimEnd()}\n` }]
 }
 
@@ -80,13 +126,12 @@ export function disconnectMihomo(md: MihomoDoc, edge: string): TextEdit[] {
 
   const group = groupsOf(md).find((g) => g.name === from.rest)
   if (group === undefined) return []
-  const section = sectionNode(md, 'proxy-groups')
-  const item = isSeq(section) ? section.items[group.index] : undefined
-  const pair = isMap(item)
-    ? item.items.find((p) => (p.key as { value?: unknown } | null)?.value === 'proxies')
-    : undefined
+  const pair = proxiesPair(md, group.index)
   const list = pair?.value
   if (!isSeq(list)) return []
+  // Список в одну строку — тот же случай, что и в connectMihomo: физическая строка
+  // держит ключ и все элементы разом, удаление строки стёрло бы список целиком
+  if (list.flow === true) return []
 
   const entry = list.items.find((i) => (i as { value?: unknown } | null)?.value === name)
   const range = rangeOf(entry)
