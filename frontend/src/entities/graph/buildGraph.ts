@@ -31,7 +31,6 @@ export function buildGraph(
   const outbounds = config.outbounds ?? []
   const rules = config.routing?.rules ?? []
   const inboundTags = new Set(inbounds.map((i) => i.tag))
-  const outboundTags = new Set(outbounds.map((o) => o.tag))
 
   // Тег может принадлежать группе подстановки: тогда ребро ведёт к её узлу,
   // а не к несуществующему out:<tag>
@@ -184,13 +183,18 @@ export function buildGraph(
         target,
       })
     }
-    // Запасной выход — не кандидат балансировки: отдельный id ребра и свой стиль
-    if (bal.fallbackTag !== undefined && outboundTags.has(bal.fallbackTag)) {
-      edges.push({
-        id: fallbackEdgeId(bal.tag, bal.fallbackTag),
-        source: `bal:${bal.tag}`,
-        target: `out:${bal.fallbackTag}`,
-      })
+    // Запасной выход — не кандидат балансировки: отдельный id ребра и свой стиль.
+    // Цель разрешаем тем же резолвером, что и кандидатов: fallbackTag может указывать
+    // на тег, который производит группа подстановки (узел inj:<index>, а не out:<tag>).
+    if (bal.fallbackTag !== undefined) {
+      const fallbackTarget = targetForTag(bal.fallbackTag)
+      if (fallbackTarget !== undefined) {
+        edges.push({
+          id: fallbackEdgeId(bal.tag, bal.fallbackTag),
+          source: `bal:${bal.tag}`,
+          target: fallbackTarget,
+        })
+      }
     }
   })
 

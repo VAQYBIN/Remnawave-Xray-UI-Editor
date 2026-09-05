@@ -48,4 +48,25 @@ describe('рёбра к группам подстановки', () => {
     const { edges } = buildGraph(config)
     expect(edges.some((e) => e.target.startsWith('inj:'))).toBe(false)
   })
+
+  it('запасной выход балансера на предсказанный тег группы ведёт к её узлу', () => {
+    const config = parse({
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }] },
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      routing: { balancers: [{ tag: 'bal', selector: ['direct'], fallbackTag: 'proxy-2' }], rules: [] },
+    })
+    const { edges } = buildGraph(config)
+    expect(edges.map((e) => e.id)).toContain('e:bal:bal->fb:proxy-2')
+    expect(edges.find((e) => e.id === 'e:bal:bal->fb:proxy-2')?.target).toBe('inj:0')
+  })
+
+  it('запасной выход балансера на несуществующий тег ребра не даёт', () => {
+    const config = parse({
+      remnawave: { injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }] },
+      outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+      routing: { balancers: [{ tag: 'bal', selector: ['direct'], fallbackTag: 'ghost' }], rules: [] },
+    })
+    const { edges } = buildGraph(config)
+    expect(edges.some((e) => e.id.startsWith('e:bal:bal->fb:'))).toBe(false)
+  })
 })
