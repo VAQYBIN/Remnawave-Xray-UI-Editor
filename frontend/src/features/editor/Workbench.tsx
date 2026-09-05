@@ -149,7 +149,7 @@ export function Workbench({
           <>
             <div className="wb-canvas">
               <TopologyView
-                profileUuid={draft.docKey}
+                docKey={draft.storageKey}
                 config={parsedConfig}
                 ctx={draft.ctx}
                 selectedId={draft.selectedNode}

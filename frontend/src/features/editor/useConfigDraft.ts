@@ -27,6 +27,7 @@ import {
 } from '../../entities/graph/mutations'
 import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import { useGeoMatch } from '../../shared/api'
+import { docStorageKey, type DocKind } from '../../shared/lib/docKey'
 import { useDebounced } from '../../shared/lib/useDebounced'
 import { hasOpenDialog, useHotkeys } from '../../shared/lib/useHotkeys'
 import { useDraftStore, type Draft } from './draftStore'
@@ -133,7 +134,14 @@ export function renamedNodeId(nodeId: string, value: unknown): string | null {
 }
 
 export interface ConfigDraftOptions {
-  /** Ключ документа: uuid профиля или шаблона. По нему живут черновик, история и позиции узлов */
+  /**
+   * Вид документа. Uuid профиля и шаблона живут в разных пространствах панели и
+   * могут совпасть, поэтому локальные хранилища ключуются видом вместе с uuid.
+   * Не путать с `kind` у `Workbench`: там это сегмент пути бэкапов (`profiles`/
+   * `templates`), а не ключ хранилища.
+   */
+  docKind: DocKind
+  /** Uuid документа: уходит в запросы бэкапов, поэтому остаётся голым */
   docKey: string
   /** Документ, каким его отдала панель */
   panelConfig: unknown
@@ -144,7 +152,10 @@ export interface ConfigDraftOptions {
 }
 
 export interface ConfigDraft {
+  /** Uuid документа: он же адрес бэкапов в панели */
   docKey: string
+  /** Ключ локальных хранилищ: `<вид>:<uuid>` — черновик, история, позиции узлов */
+  storageKey: string
   /** Контекст графа, с которым построен документ: его же ждёт TopologyView */
   ctx: GraphContext
   text: string
@@ -221,14 +232,18 @@ export interface ConfigDraft {
 }
 
 export function useConfigDraft({
+  docKind,
   docKey,
   panelConfig,
   baseVersion,
   ctx,
 }: ConfigDraftOptions): ConfigDraft {
+  // Черновик, история и позиции узлов ключуются видом документа вместе с uuid:
+  // совпадение uuid профиля и шаблона иначе смешало бы два разных документа
+  const storageKey = docStorageKey(docKind, docKey)
   const { drafts, setDraft, clearDraft } = useDraftStore()
   const { stacks, record, undo, redo, clear: clearHistory } = useHistoryStore()
-  const stored = drafts[docKey]
+  const stored = drafts[storageKey]
   const text = resolveEditorText(stored, panelConfig)
   const panelText = useMemo(() => formatConfig(panelConfig), [panelConfig])
   const dirty = stored !== undefined && stored.text !== panelText
@@ -237,8 +252,8 @@ export function useConfigDraft({
 
   // Единственная точка записи черновика: здесь же решается, попадает ли правка в историю
   function writeDraft(nextText: string, opts: { history: boolean }) {
-    if (opts.history) record(docKey, text)
-    setDraft(docKey, nextText, base)
+    if (opts.history) record(storageKey, text)
+    setDraft(storageKey, nextText, base)
   }
 
   const validation = useMemo(() => validateXrayConfig(text), [text])
@@ -315,21 +330,21 @@ export function useConfigDraft({
   }
 
   const historyDisabled = tab === 'json'
-  const undoAvailable = !historyDisabled && canUndo(stacks, docKey)
-  const redoAvailable = !historyDisabled && canRedo(stacks, docKey)
+  const undoAvailable = !historyDisabled && canUndo(stacks, storageKey)
+  const redoAvailable = !historyDisabled && canRedo(stacks, storageKey)
 
   function doUndo() {
-    const prev = undo(docKey, text)
+    const prev = undo(storageKey, text)
     if (prev === null) return
-    setDraft(docKey, prev, base)
+    setDraft(storageKey, prev, base)
     // Конфиг подменяется целиком — позиционные rule:N и inj:N дрейфуют
     setSelectedNode(null)
   }
 
   function doRedo() {
-    const next = redo(docKey, text)
+    const next = redo(storageKey, text)
     if (next === null) return
-    setDraft(docKey, next, base)
+    setDraft(storageKey, next, base)
     setSelectedNode(null)
   }
 
@@ -345,7 +360,7 @@ export function useConfigDraft({
   function openTopologyTab() {
     // Вся текстовая сессия сворачивается в один шаг истории
     const entry = jsonEntryText.current
-    if (entry !== null && entry !== text) record(docKey, entry)
+    if (entry !== null && entry !== text) record(storageKey, entry)
     jsonEntryText.current = null
     setTab('topology')
   }
@@ -377,6 +392,7 @@ export function useConfigDraft({
 
   return {
     docKey,
+    storageKey,
     ctx,
     text,
     panelText,
@@ -397,18 +413,18 @@ export function useConfigDraft({
     changeConfig,
     resetDraft: () => {
       // Сброс тоже отменяется: undo вернёт текст и создаст черновик заново
-      record(docKey, text)
-      clearDraft(docKey)
+      record(storageKey, text)
+      clearDraft(storageKey)
       setSelectedNode(null)
     },
     clearAfterSave: () => {
-      clearDraft(docKey)
+      clearDraft(storageKey)
       // База сместилась: прежние снимки относятся к другому документу
-      clearHistory(docKey)
+      clearHistory(storageKey)
     },
     adoptPanelVersion: () => {
-      clearDraft(docKey)
-      clearHistory(docKey)
+      clearDraft(storageKey)
+      clearHistory(storageKey)
       setSelectedNode(null)
     },
     undoAvailable,

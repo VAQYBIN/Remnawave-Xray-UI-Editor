@@ -35,6 +35,7 @@ interface ConflictState {
 function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; hash: string }) {
   const qc = useQueryClient()
   const draft = useConfigDraft({
+    docKind: 'template',
     docKey: template.uuid,
     panelConfig: template.templateJson,
     baseVersion: hash,

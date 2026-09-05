@@ -22,7 +22,12 @@ import { nodeTypes } from './nodes'
 import { usePositionsStore } from './positionsStore'
 
 interface Props {
-  profileUuid: string
+  /**
+   * Ключ документа в хранилище позиций: `<вид>:<uuid>`, а не голый uuid —
+   * uuid профиля и шаблона могут совпасть, и узлы двух графов смешались бы
+   * в одной записи (см. shared/lib/docKey).
+   */
+  docKey: string
   config: XrayConfig
   ctx: GraphContext
   selectedId: string | null
@@ -291,7 +296,7 @@ export function tracedEdgeIds(result: TraceResult | undefined, config: XrayConfi
 }
 
 export function TopologyView({
-  profileUuid,
+  docKey,
   config,
   ctx,
   selectedId,
@@ -305,7 +310,7 @@ export function TopologyView({
   onOpenRecipes,
   allowInject,
 }: Props) {
-  const saved = usePositionsStore((s) => s.positions[profileUuid])
+  const saved = usePositionsStore((s) => s.positions[docKey])
   const setPosition = usePositionsStore((s) => s.setPosition)
   const resetPositions = usePositionsStore((s) => s.resetPositions)
 
@@ -371,11 +376,11 @@ export function TopologyView({
       setNodes((nds) => applyNodeChanges(changes, nds))
       for (const change of changes) {
         if (change.type === 'position' && change.position && !change.dragging) {
-          setPosition(profileUuid, change.id, change.position)
+          setPosition(docKey, change.id, change.position)
         }
       }
     },
-    [profileUuid, setPosition],
+    [docKey, setPosition],
   )
 
   const onEdgesChange = useCallback(
@@ -512,7 +517,7 @@ export function TopologyView({
             <span className="wb-dock-sep" aria-hidden="true" />
             {dockExtra}
             {dockExtra && <span className="wb-dock-sep" aria-hidden="true" />}
-            <Button variant="ghost" onClick={() => resetPositions(profileUuid)}>
+            <Button variant="ghost" onClick={() => resetPositions(docKey)}>
               Сбросить расположение
             </Button>
           </div>

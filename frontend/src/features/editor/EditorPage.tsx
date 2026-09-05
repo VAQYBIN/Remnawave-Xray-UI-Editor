@@ -39,6 +39,7 @@ function EditorInner({ profile }: { profile: Profile }) {
     [squads.data, panelInbounds.data],
   )
   const draft = useConfigDraft({
+    docKind: 'profile',
     docKey: profile.uuid,
     panelConfig: profile.config,
     baseVersion: profile.updatedAt,

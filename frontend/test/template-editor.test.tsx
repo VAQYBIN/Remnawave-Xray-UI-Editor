@@ -5,6 +5,7 @@ import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TemplateEditorPage } from '../src/features/templates/TemplateEditorPage'
 import { useDraftStore } from '../src/features/editor/draftStore'
+import { docStorageKey } from '../src/shared/lib/docKey'
 import { selectOption } from './helpers'
 
 const UUID = 'a0000000-0000-4000-8000-000000000001'
@@ -104,7 +105,7 @@ function mockPanel(type = 'XRAY_JSON', patch: PatchReply[] = []) {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
-  useDraftStore.getState().clearDraft(UUID)
+  useDraftStore.getState().clearDraft(docStorageKey('template', UUID))
 })
 
 /** Правка через «Настройки конфига» — самый короткий путь сделать черновик грязным */

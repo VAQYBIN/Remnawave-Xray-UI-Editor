@@ -13,63 +13,64 @@ export interface HistoryStack {
 }
 
 interface HistoryState {
+  /** Ключ — не голый uuid, а `<вид>:<uuid>`, как у черновиков (см. shared/lib/docKey) */
   stacks: Record<string, HistoryStack>
-  record: (uuid: string, prevText: string) => void
-  undo: (uuid: string, currentText: string) => string | null
-  redo: (uuid: string, currentText: string) => string | null
-  clear: (uuid: string) => void
+  record: (key: string, prevText: string) => void
+  undo: (key: string, currentText: string) => string | null
+  redo: (key: string, currentText: string) => string | null
+  clear: (key: string) => void
 }
 
 const EMPTY: HistoryStack = { past: [], future: [] }
 
 export const useHistoryStore = create<HistoryState>()((set, get) => ({
   stacks: {},
-  record: (uuid, prevText) =>
+  record: (key, prevText) =>
     set((s) => {
-      const cur = s.stacks[uuid] ?? EMPTY
+      const cur = s.stacks[key] ?? EMPTY
       // Новая правка обрывает ветку возврата — иначе redo вернул бы чужое состояние
       return {
         stacks: {
           ...s.stacks,
-          [uuid]: { past: [...cur.past, prevText].slice(-HISTORY_LIMIT), future: [] },
+          [key]: { past: [...cur.past, prevText].slice(-HISTORY_LIMIT), future: [] },
         },
       }
     }),
-  undo: (uuid, currentText) => {
-    const cur = get().stacks[uuid] ?? EMPTY
+  undo: (key, currentText) => {
+    const cur = get().stacks[key] ?? EMPTY
     const prev = cur.past[cur.past.length - 1]
     if (prev === undefined) return null
     set((s) => ({
       stacks: {
         ...s.stacks,
-        [uuid]: { past: cur.past.slice(0, -1), future: [...cur.future, currentText] },
+        [key]: { past: cur.past.slice(0, -1), future: [...cur.future, currentText] },
       },
     }))
     return prev
   },
-  redo: (uuid, currentText) => {
-    const cur = get().stacks[uuid] ?? EMPTY
+  redo: (key, currentText) => {
+    const cur = get().stacks[key] ?? EMPTY
     const next = cur.future[cur.future.length - 1]
     if (next === undefined) return null
     set((s) => ({
       stacks: {
         ...s.stacks,
-        [uuid]: { past: [...cur.past, currentText], future: cur.future.slice(0, -1) },
+        [key]: { past: [...cur.past, currentText], future: cur.future.slice(0, -1) },
       },
     }))
     return next
   },
-  clear: (uuid) =>
+  clear: (key) =>
     set((s) => {
-      const { [uuid]: _removed, ...rest } = s.stacks
+      const { [key]: _removed, ...rest } = s.stacks
       return { stacks: rest }
     }),
 }))
 
-export function canUndo(stacks: Record<string, HistoryStack>, uuid: string): boolean {
-  return (stacks[uuid]?.past.length ?? 0) > 0
+export function canUndo(stacks: Record<string, HistoryStack>, key: string): boolean {
+  return (stacks[key]?.past.length ?? 0) > 0
 }
 
-export function canRedo(stacks: Record<string, HistoryStack>, uuid: string): boolean {
-  return (stacks[uuid]?.future.length ?? 0) > 0
+export function canRedo(stacks: Record<string, HistoryStack>, key: string): boolean {
+  return (stacks[key]?.future.length ?? 0) > 0
 }

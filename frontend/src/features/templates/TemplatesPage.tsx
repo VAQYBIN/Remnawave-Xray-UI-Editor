@@ -9,6 +9,7 @@ import {
   type SubscriptionTemplate,
   type TemplateType,
 } from '../../shared/api'
+import { docStorageKey } from '../../shared/lib/docKey'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { useDraftStore } from '../editor/draftStore'
 import { SectionSwitch } from '../nav/SectionSwitch'
@@ -129,7 +130,7 @@ export function TemplatesPage() {
               key={t.uuid}
               template={t}
               index={i}
-              hasDraft={drafts[t.uuid] !== undefined}
+              hasDraft={drafts[docStorageKey('template', t.uuid)] !== undefined}
               onDelete={() => setToDelete(t)}
             />
           ))}
@@ -155,8 +156,9 @@ export function TemplatesPage() {
               if (toDelete) {
                 del.mutate(toDelete.uuid, {
                   onSuccess: () => {
-                    useDraftStore.getState().clearDraft(toDelete.uuid)
-                    usePositionsStore.getState().resetPositions(toDelete.uuid)
+                    const key = docStorageKey('template', toDelete.uuid)
+                    useDraftStore.getState().clearDraft(key)
+                    usePositionsStore.getState().resetPositions(key)
                     setToDelete(null)
                   },
                 })

@@ -16,7 +16,7 @@ function renderDock(allowInject?: boolean) {
   render(
     <ReactFlowProvider>
       <TopologyView
-        profileUuid="doc"
+        docKey="profile:doc"
         config={config}
         ctx={{}}
         selectedId={null}

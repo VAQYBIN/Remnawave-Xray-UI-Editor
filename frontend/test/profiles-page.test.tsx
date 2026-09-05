@@ -7,6 +7,7 @@ import { ProfilesPage } from '../src/features/profiles/ProfilesPage'
 import { TEMPLATE } from '../src/features/profiles/CreateProfileDialog'
 import { useDraftStore } from '../src/features/editor/draftStore'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
+import { docStorageKey } from '../src/shared/lib/docKey'
 
 const profile = {
   uuid: 'u1',
@@ -55,12 +56,22 @@ describe('ProfilesPage', () => {
   })
 
   it('черновик в localStorage помечает карточку и считается в шапке', async () => {
-    useDraftStore.getState().setDraft(profile.uuid, '{}', profile.updatedAt)
+    useDraftStore.getState().setDraft(docStorageKey('profile', profile.uuid), '{}', profile.updatedAt)
     renderPage([profile])
     expect(await screen.findByText('Germany')).toBeInTheDocument()
     expect(screen.getByText('черновик')).toBeInTheDocument()
     expect(screen.getByText('незасейвленных черновиков: 1')).toBeInTheDocument()
-    useDraftStore.getState().clearDraft(profile.uuid)
+    useDraftStore.getState().clearDraft(docStorageKey('profile', profile.uuid))
+  })
+
+  // Uuid профиля и шаблона могут совпасть: счётчик обязан считать только свои
+  it('черновик шаблона с тем же uuid не попадает в счётчик профилей', async () => {
+    useDraftStore.getState().setDraft(docStorageKey('template', profile.uuid), '{}', 'hash')
+    renderPage([profile])
+    expect(await screen.findByText('Germany')).toBeInTheDocument()
+    expect(screen.queryByText(/незасейвленных черновиков/)).not.toBeInTheDocument()
+    expect(screen.queryByText('черновик')).not.toBeInTheDocument()
+    useDraftStore.getState().clearDraft(docStorageKey('template', profile.uuid))
   })
 
   it('без черновиков счётчик в шапке не показывается', async () => {
@@ -80,13 +91,14 @@ describe('ProfilesPage', () => {
     renderPage([profile])
     expect(await screen.findByText('Germany')).toBeInTheDocument()
 
-    usePositionsStore.getState().setPosition(profile.uuid, 'in:x', { x: 1, y: 2 })
+    const key = docStorageKey('profile', profile.uuid)
+    usePositionsStore.getState().setPosition(key, 'in:x', { x: 1, y: 2 })
 
     await user.click(screen.getByRole('button', { name: 'Удалить' }))
     const dialog = screen.getByRole('dialog', { name: 'Удалить профиль' })
     await user.click(within(dialog).getByRole('button', { name: 'Удалить' }))
 
-    await waitFor(() => expect(usePositionsStore.getState().positions[profile.uuid]).toBeUndefined())
+    await waitFor(() => expect(usePositionsStore.getState().positions[key]).toBeUndefined())
   })
 })
 

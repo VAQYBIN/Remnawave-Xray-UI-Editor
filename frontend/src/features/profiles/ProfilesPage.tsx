@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { causeOf, hintOf, useDeleteProfile, useLogout, useProfiles, type PanelInboundView, type Profile } from '../../shared/api'
+import { docStorageKey } from '../../shared/lib/docKey'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Card, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { useDraftStore } from '../editor/draftStore'
@@ -99,7 +100,10 @@ export function ProfilesPage() {
   const [toDelete, setToDelete] = useState<Profile | null>(null)
 
   const total = profiles.data?.length ?? 0
-  const draftCount = profiles.data?.filter((p) => drafts[p.uuid] !== undefined).length ?? 0
+  // Считаем только свои черновики: uuid профиля и шаблона могут совпасть, и без
+  // вида документа счётчик показал бы чужие правки
+  const draftCount =
+    profiles.data?.filter((p) => drafts[docStorageKey('profile', p.uuid)] !== undefined).length ?? 0
 
   return (
     <main className="page">
@@ -150,7 +154,7 @@ export function ProfilesPage() {
               key={p.uuid}
               profile={p}
               index={i}
-              hasDraft={drafts[p.uuid] !== undefined}
+              hasDraft={drafts[docStorageKey('profile', p.uuid)] !== undefined}
               onDelete={() => setToDelete(p)}
             />
           ))}
@@ -176,8 +180,9 @@ export function ProfilesPage() {
               if (toDelete) {
                 del.mutate(toDelete.uuid, {
                   onSuccess: () => {
-                    useDraftStore.getState().clearDraft(toDelete.uuid)
-                    usePositionsStore.getState().resetPositions(toDelete.uuid)
+                    const key = docStorageKey('profile', toDelete.uuid)
+                    useDraftStore.getState().clearDraft(key)
+                    usePositionsStore.getState().resetPositions(key)
                     setToDelete(null)
                   },
                 })
