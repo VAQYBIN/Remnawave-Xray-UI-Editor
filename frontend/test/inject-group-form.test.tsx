@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { InjectGroupForm } from '../src/features/inspector/InjectGroupForm'
 import { selectOption, selectedValue } from './helpers'
@@ -54,5 +55,41 @@ describe('форма группы подстановки', () => {
     await selectOption('Способ именования тегов', 'тег хоста')
     await selectOption('Способ именования тегов', 'префикс — proxy, proxy-2…')
     expect(screen.getByLabelText('Префикс тегов')).toHaveValue('myprefix')
+  })
+
+  it('очистка префикса пишет пустую строку, а не удаляет ключ', async () => {
+    // Управляемый компонент: без стейта не увидеть, что переключатель схемы
+    // не прыгает под руками после очистки поля
+    function Harness() {
+      const [value, setValue] = useState<Record<string, unknown>>({
+        selector: { type: 'sameTagAsRecipient' },
+        tagPrefix: 'myprefix',
+      })
+      return <InjectGroupForm value={value} onChange={setValue} />
+    }
+    render(<Harness />)
+    await userEvent.clear(screen.getByLabelText('Префикс тегов'))
+
+    // Ключ остался — именно пустой строкой, а не undefined/отсутствием ключа
+    expect(screen.getByLabelText('Префикс тегов')).toHaveValue('')
+    // Схема осталась «префикс»: переключатель не провалился в «способ не выбран»
+    expect(selectedValue('Способ именования тегов')).toBe('tagPrefix')
+    // Валидация всё равно предупреждает — способ именования пуст
+    expect(screen.getByText(/Способ именования не выбран/)).toBeInTheDocument()
+  })
+
+  it('после очистки поле принимает новый ввод как обычно', async () => {
+    function Harness() {
+      const [value, setValue] = useState<Record<string, unknown>>({
+        selector: { type: 'sameTagAsRecipient' },
+        tagPrefix: 'myprefix',
+      })
+      return <InjectGroupForm value={value} onChange={setValue} />
+    }
+    render(<Harness />)
+    const input = screen.getByLabelText('Префикс тегов')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'newprefix')
+    expect(input).toHaveValue('newprefix')
   })
 })

@@ -172,8 +172,14 @@ export function InjectGroupForm({
           value={group.tagPrefix}
           onChange={(tagPrefix) =>
             patch((draft) => {
-              if (tagPrefix === undefined || tagPrefix === '') delete draft.tagPrefix
-              else draft.tagPrefix = tagPrefix
+              // Пишем пустую строку, а не удаляем ключ: пользователь стирает поле,
+              // чтобы напечатать новое значение, и на долю секунды оно пусто. Удаление
+              // ключа в этот момент проваливает currentSchemeKey/tagScheme в 'none' —
+              // переключатель «Способ именования» дёргается сам, а это поле, видимое
+              // только при schemeKey === 'tagPrefix', пропадает у пользователя из-под
+              // курсора. tagScheme('') уже трактуется как 'none', так что валидация
+              // предупредит о невыбранном способе именования — просто без прыжка структуры.
+              draft.tagPrefix = tagPrefix ?? ''
             })
           }
         />
