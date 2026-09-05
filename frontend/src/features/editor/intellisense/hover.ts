@@ -1,7 +1,7 @@
 // Hover-тултип для JSON-редактора: при наведении на существующий ключ (или его
 // скалярное значение) показывает описание из docSchema и допустимые значения.
 
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { hoverTooltip, type Tooltip } from '@codemirror/view'
 import type { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
@@ -85,7 +85,10 @@ function renderTooltip(key: string, field: DocField): HTMLElement {
 export function makeHover(rootKind: XrayRootKind) {
   return hoverTooltip((view, pos, side): Tooltip | null => {
     try {
-      const node = syntaxTree(view.state).resolveInner(pos, side)
+      // Дерево дотягиваем до позиции по той же причине, что и в context.ts:
+      // снимок в состоянии на большом конфиге до хвоста не доходит
+      const tree = ensureSyntaxTree(view.state, pos, 100) ?? syntaxTree(view.state)
+      const node = tree.resolveInner(pos, side)
       const at = keyAtNode(view.state, node)
       if (!at) return null
       const path = resolvePath(view.state, pos, rootKind)

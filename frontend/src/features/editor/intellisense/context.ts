@@ -7,12 +7,29 @@
 // ещё дописывается), а «ключ или значение» решает уже completion по тексту — так
 // надёжнее на незакрытых строках.
 
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
-import type { SyntaxNode } from '@lezer/common'
+import type { SyntaxNode, Tree } from '@lezer/common'
 import { descend, type Props } from '../../../entities/xray/docSchema'
 
 export type XrayRootKind = 'config' | 'inbound' | 'outbound' | 'rule' | 'dns' | 'balancer'
+
+/**
+ * Бюджет разбора для подсказок. Дерево тянем сами, а не берём готовое из
+ * состояния: `syntaxTree(state)` отдаёт снимок, сделанный при создании
+ * LanguageState (`this.tree = context.tree` в @codemirror/language), а
+ * `ensureSyntaxTree` двигает parse-контекст, снимок не обновляя. На большом
+ * конфиге начальный тайм-слайс до хвоста не доходит — и подсказки в конце
+ * документа молча выдавали бы контекст по недоразобранному дереву. Ровно эту
+ * же граблю обходит jsonLocate.ts, но бюджет там на порядок больше: там
+ * разовый переход по клику, а здесь работа на каждое нажатие клавиши.
+ */
+const PARSE_BUDGET_MS = 100
+
+/** Дерево, дотянутое до позиции курсора; при исчерпании бюджета — что есть */
+function treeAt(state: EditorState, pos: number): Tree {
+  return ensureSyntaxTree(state, pos, PARSE_BUDGET_MS) ?? syntaxTree(state)
+}
 
 export function stripQuotes(text: string): string {
   return text.replace(/^"|"$/g, '')
@@ -27,7 +44,7 @@ export function propertyKey(state: EditorState, prop: SyntaxNode): string | null
 
 /** Ближайший контейнер (Object или Array) над позицией — или null */
 export function firstContainer(state: EditorState, pos: number): SyntaxNode | null {
-  let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1)
+  let node: SyntaxNode | null = treeAt(state, pos).resolveInner(pos, -1)
   while (node) {
     if (node.name === 'Object' || node.name === 'Array') return node
     node = node.parent
@@ -112,7 +129,7 @@ export function resolveObjectPath(state: EditorState, obj: SyntaxNode, rootKind:
 
 /** Путь до объекта, в котором находится позиция */
 export function resolvePath(state: EditorState, pos: number, rootKind: XrayRootKind): ObjectPath | null {
-  const obj = enclosingObject(syntaxTree(state).resolveInner(pos, -1))
+  const obj = enclosingObject(treeAt(state, pos).resolveInner(pos, -1))
   if (!obj) return null
   return resolveObjectPath(state, obj, rootKind)
 }
