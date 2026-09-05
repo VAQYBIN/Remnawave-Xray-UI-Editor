@@ -2,10 +2,18 @@ import { CompletionContext, type CompletionResult } from '@codemirror/autocomple
 import { json } from '@codemirror/lang-json'
 import { ensureSyntaxTree } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { descend, nodeFields } from '../src/entities/xray/docSchema'
 import { makeCompletionSource } from '../src/features/editor/intellisense/complete'
 import { resolvePath, type XrayRootKind } from '../src/features/editor/intellisense/context'
+
+// ensureSyntaxTree (см. build() ниже) отмеряет бюджет разбора ПО СТЕННЫМ ЧАСАМ (5000 мс),
+// а не по объёму работы. Под нагрузкой (параллельные vitest-воркеры, сборка и т.п.) реальный
+// разбор укладывается в этот бюджет медленнее, чем при изолированном прогоне — дерево может
+// вернуться неполным, а сам тест-файл не уложиться в дефолтные 5000 мс vitest. Это чувствительность
+// к загрузке машины, а не медленный код и не флейк логики, поэтому таймаут файла увеличен точечно
+// (дефолт для всего проекта намеренно не трогаем — иначе реально медленный тест перестанет быть заметен).
+vi.setConfig({ testTimeout: 15000 })
 
 // Позиция курсора помечается символом ‸ — редкий, в JSON-контенте не встречается
 const CARET = '‸'
