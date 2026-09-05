@@ -145,3 +145,38 @@ describe('конец файла без перевода строки', () => {
     expect(groupsOf(parsedOut).find((g) => g.name === 'VPN')!.proxies).toEqual(['DIRECT', 'REJECT'])
   })
 })
+
+// Находка ревью (раунд 3): `stringify(name)` без `lineWidth: 0` молча переносит
+// длинное значение с пробелом на две строки — сплайс вставляет в документ
+// разорванный посередине скаляр, YAML перестаёт разбираться без единой
+// диагностики. Достижимо обычным действием пользователя: длинное имя группы,
+// пришедшее в список `proxies`.
+describe('находка 1 (раунд 3): длинное имя не переносится сериализатором', () => {
+  const longName = 'Очень длинное имя группы с несколькими пробелами которое обязано остаться в одной строке'
+
+  it('добавление в непустой список — вставка остаётся одной строкой', () => {
+    const md = parseMihomo(base)
+    const edits = connectMihomo(md, 'group:VPN', `group:${longName}`)
+    expect(edits).toHaveLength(1)
+    // ровно один перевод строки — завершающий; переноса самого значения нет
+    expect((edits[0]!.insert.match(/\n/g) ?? []).length).toBe(1)
+    const out = applyEdits(base, edits)
+    const parsedOut = parseMihomo(out)
+    expect(parsedOut.issues).toEqual([])
+    expect(groupsOf(parsedOut)[0]!.proxies).toContain(longName)
+  })
+
+  it('добавление в пустой список — вставка остаётся одной строкой', () => {
+    const emptyBlock =
+      'proxy-groups:\n  - name: VPN\n    type: select\n    proxies:\n  - name: Fast\n    include-all: true\n' +
+      'rules:\n  - MATCH,VPN\n'
+    const md = parseMihomo(emptyBlock)
+    const edits = connectMihomo(md, 'group:VPN', `group:${longName}`)
+    expect(edits).toHaveLength(1)
+    expect((edits[0]!.insert.match(/\n/g) ?? []).length).toBe(1)
+    const out = applyEdits(emptyBlock, edits)
+    const parsedOut = parseMihomo(out)
+    expect(parsedOut.issues).toEqual([])
+    expect(groupsOf(parsedOut)[0]!.proxies).toEqual([longName])
+  })
+})

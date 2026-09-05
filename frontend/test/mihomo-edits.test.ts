@@ -465,3 +465,162 @@ describe('Раунд 2, остаток 2: addRule печатает правил�
     expect(addRule(md, 'непонятно-что-это')).toEqual([])
   })
 })
+
+describe('Раунд 3, находка 1: сериализатор не должен переносить длинные строки', () => {
+  it('переброс кабеля с длинного правила на другую группу даёт разбираемый документ', () => {
+    const text = mihomoFixture('simple')
+    const md = parseMihomo(text)
+    // индекс 4 — самая длинная строка правила в фикстуре (OR c четырьмя условиями)
+    expect(rulesOf(md)[4]!.rule?.target).toBe('♻️ БезVPN')
+    const out = applyEdits(text, setRuleTarget(md, 4, '⚡️ Fastest'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(rulesOf(parsed)[4]!.rule?.target).toBe('⚡️ Fastest')
+  })
+
+  it('переименование ♻️ БезVPN в имя с пробелом на simple.yaml больше не отказывает ложно', () => {
+    const text = mihomoFixture('simple')
+    const md = parseMihomo(text)
+    const edits = renameGroup(md, '♻️ БезVPN', '♻️ Без ВПН')
+    // до фикса постусловие отказывало: превью не разбиралось из-за переноса строки
+    expect(edits.length).toBeGreaterThan(0)
+    const out = applyEdits(text, edits)
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(out).not.toContain('♻️ БезVPN')
+  })
+})
+
+describe('Раунд 3, находка 2: обход не переписывает то, что ссылкой не является', () => {
+  it('переименование не трогает filter соседней группы, совпавший по значению с именем', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      '  - name: Sel',
+      '    type: select',
+      '    filter: G',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(out).toContain('name: G2')
+    expect(out).toContain('filter: G\n')
+    expect(out).not.toContain('filter: G2')
+  })
+
+  it('переименование не трогает exclude-filter', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      '  - name: Sel',
+      '    type: select',
+      '    exclude-filter: G',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    // именно эта пара условий и различает «нашли и починили» от «ничего не сделали»
+    expect(out).toContain('name: G2')
+    expect(out).toContain('exclude-filter: G\n')
+  })
+
+  it('переименование не трогает name другой сущности (прокси), совпавшее по значению', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'proxies:',
+      '  - name: G',
+      '    type: vmess',
+      '    server: 1.2.3.4',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    // объявление группы переименовано, а вот имя прокси — другая сущность, не трогаем
+    expect(out).toContain('proxy-groups:\n  - name: G2')
+    expect(out).toContain('proxies:\n  - name: G\n')
+  })
+
+  it('переименование не трогает значения hosts, совпавшие по значению', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'hosts:',
+      '  somehost.local: G',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
+    expect(out).toContain('name: G2')
+    expect(out).toContain('somehost.local: G\n')
+  })
+
+  it('SUB-RULE ссылается на подсписок, а не на группу — цель не переименовывается', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'sub-rules:',
+      '  G:',
+      '    - DOMAIN,a.com,DIRECT',
+      'rules:',
+      '  - SUB-RULE,(NETWORK,tcp),G',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const md = parseMihomo(text)
+    const out = edit(text, (m) => renameGroup(m, 'G', 'G2'))
+    const parsed = parseMihomo(out)
+    expect(parsed.issues).toHaveLength(0)
+    expect(out).toContain('name: G2')
+    expect(out).toContain('SUB-RULE,(NETWORK,tcp),G\n')
+    expect(out).not.toContain('SUB-RULE,(NETWORK,tcp),G2')
+    expect(rulesOf(md)[0]!.rule?.type).toBe('SUB-RULE')
+  })
+})
+
+describe('Раунд 3, находка 3: постусловие ловит правила, до которых обход не достаёт', () => {
+  it('правило верхнего уровня, заданное алиасом на список, блокирует переименование целиком', () => {
+    const text = [
+      'x-anchors:',
+      '  base: &base',
+      '    - MATCH,G',
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'rules: *base',
+      '',
+    ].join('\n')
+    const md = parseMihomo(text)
+    // обычный обход это правило не видит (алиас), поэтому раньше правка молча
+    // проходила бы, оставляя реальный маршрут указывающим на несуществующую группу
+    expect(renameGroup(md, 'G', 'G2')).toEqual([])
+  })
+
+  it('tunnels в CSV-форме с именем группы последним полем строки блокирует переименование', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: G',
+      '    type: select',
+      'tunnels:',
+      '  - tcp,127.0.0.1:7888,G',
+      'rules:',
+      '  - MATCH,DIRECT',
+      '',
+    ].join('\n')
+    const md = parseMihomo(text)
+    expect(renameGroup(md, 'G', 'G2')).toEqual([])
+  })
+})

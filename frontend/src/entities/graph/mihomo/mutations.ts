@@ -86,6 +86,11 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   if (!isValidMihomoConnection(source, target)) return []
   const from = split(source)!
   const name = nameOf(target)
+  // Обе печати `stringify(name, ...)` ниже задают `lineWidth: 0`: без этого
+  // длинное имя с пробелом сериализатор молча переносит на две строки при
+  // ширине по умолчанию (80), и сплайс вставляет в документ разорванный
+  // посередине скаляр — YAML перестаёт разбираться без единой диагностики
+  // (тот же дефект, что и в `entities/mihomo/edits.ts:scalar()`).
 
   if (from.kind === 'rule') {
     const index = Number(from.rest)
@@ -111,7 +116,7 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
     const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
     const indent = md.text.slice(lineStart, range.from).replace(/-\s*$/, '')
     const { at, prefix } = afterLine(md.text, range.to)
-    return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name).trimEnd()}\n` }]
+    return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name, { lineWidth: 0 }).trimEnd()}\n` }]
   }
 
   // Элементов нет — список либо пуст, либо ключ вообще без значения (частый случай:
@@ -124,7 +129,7 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   const keyIndent = md.text.slice(keyLineStart, keyRange.from)
   const indent = keyIndent + ' '.repeat(detectIndentStep(md.text))
   const { at, prefix } = afterLine(md.text, keyRange.from)
-  return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name).trimEnd()}\n` }]
+  return [{ from: at, to: at, insert: `${prefix}${indent}- ${stringify(name, { lineWidth: 0 }).trimEnd()}\n` }]
 }
 
 export function disconnectMihomo(md: MihomoDoc, edge: string): TextEdit[] {
