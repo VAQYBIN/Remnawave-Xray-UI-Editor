@@ -215,3 +215,35 @@ describe('находка (раунд 5): перевод строки в имен
     expect(applyEdits(emptyBlock, edits)).toBe(emptyBlock)
   })
 })
+
+// SUB-RULE — третье поле правила это имя подсписка в sub-rules, а не группы:
+// перетаскивание кабеля с такого узла на группу дало бы `SUB-RULE,...,VPN`,
+// который ядро не примет (уже учтено в validate.ts и edits.ts).
+const subRuleBase =
+  'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT\n' +
+  'sub-rules:\n  ru:\n    - DOMAIN,a.com,DIRECT\n' +
+  'rules:\n  - SUB-RULE,(NETWORK,tcp),ru\n  - DOMAIN,b.com,DIRECT\n  - MATCH,VPN\n'
+
+describe('SUB-RULE не коммутируется как обычное правило', () => {
+  it('isValidMihomoConnection отказывает, когда передан тип правила SUB-RULE', () => {
+    expect(isValidMihomoConnection('rule:0', 'group:VPN', 'SUB-RULE')).toBe(false)
+  })
+
+  it('isValidMihomoConnection пропускает обычное правило (тип не задан либо не SUB-RULE)', () => {
+    expect(isValidMihomoConnection('rule:1', 'group:VPN')).toBe(true)
+    expect(isValidMihomoConnection('rule:1', 'group:VPN', 'DOMAIN')).toBe(true)
+  })
+
+  it('connectMihomo не даёт правок при соединении с узла правила SUB-RULE', () => {
+    const md = parseMihomo(subRuleBase)
+    const edits = connectMihomo(md, 'rule:0', 'group:VPN')
+    expect(edits).toEqual([])
+    expect(applyEdits(subRuleBase, edits)).toBe(subRuleBase)
+  })
+
+  it('connectMihomo по-прежнему коммутирует обычное правило', () => {
+    const md = parseMihomo(subRuleBase)
+    const out = applyEdits(subRuleBase, connectMihomo(md, 'rule:1', 'group:VPN'))
+    expect(rulesOf(parseMihomo(out))[1]!.raw).toBe('DOMAIN,b.com,VPN')
+  })
+})

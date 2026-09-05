@@ -188,6 +188,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
         index: entry.index,
         type: entry.rule?.type ?? '?',
         payload: entry.rule?.payload,
+        target: entry.rule?.target,
         modifiers: entry.rule?.modifiers ?? [],
       },
     })

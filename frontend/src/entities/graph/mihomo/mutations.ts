@@ -3,7 +3,7 @@
 
 import { isMap, isSeq } from 'yaml'
 import { groupsOf } from '../../mihomo/groups'
-import { scalar, setRuleTarget, type TextEdit } from '../../mihomo/edits'
+import { detectIndentStep, scalar, setRuleTarget, type TextEdit } from '../../mihomo/edits'
 import { rangeOf, sectionNode, type MihomoDoc } from '../../mihomo/parse'
 import { rulesOf } from '../../mihomo/rules'
 
@@ -20,13 +20,21 @@ function split(id: string): { kind: NodeKind; rest: string } | null {
 /**
  * Из узла подстановки кабель не выходит и в него не входит: его содержимое
  * создаёт панель, а ребро к нему рисует граф по факту наличия маркера.
+ *
+ * `ruleType` — тип правила-источника, когда он известен вызывающему (сам
+ * идентификатор узла несёт только индекс, не тип). У `SUB-RULE` третье поле —
+ * имя подсписка в `sub-rules`, а не группы: перетаскивание кабеля дало бы
+ * `SUB-RULE,...,<группа>`, конфиг, который ядро не примет (см. validate.ts,
+ * edits.ts). Без переданного типа отказать по одному id нельзя — эту часть
+ * проверки дублирует `connectMihomo`, у которого документ на руках.
  */
-export function isValidMihomoConnection(source: string, target: string): boolean {
+export function isValidMihomoConnection(source: string, target: string, ruleType?: string): boolean {
   const from = split(source)
   const to = split(target)
   if (from === null || to === null) return false
   if (from.kind === 'hosts' || to.kind === 'hosts') return false
   if (to.kind === 'rule') return false
+  if (from.kind === 'rule' && ruleType === 'SUB-RULE') return false
   if (from.kind === 'rule' || from.kind === 'group') {
     return to.kind === 'group' || to.kind === 'provider' || to.kind === 'builtin'
   }
@@ -44,29 +52,6 @@ function proxiesPair(md: MihomoDoc, groupIndex: number) {
   return isMap(item)
     ? item.items.find((p) => (p.key as { value?: unknown } | null)?.value === 'proxies')
     : undefined
-}
-
-/**
- * Шаг вложенности, которым в ЭТОМ документе оформлены блочные списки под ключом
- * (`key:` на своей строке, элементы — следующей строкой глубже). Не хардкодим 2
- * пробела: автор шаблона мог выбрать 4 — берём первую же пару «ключ → список» из
- * текста и меряем разницу отступов. Ничего не нашли — 2 пробела, обычный YAML-стиль.
- */
-function detectIndentStep(text: string): number {
-  const lines = text.split('\n')
-  for (let i = 0; i < lines.length - 1; i += 1) {
-    const line = lines[i]!
-    if (!/^\s*\S.*:(?:\s*#.*)?$/.test(line) || /^\s*-/.test(line)) continue
-    const keyIndent = /^ */.exec(line)![0].length
-    for (let j = i + 1; j < lines.length; j += 1) {
-      const next = lines[j]!
-      if (next.trim() === '') continue
-      const m = /^( *)-\s/.exec(next)
-      if (m !== null && m[1]!.length > keyIndent) return m[1]!.length - keyIndent
-      break
-    }
-  }
-  return 2
 }
 
 /**
@@ -97,6 +82,9 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   if (from.kind === 'rule') {
     const index = Number(from.rest)
     const entry = rulesOf(md).find((r) => r.index === index)
+    // Отказ и здесь, и в isValidMihomoConnection: тип правила известен только
+    // тут, где документ на руках, но проверка допустимости обязана уметь то же
+    if (!isValidMihomoConnection(source, target, entry?.rule?.type)) return []
     if (entry?.rule?.target === name) return []
     return setRuleTarget(md, index, name)
   }

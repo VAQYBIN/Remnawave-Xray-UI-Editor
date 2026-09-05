@@ -73,4 +73,20 @@ describe('граф Mihomo', () => {
     expect((hostsNodes[0]?.data as { filter?: string }).filter).toBe('onlyme')
     expect(new Set(nodes.map((n) => n.id)).size).toBe(nodes.length)
   })
+
+  it('узел правила несёт цель, даже когда она не разрешается ни в группу, ни в провайдера', () => {
+    // Цель — имя хоста от панели (по спеке НОРМА): ребро не рисуется, но
+    // пользователь обязан видеть, куда правило ведёт, глядя на сам узел
+    const md = parseMihomo('rules:\n  - DOMAIN,a.com,🇫🇮 Finland1\n')
+    const { nodes } = buildMihomoGraph(md)
+    const rule = nodes.find((n) => n.id === 'rule:0')
+    expect((rule?.data as { target?: string }).target).toBe('🇫🇮 Finland1')
+  })
+
+  it('узел SUB-RULE несёт цель — имя подсписка, а не группы', () => {
+    const md = parseMihomo('sub-rules:\n  ru:\n    - MATCH,DIRECT\nrules:\n  - SUB-RULE,(NETWORK,tcp),ru\n')
+    const { nodes } = buildMihomoGraph(md)
+    const rule = nodes.find((n) => n.id === 'rule:0')
+    expect((rule?.data as { target?: string }).target).toBe('ru')
+  })
 })
