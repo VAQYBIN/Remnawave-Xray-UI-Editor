@@ -245,6 +245,7 @@ export class RemnawaveClient implements RemnawavePort {
     uuid: string
     name?: string
     templateJson?: unknown
+    encodedTemplateYaml?: string
   }): Promise<SubscriptionTemplate> {
     const r = await this.request<{ response: SubscriptionTemplate }>(
       'PATCH',

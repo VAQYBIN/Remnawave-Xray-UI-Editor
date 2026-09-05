@@ -99,11 +99,12 @@ export function makeStubRemnawave(
       templates.push(t)
       return t
     },
-    async updateTemplate({ uuid, name, templateJson }) {
+    async updateTemplate({ uuid, name, templateJson, encodedTemplateYaml }) {
       const t = templates.find((x) => x.uuid === uuid)
       if (!t) throw new RemnawaveError(404, 'Subscription template not found')
       if (name !== undefined) t.name = name
       if (templateJson !== undefined) t.templateJson = templateJson
+      if (encodedTemplateYaml !== undefined) t.encodedTemplateYaml = encodedTemplateYaml
       return t
     },
     async deleteTemplate(uuid) {
