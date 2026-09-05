@@ -3,9 +3,7 @@ import { XrayConfigSchema } from '../src/entities/xray/config'
 import {
   addInjectGroup,
   attachInjectGroupToBalancer,
-  removeInjectGroup,
   setRuleInjectGroup,
-  updateInjectGroup,
 } from '../src/entities/graph/mutations'
 
 const parse = (raw: unknown) => XrayConfigSchema.parse(raw)
@@ -30,36 +28,6 @@ describe('мутации групп подстановки', () => {
   it('вторая группа получает неконфликтующий префикс', () => {
     const next = addInjectGroup(base)
     expect(next.remnawave?.injectHosts?.[1]?.tagPrefix).not.toBe('proxy')
-  })
-
-  it('правка группы не мутирует исходный конфиг', () => {
-    const next = updateInjectGroup(base, 0, { tagPrefix: 'ru' })
-    expect(next.remnawave?.injectHosts?.[0]?.tagPrefix).toBe('ru')
-    expect(base.remnawave?.injectHosts?.[0]?.tagPrefix).toBe('proxy')
-  })
-
-  // Способов именования ровно один: выбор нового обязан снять прежние
-  it('смена способа именования снимает парные ключи', () => {
-    const next = updateInjectGroup(base, 0, { useHostTagAsTag: true })
-    const group = next.remnawave?.injectHosts?.[0] as Record<string, unknown>
-    expect(group.useHostTagAsTag).toBe(true)
-    expect(group.tagPrefix).toBeUndefined()
-    expect(group.useHostRemarkAsTag).toBeUndefined()
-  })
-
-  // Патч, не касающийся именования (touchesScheme === false), не должен
-  // задевать tagPrefix — это регресс-тест на ветку, которую раньше проверяло
-  // только чтение кода
-  it('правка не по схеме именования не стирает tagPrefix', () => {
-    const next = updateInjectGroup(base, 0, { selectFrom: 'ALL' })
-    const group = next.remnawave?.injectHosts?.[0] as Record<string, unknown>
-    expect(group.selectFrom).toBe('ALL')
-    expect(group.tagPrefix).toBe('proxy')
-  })
-
-  it('удаление вынимает группу, несуществующий индекс отдаёт тот же конфиг', () => {
-    expect(removeInjectGroup(base, 0).remnawave?.injectHosts).toHaveLength(0)
-    expect(removeInjectGroup(base, 5)).toBe(base)
   })
 
   it('правило цепляется за первый предсказанный тег группы', () => {

@@ -1,6 +1,6 @@
 import type { XrayConfig } from '../xray'
 import { balancerCandidates, matchPrefixes } from '../xray/balancers'
-import { predictedTags, tagScheme, TAG_SCHEME_KEYS, type InjectGroup } from '../xray/inject'
+import { predictedTags, tagScheme } from '../xray/inject'
 
 function clone(config: XrayConfig): XrayConfig {
   return structuredClone(config)
@@ -500,30 +500,6 @@ export function addInjectGroup(config: XrayConfig): XrayConfig {
     tagPrefix: uniqueTag(taken, 'proxy'),
     selectFrom: 'HIDDEN',
   })
-  return next
-}
-
-export function updateInjectGroup(
-  config: XrayConfig,
-  index: number,
-  patch: Partial<InjectGroup>,
-): XrayConfig {
-  if (config.remnawave?.injectHosts?.[index] === undefined) return config
-  const next = clone(config)
-  const group = next.remnawave!.injectHosts![index]! as Record<string, unknown>
-  const touchesScheme = TAG_SCHEME_KEYS.some((k) => k in patch)
-  if (touchesScheme) for (const key of TAG_SCHEME_KEYS) delete group[key]
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) delete group[key]
-    else group[key] = value
-  }
-  return next
-}
-
-export function removeInjectGroup(config: XrayConfig, index: number): XrayConfig {
-  if (config.remnawave?.injectHosts?.[index] === undefined) return config
-  const next = clone(config)
-  next.remnawave!.injectHosts!.splice(index, 1)
   return next
 }
 
