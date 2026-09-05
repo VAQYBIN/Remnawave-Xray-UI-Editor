@@ -75,6 +75,29 @@ describe('проверка ядром', () => {
   })
 
   it('ядро получает файл с подставленными прокси, а не исходный шаблон', async () => {
+    // Отдельный шаблон именно для этой проверки: корневой и групповой ключи
+    // remnawave присутствуют по-настоящему (в TEMPLATE выше их нет вовсе, и
+    // проверка «ключей нет» была бы верна для любого шаблона без них — в том
+    // числе для регрессии, которая вырезала бы само снятие ключей).
+    // select-random-proxy — легитимный remnawave-ключ группы (см.
+    // frontend/src/entities/mihomo/groups.ts), в отличие от include-proxies
+    // он не отключает подстановку маркера, поэтому не мешает соседней проверке.
+    const TEMPLATE_WITH_REMNAWAVE = `remnawave:
+  includeHiddenHosts: false
+
+proxies: # LEAVE THIS LINE!
+
+proxy-groups:
+  - name: VPN
+    type: select
+    remnawave:
+      select-random-proxy: true
+    proxies: # LEAVE THIS LINE!
+
+rules:
+  - MATCH,VPN
+`
+
     // Раннер замокан, но файл на момент вызова ещё существует (удаление — в
     // finally, уже после возврата раннера): читаем его по переданному пути,
     // чтобы проверить именно содержимое, а не просто наличие флагов -t/-f.
@@ -85,7 +108,7 @@ describe('проверка ядром', () => {
       return { code: 0, output: 'ok' }
     })
     const service = new MihomoService('mihomo', '/tmp', runner as unknown as SpawnRunner)
-    await service.test(TEMPLATE)
+    await service.test(TEMPLATE_WITH_REMNAWAVE)
 
     const args = (runner.mock.calls[0] as unknown as [string, string[], unknown])[1]
     expect(args).toContain('-t')
@@ -102,7 +125,9 @@ describe('проверка ядром', () => {
     // Маркер-комментарий — только приглашение подставить прокси; в файле для
     // ядра его быть не должно, иначе дыра осталась дырой
     expect(written).not.toContain('LEAVE THIS LINE!')
-    // Ключи remnawave ядро не знает — они обязаны быть сняты перед записью
+    // Ключи remnawave ядро не знает — они обязаны быть сняты перед записью.
+    // Шаблон выше содержит их и в корне, и в группе, поэтому проверка
+    // действительно различает «сняты» от «остались»
     expect(written).not.toContain('remnawave')
   })
 })
