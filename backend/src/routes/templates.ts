@@ -62,6 +62,17 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
     const { uuid } = paramsSchema.parse(req.params)
     const body = updateSchema.parse(req.body)
     const current = await app.remnawave.getTemplate(uuid)
+    // Белый список, а не чёрный: редактор умеет ровно два типа, и любой новый
+    // тип, который панель добавит завтра, обязан молча получить 400, а не
+    // молча пройти. Проверка типа — ПЕРЕД проверками поля содержимого: иначе
+    // на XRAY_BASE64 сработала бы более ранняя проверка и ответила бы «нужен
+    // templateJson», что вводит оператора в заблуждение — редактор этот тип
+    // не умеет вовсе, дело не в отсутствующем поле.
+    if (current.templateType !== 'XRAY_JSON' && current.templateType !== 'MIHOMO') {
+      return reply.status(400).send({
+        message: `Редактор не умеет шаблоны типа ${current.templateType}`,
+      })
+    }
     // Тип шаблона решает, в каком поле лежит содержимое: применение чужого
     // поля оставило бы в документе мусор, а панель приняла бы это молча
     const isYaml = YAML_TEMPLATE_TYPES.includes(current.templateType)
@@ -73,11 +84,6 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
     if (!isYaml && body.templateJson === undefined) {
       return reply.status(400).send({
         message: `Шаблон ${current.templateType} хранит содержимое в JSON — нужен templateJson`,
-      })
-    }
-    if (current.templateType === 'XRAY_BASE64' || current.templateType === 'SINGBOX') {
-      return reply.status(400).send({
-        message: `Редактор пока не умеет шаблоны ${current.templateType}`,
       })
     }
     if (hashTemplate(current) !== body.expectedHash) {

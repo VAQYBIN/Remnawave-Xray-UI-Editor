@@ -1,9 +1,28 @@
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { parse } from 'yaml'
 import { describe, expect, it, vi } from 'vitest'
 import { withDummyProxies } from '../src/mihomo/dummyProxies.js'
 import { MihomoService } from '../src/mihomo/service.js'
 import type { SpawnRunner } from '../src/proc/spawn.js'
+import { buildServer } from '../src/server.js'
+import { loginCookie, makeTestConfig } from './helpers.js'
+import { makeStubRemnawave } from './stub-remnawave.js'
+
+const FIXTURE_NAMES = ['default', 'simple', 'bundle'] as const
+
+/**
+ * Копии данных из frontend/test/fixtures/mihomo/*.yaml — настоящие шаблоны из
+ * remnawave/templates, а не синтетика в 5-10 строк. Общих файлов между workspace
+ * быть не должно, поэтому это дублирование ДАННЫХ, а копия дешевле непроверенного
+ * риска: главный риск фичи («подбор фиктивных прокси фиксируется тестом на всех
+ * трёх фикстурах») не был закрыт ни одним тестом на настоящем документе.
+ */
+function realMihomoFixture(name: (typeof FIXTURE_NAMES)[number]): string {
+  return readFileSync(new URL(`./fixtures/mihomo/${name}.yaml`, import.meta.url), 'utf8')
+}
 
 const TEMPLATE = `proxies: # LEAVE THIS LINE!
 
@@ -129,5 +148,73 @@ rules:
     // Шаблон выше содержит их и в корне, и в группе, поэтому проверка
     // действительно различает «сняты» от «остались»
     expect(written).not.toContain('remnawave')
+  })
+})
+
+describe('POST /api/tools/mihomo-test на битом YAML', () => {
+  it('отвечает 400 с русским текстом, а не 500 движка', async () => {
+    const app = await buildServer(makeTestConfig(), { remnawave: makeStubRemnawave() })
+    const cookie = await loginCookie(app)
+    // Незакрытая квадратная скобка — YAMLParseError бросается до входа в try сервиса
+    const broken = Buffer.from('a: [1,2\n', 'utf8').toString('base64')
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tools/mihomo-test',
+      headers: { cookie },
+      payload: { encodedTemplateYaml: broken },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().message).toMatch(/шаблон.*yaml|разобрать.*yaml/i)
+    expect(res.json().message).toMatch(/[а-яё]/i) // русский текст, а не английский движка
+    await app.close()
+  })
+})
+
+describe('подстановка фиктивных прокси на настоящих шаблонах remnawave/templates', () => {
+  it.each(FIXTURE_NAMES)('%s: не бросает, разбирается, маркеров и remnawave не осталось', (name) => {
+    const text = realMihomoFixture(name)
+    let substituted = ''
+    expect(() => {
+      substituted = withDummyProxies(text)
+    }).not.toThrow()
+    expect(substituted).not.toContain('LEAVE THIS LINE!')
+    expect(substituted).not.toContain('remnawave')
+    expect(() => parse(substituted)).not.toThrow()
+  })
+
+  it.each(FIXTURE_NAMES)('%s: ни одна группа не осталась без кандидатов', (name) => {
+    const config = parse(withDummyProxies(realMihomoFixture(name))) as {
+      'proxy-groups'?: Record<string, unknown>[]
+    }
+    const groups = config['proxy-groups'] ?? []
+    for (const group of groups) {
+      const proxies = Array.isArray(group.proxies) ? group.proxies : []
+      const use = Array.isArray(group.use) ? group.use : []
+      const includeAll = group['include-all'] === true || group['include-all-proxies'] === true
+      const hasCandidates = proxies.length > 0 || use.length > 0 || includeAll
+      expect(hasCandidates, `группа «${String(group.name)}» осталась без кандидатов`).toBe(true)
+    }
+  })
+})
+
+// Уровень 2: настоящий запуск ядра. Пропускается, если MIHOMO_BIN не найден в
+// системе (обычный случай при локальной разработке без образа) — набор обязан
+// оставаться зелёным и на машине без ядра. Проверка бинаря — синхронная и на
+// уровне модуля: it.skipIf решает ДО того, как vitest увидит сам тест.
+const MIHOMO_BIN = process.env.MIHOMO_BIN ?? 'mihomo'
+const hasRealMihomo = (() => {
+  try {
+    return spawnSync(MIHOMO_BIN, ['-v']).error === undefined
+  } catch {
+    return false
+  }
+})()
+
+describe('проверка настоящим ядром mihomo -t (уровень 2, требует бинарь)', () => {
+  it.skipIf(!hasRealMihomo).each(FIXTURE_NAMES)('%s принимается ядром', async (name) => {
+    const service = new MihomoService(MIHOMO_BIN, tmpdir())
+    const res = await service.test(realMihomoFixture(name))
+    expect(res.available).toBe(true)
+    expect(res.ok, res.errors.join('\n')).toBe(true)
   })
 })

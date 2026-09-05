@@ -34,10 +34,23 @@ export class CatalogService {
     if (!res.ok) {
       throw new Error(`Каталог шаблонов недоступен: GitHub ответил ${res.status}`)
     }
-    const parsed = JSON.parse(await res.text()) as { templates?: unknown }
-    const entries = Array.isArray(parsed.templates)
-      ? parsed.templates.filter(isEntry)
-      : []
+    const text = await res.text()
+    // Самый вероятный отказ GitHub — не сетевая ошибка, а HTML-страница
+    // (прокси, капча, страница ошибки) с кодом 200: JSON.parse бросит английское
+    // «Unexpected token» — заворачиваем в русское объяснение. Тем же try/catch
+    // закрыт и new URL(entry.url): кривая ссылка из индекса иначе всплыла бы
+    // английским TypeError при использовании записи, а не при чтении каталога.
+    let entries: CatalogEntry[]
+    try {
+      const parsed = JSON.parse(text) as { templates?: unknown }
+      const raw = Array.isArray(parsed.templates) ? parsed.templates.filter(isEntry) : []
+      for (const entry of raw) new URL(entry.url)
+      entries = raw
+    } catch {
+      throw new Error(
+        'Не удалось разобрать индекс каталога шаблонов — вставьте YAML/JSON вручную',
+      )
+    }
     this.cache = { at: this.now(), entries }
     return entries
   }

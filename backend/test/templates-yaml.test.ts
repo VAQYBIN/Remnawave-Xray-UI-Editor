@@ -115,3 +115,45 @@ describe('PATCH YAML-шаблона', () => {
     await app.close()
   })
 })
+
+describe('белый список типов шаблона в PATCH', () => {
+  it('CLASH отклоняется с 400 — редактор его не открывает, хотя тип YAML-шаблона', async () => {
+    const template = makeStubTemplate({
+      name: 'Clash',
+      templateType: 'CLASH',
+      templateJson: null,
+      encodedTemplateYaml: encode('a: 1\n'),
+    })
+    const app = await buildServer(makeTestConfig(), { remnawave: makeStubRemnawave([], [template]) })
+    const cookie = await loginCookie(app)
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/${template.uuid}`,
+      headers: { cookie },
+      payload: { encodedTemplateYaml: encode('a: 2\n'), expectedHash: hashTemplateYaml(encode('a: 1\n')) },
+    })
+    expect(res.statusCode).toBe(400)
+    await app.close()
+  })
+
+  it('XRAY_BASE64 получает сообщение про неподдерживаемый тип, а не про недостающее поле', async () => {
+    const template = makeStubTemplate({
+      name: 'Base64',
+      templateType: 'XRAY_BASE64',
+      templateJson: null,
+      encodedTemplateYaml: encode('a: 1\n'),
+    })
+    const app = await buildServer(makeTestConfig(), { remnawave: makeStubRemnawave([], [template]) })
+    const cookie = await loginCookie(app)
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/${template.uuid}`,
+      headers: { cookie },
+      payload: { expectedHash: hashTemplateYaml(encode('a: 1\n')) },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().message).toMatch(/не умеет/i)
+    expect(res.json().message).not.toMatch(/templateJson|encodedTemplateYaml/)
+    await app.close()
+  })
+})

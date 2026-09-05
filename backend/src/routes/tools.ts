@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
+import { YAMLParseError } from 'yaml'
 import { z } from 'zod'
 import { derivePublicKey, generateRealityKeypair } from '../tools/reality.js'
 import { probeRealityTarget, type RealityProbe } from '../tools/realityProbe.js'
@@ -47,9 +48,20 @@ export const toolsRoutes: FastifyPluginAsync<ToolsRoutesOptions> = async (app, o
     return app.xray.test(config, computed)
   })
 
-  app.post('/api/tools/mihomo-test', async (req) => {
+  app.post('/api/tools/mihomo-test', async (req, reply) => {
     const { encodedTemplateYaml } = mihomoSchema.parse(req.body)
-    return app.mihomo.test(Buffer.from(encodedTemplateYaml, 'base64').toString('utf8'))
+    try {
+      return await app.mihomo.test(Buffer.from(encodedTemplateYaml, 'base64').toString('utf8'))
+    } catch (error) {
+      // withDummyProxies зовёт parse() ДО входа в try сервиса: на невалидном
+      // YAML это самый вероятный путь (кнопку жмут, когда с документом что-то
+      // не так), а не экзотика — ответ обязан быть 400 по-русски, а не 500
+      // движка на английском
+      if (error instanceof YAMLParseError) {
+        return reply.status(400).send({ message: 'Не удалось разобрать шаблон как YAML' })
+      }
+      throw error
+    }
   })
 
   app.post('/api/tools/reality-target', async (req) => {
