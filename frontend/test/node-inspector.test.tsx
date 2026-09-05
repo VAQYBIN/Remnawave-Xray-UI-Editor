@@ -249,3 +249,63 @@ describe('NodeInspector — streamSettings у outbound', () => {
     expect(options).not.toContain('direct')
   })
 })
+
+// Граф, валидация, трассировка и рецепты давно ходят через outboundTagsOf —
+// формы обязаны видеть ровно тот же список, иначе редактор спорит сам с собой
+describe('NodeInspector — теги групп подстановки в формах', () => {
+  const templateConfig = {
+    inbounds: [],
+    outbounds: [
+      { tag: 'direct', protocol: 'freedom' },
+      { tag: 'block', protocol: 'blackhole' },
+    ],
+    remnawave: {
+      injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, tagPrefix: 'proxy' }],
+    },
+    routing: {
+      rules: [{ type: 'field', outboundTag: 'direct' }],
+      balancers: [{ tag: 'bal', selector: ['proxy'], fallbackTag: 'proxy-2' }],
+    },
+  }
+
+  it('запасной выход на предсказанный тег виден в селекте, а не пропадает', async () => {
+    wrap(
+      <NodeInspector config={templateConfig} nodeId="bal:bal" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    expect(selectedValue('Запасной выход (fallbackTag)')).toBe('proxy-2')
+    expect(await optionLabels('Запасной выход (fallbackTag)')).toContain('proxy-2')
+  })
+
+  it('селектор, поймавший только группу, показывает кандидатов, а не ошибку', () => {
+    wrap(
+      <NodeInspector config={templateConfig} nodeId="bal:bal" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    expect(screen.getByText(/Кандидаты: proxy, proxy-2, proxy-3/)).toBeInTheDocument()
+    expect(screen.queryByText(/не совпал ни с одним outbound/i)).not.toBeInTheDocument()
+  })
+
+  it('правило может отправить трафик в предсказанный тег группы', async () => {
+    wrap(
+      <NodeInspector config={templateConfig} nodeId="rule:0" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    expect(await optionLabels('Outbound (куда отправить)')).toContain('proxy')
+  })
+
+  // Теги знает только панель — предсказывать нечего, список остаётся статическим
+  it('при тегах от панели список не растёт', async () => {
+    const panelNamed = {
+      ...templateConfig,
+      remnawave: {
+        injectHosts: [{ selector: { type: 'sameTagAsRecipient' }, useHostTagAsTag: true }],
+      },
+    }
+    wrap(
+      <NodeInspector config={panelNamed} nodeId="bal:bal" onApply={() => {}} onRemove={() => {}} onClose={() => {}} />,
+    )
+    expect(await optionLabels('Запасной выход (fallbackTag)')).toEqual([
+      'без запасного выхода',
+      'direct',
+      'block',
+    ])
+  })
+})

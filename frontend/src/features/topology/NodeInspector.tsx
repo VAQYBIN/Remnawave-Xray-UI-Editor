@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import CodeMirror, { EditorView } from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
-import { matchPrefixes, subjectCovers, type XrayConfig } from '../../entities/xray'
+import { matchPrefixes, outboundTagsOf, subjectCovers, type XrayConfig } from '../../entities/xray'
 import { getNodeJson } from '../../entities/graph/mutations'
 import { xrayIntellisense, type XrayRootKind } from '../editor/intellisense'
 import { Button, Dialog } from '../../shared/ui'
@@ -83,6 +83,12 @@ export function NodeInspector({
   onSetupObservatory,
 }: Props) {
   const original = useMemo(() => JSON.stringify(getNodeJson(config, nodeId) ?? {}, null, 2), [config, nodeId])
+  // Списки «куда направить трафик»: dialerProxy, outboundTag правила, selector и
+  // запасной выход балансера, наблюдаемые выходы. Всюду это ЦЕЛЬ ссылки, а не то,
+  // что редактор может править, — значит теги групп подстановки здесь такие же
+  // валидные, как статические: к моменту работы ядра панель их уже подставила.
+  // Той же outboundTagsOf пользуются граф, валидация, трассировка и рецепты.
+  const outboundTags = useMemo(() => outboundTagsOf(config), [config])
   const [text, setText] = useState(original)
   const [parseError, setParseError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -215,7 +221,7 @@ export function NodeInspector({
               <OutboundForm
                 value={parsedNode}
                 onChange={(next) => setText(JSON.stringify(next, null, 2))}
-                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+                outboundTags={outboundTags}
               />
             )}
             {parsedNode !== null && kind === 'rule' && (
@@ -223,7 +229,7 @@ export function NodeInspector({
                 value={parsedNode}
                 onChange={(next) => setText(JSON.stringify(next, null, 2))}
                 inboundTags={(config.inbounds ?? []).map((i) => i.tag)}
-                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+                outboundTags={outboundTags}
               />
             )}
             {parsedNode !== null && kind === 'dns' && (
@@ -233,7 +239,7 @@ export function NodeInspector({
               <BalancerForm
                 value={parsedNode}
                 onChange={(next) => setText(JSON.stringify(next, null, 2))}
-                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+                outboundTags={outboundTags}
                 observatory={observatoryState(config, parsedNode)}
                 onSetupObservatory={onSetupObservatory}
               />
@@ -242,7 +248,7 @@ export function NodeInspector({
               <ObservatoryForm
                 value={parsedNode}
                 onChange={(next) => setText(JSON.stringify(next, null, 2))}
-                outboundTags={(config.outbounds ?? []).map((o) => o.tag)}
+                outboundTags={outboundTags}
               />
             )}
             {parsedNode !== null && kind === 'inject' && (
