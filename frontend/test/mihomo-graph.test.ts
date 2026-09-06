@@ -91,6 +91,71 @@ describe('граф Mihomo', () => {
   })
 })
 
+describe('подсписки правил', () => {
+  it('подсписок даёт узел с числом правил и ведёт в цели своих правил', () => {
+    const md = parseMihomo(
+      'proxy-groups:\n  - name: Основная\n' +
+        'sub-rules:\n  block:\n    - DOMAIN,a.com,Основная\n    - MATCH,REJECT\n',
+    )
+    const { nodes, edges } = buildMihomoGraph(md)
+    const sub = nodes.find((n) => n.id === 'subrule:block')
+    // `type` — ключ компонента-рендерера, `kind` — вид узла: в графе Mihomo это
+    // намеренно разные имена, и проверяем оба
+    expect(sub?.type).toBe('mihomoSubRule')
+    expect(sub?.data).toMatchObject({ kind: 'mihomo-subrule', name: 'block', count: 2 })
+    expect((sub?.data as { targets: string[] }).targets).toEqual(['Основная', 'REJECT'])
+    expect(edges.map((e) => e.id)).toContain('e:subrule:block->group:Основная')
+    expect(edges.map((e) => e.id)).toContain('e:subrule:block->builtin:REJECT')
+  })
+
+  it('узел подсписка стоит в колонке правил', () => {
+    const md = parseMihomo(
+      'sub-rules:\n  ru:\n    - MATCH,DIRECT\nrules:\n  - SUB-RULE,(NETWORK,udp),ru\n',
+    )
+    const { nodes } = buildMihomoGraph(md)
+    expect(nodes.find((n) => n.id === 'subrule:ru')?.position.x).toBe(
+      nodes.find((n) => n.id === 'rule:0')?.position.x,
+    )
+  })
+
+  it('SUB-RULE ведёт в подсписок, а не в одноимённую группу', () => {
+    // Имя подсписка и имя группы совпали: resolveTarget соврал бы, и ребро ушло
+    // бы в группу — правило SUB-RULE туда не ведёт никогда
+    const md = parseMihomo(
+      'proxy-groups:\n  - name: block\n    proxies:\n      - DIRECT\n' +
+        'sub-rules:\n  block:\n    - MATCH,DIRECT\n' +
+        'rules:\n  - SUB-RULE,(NETWORK,udp),block\n',
+    )
+    const ids = buildMihomoGraph(md).edges.map((e) => e.id)
+    expect(ids).toContain('e:rule:0->subrule:block')
+    expect(ids).not.toContain('e:rule:0->group:block')
+  })
+
+  it('ссылка на несуществующий подсписок ребра не даёт', () => {
+    // Висячую ссылку ловит диагностикой validateMihomo — граф просто молчит
+    const md = parseMihomo('rules:\n  - SUB-RULE,(NETWORK,udp),block\n')
+    const { nodes, edges } = buildMihomoGraph(md)
+    expect(nodes.map((n) => n.id)).not.toContain('subrule:block')
+    expect(edges.filter((e) => e.source === 'rule:0')).toEqual([])
+  })
+
+  it('цель подсписка, которую подставит панель, ребра не даёт, но остаётся в узле', () => {
+    const md = parseMihomo('sub-rules:\n  ru:\n    - MATCH,🇫🇮 Finland1\n')
+    const { nodes, edges } = buildMihomoGraph(md)
+    const targets = (nodes.find((n) => n.id === 'subrule:ru')?.data as { targets: string[] }).targets
+    expect(targets).toEqual(['🇫🇮 Finland1'])
+    expect(edges).toEqual([])
+  })
+
+  it('строка подсписка в кавычках разбирается по значению, а не по срезу текста', () => {
+    const md = parseMihomo('sub-rules:\n  ru:\n    - "MATCH,DIRECT"\n')
+    const { nodes, edges } = buildMihomoGraph(md)
+    expect((nodes.find((n) => n.id === 'subrule:ru')?.data as { targets: string[] }).targets)
+      .toEqual(['DIRECT'])
+    expect(edges.map((e) => e.id)).toContain('e:subrule:ru->builtin:DIRECT')
+  })
+})
+
 describe('раскладка по вертикали', () => {
   it('узлы одной колонки не лежат друг на друге', () => {
     const md = parseMihomo(mihomoFixture('simple'))

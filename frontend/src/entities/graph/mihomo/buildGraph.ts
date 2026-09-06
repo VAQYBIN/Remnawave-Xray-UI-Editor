@@ -3,11 +3,12 @@
 // не вешает: узел, уже находящийся в обходе, даёт нулевой вклад, а сама ошибка
 // приходит диагностикой из validate.ts.
 
+import { isMap, isScalar, isSeq } from 'yaml'
 import { groupsOf, providersOf, type MihomoGroup } from '../../mihomo/groups'
 import { groupGetsHosts, hasRootMarker } from '../../mihomo/inject'
-import type { MihomoDoc } from '../../mihomo/parse'
+import { sectionNode, type MihomoDoc } from '../../mihomo/parse'
 import { resolveTarget } from '../../mihomo/resolve'
-import { rulesOf } from '../../mihomo/rules'
+import { parseRule, rulesOf } from '../../mihomo/rules'
 import { edgeId } from '../edgeIds'
 import type { FlowEdge, FlowNode } from '../types'
 
@@ -43,6 +44,43 @@ export function groupDepths(groups: MihomoGroup[]): Map<string, number> {
   return depths
 }
 
+interface SubRuleList {
+  name: string
+  /** Число строк в подсписке — карточка показывает его вместо десятка узлов */
+  count: number
+  /** Цели правил подсписка в порядке появления, без повторов */
+  targets: string[]
+}
+
+/**
+ * Подсписки правил: `sub-rules` — это карта «имя → список строк-правил». Читаем
+ * их прямо здесь, а не через entities/mihomo: наружу оттуда торчат только имена
+ * (`subRuleNames`), а графу нужны ещё число правил и их цели. Разбор строки —
+ * тот же `parseRule`, что и у обычных правил.
+ *
+ * Значение скаляра берём ДЕКОДИРОВАННЫМ, а не срезом текста: в кавычках
+ * (`- "MATCH,DIRECT"`) YAML их уже снял, и разбор среза дал бы тип правила
+ * `"MATCH` (тот же приём, что в `rulesOf`).
+ */
+function subRuleLists(md: MihomoDoc): SubRuleList[] {
+  const node = sectionNode(md, 'sub-rules')
+  if (!isMap(node)) return []
+  const out: SubRuleList[] = []
+  for (const pair of node.items) {
+    const name = (pair.key as { value?: unknown } | null)?.value
+    const list = pair.value
+    if (typeof name !== 'string' || !isSeq(list)) continue
+    const targets: string[] = []
+    for (const item of list.items) {
+      const value = isScalar(item) && typeof item.value === 'string' ? item.value : null
+      const target = value === null ? undefined : parseRule(value)?.target
+      if (target !== undefined && !targets.includes(target)) targets.push(target)
+    }
+    out.push({ name, count: list.items.length, targets })
+  }
+  return out
+}
+
 function pickOf(group: MihomoGroup): 'all' | 'random' | 'shuffled' {
   if (group.remnawave.selectRandomProxy === true) return 'random'
   if (group.remnawave.shuffleProxiesOrder === true) return 'shuffled'
@@ -76,8 +114,9 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
   //
   // Побеждает первый добавленный узел. Порядок обхода ниже: группы (каждая —
   // сразу вместе со своим узлом подстановки, если группа его получает) →
-  // корневая подстановка → провайдеры → правила → встроенные цели (заводятся по
-  // мере обнаружения при разборе рёбер групп и правил). Отсюда для двух
+  // корневая подстановка → провайдеры → правила → подсписки правил → встроенные
+  // цели (заводятся по мере обнаружения при разборе рёбер групп, правил и
+  // подсписков). Отсюда для двух
   // одноимённых групп побеждает первая по порядку в `proxy-groups`; для группы,
   // названной `root` и получающей хосты, — её собственный узел `hosts:root`, а
   // не корневая подстановка: группа объявлена явно автором документа, маркер на
@@ -177,6 +216,9 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
     for (const name of group.use) pushEdge(`group:${group.name}`, `provider:${name}`)
   })
 
+  const subRules = subRuleLists(md)
+  const subRuleNames = new Set(subRules.map((s) => s.name))
+
   rulesOf(md).forEach((entry) => {
     const id = `rule:${entry.index}`
     pushNode({
@@ -194,12 +236,46 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
     })
     const target = entry.rule?.target
     if (target === undefined) return
+    // У SUB-RULE третье поле — имя ПОДСПИСКА из `sub-rules`, а не группы:
+    // resolveTarget здесь соврал бы, если имя подсписка случайно совпало с
+    // именем группы, и ребро ушло бы не туда. Ссылка на подсписок, которого
+    // нет, ребра не даёт — её ловит диагностикой validateMihomo.
+    if (entry.rule?.type === 'SUB-RULE') {
+      if (subRuleNames.has(target)) pushEdge(id, `subrule:${target}`)
+      return
+    }
     const kind = resolveTarget(md, target)
     if (kind === 'group') pushEdge(id, `group:${target}`)
     if (kind === 'provider') pushEdge(id, `provider:${target}`)
     if (kind === 'builtin') {
       ensureBuiltin(target)
       pushEdge(id, `builtin:${target}`)
+    }
+  })
+
+  // Подсписки — одна карточка на подсписок, в той же колонке, что и правила.
+  // Раскрывать подсписок отдельными узлами незачем: это упорядоченный список
+  // строк, порядок в нём значим, и колонка из десяти безымянных узлов читается
+  // хуже одной карточки с числом правил — сами правила показывает инспектор.
+  // А вот куда подсписок девает трафик, видно быть обязано, иначе правило
+  // `SUB-RULE,(…),block` ведёт в пустоту: рёбра идут в цели его собственных
+  // правил тем же резолвером, что и у остальных узлов.
+  subRules.forEach((sub) => {
+    const id = `subrule:${sub.name}`
+    pushNode({
+      id,
+      type: 'mihomoSubRule',
+      position: { x: 0, y: 0 },
+      data: { kind: 'mihomo-subrule', name: sub.name, count: sub.count, targets: sub.targets },
+    })
+    for (const target of sub.targets) {
+      const kind = resolveTarget(md, target)
+      if (kind === 'group') pushEdge(id, `group:${target}`)
+      if (kind === 'provider') pushEdge(id, `provider:${target}`)
+      if (kind === 'builtin') {
+        ensureBuiltin(target)
+        pushEdge(id, `builtin:${target}`)
+      }
     }
   })
 
