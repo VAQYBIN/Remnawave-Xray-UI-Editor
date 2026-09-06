@@ -1,6 +1,7 @@
+import { act } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ReactFlowProvider } from '@xyflow/react'
+import { ReactFlowProvider, useEdges, useReactFlow, type Edge } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GraphCanvas } from '../src/features/topology/GraphCanvas'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
@@ -116,5 +117,101 @@ describe('колонки одного вида на разных координ�
       'translate(0px, -52px)',
       'translate(430px, -52px)',
     ])
+  })
+})
+
+// Убрать ребро с холста имеет право только документ. React Flow спрашивает
+// разрешения через onEdgesDelete; топология отвечает правкой либо отказом. При
+// отказе документ не меняется, проп `edges` остаётся ТОЙ ЖЕ ссылкой, ресинк не
+// срабатывает — и если канвас применил удаление локально, ребро висит убранным
+// до следующей пересборки графа. Холст показывал бы документ, которого нет.
+//
+// Проверка идёт через настоящий путь удаления React Flow (`deleteElements`), а
+// состояние читается его же хуком `useEdges` — это и есть «что сейчас на
+// холсте». Дефект и починка живут в ОБЩЕМ канвасе, поэтому один тест здесь
+// закрывает оба графа: и Xray, и Mihomo рисуются этим же компонентом.
+describe('удаление ребра проходит через документ', () => {
+  function probe() {
+    const state: { edges: Edge[]; remove: (() => Promise<unknown>) | null } = {
+      edges: [],
+      remove: null,
+    }
+    function Probe() {
+      state.edges = useEdges()
+      const { deleteElements } = useReactFlow()
+      state.remove = () => deleteElements({ edges: [{ id: 'e1' }] })
+      return null
+    }
+    return { state, Probe }
+  }
+
+  const EDGE = { id: 'e1', source: 'a', target: 'b' }
+  const NODES = [
+    { id: 'a', type: 'box', position: { x: 0, y: 0 }, data: { kind: 'boxKind', label: 'A' } },
+    { id: 'b', type: 'box', position: { x: 200, y: 0 }, data: { kind: 'boxKind', label: 'Б' } },
+  ]
+
+  it('после отказа ребро остаётся на холсте, а документ о попытке узнал', async () => {
+    const { state, Probe } = probe()
+    // Отказ: обработчик вызван, но документ не изменился — проп edges тот же
+    const onEdgesDelete = vi.fn()
+    renderCanvas({ nodes: NODES, edges: [EDGE], onEdgesDelete, children: <Probe /> })
+
+    await act(async () => {
+      await state.remove!()
+    })
+    expect(onEdgesDelete).toHaveBeenCalledTimes(1)
+    expect(state.edges.map((e) => e.id)).toEqual(['e1'])
+  })
+
+  it('когда документ ребро убрал, оно уходит и с холста', async () => {
+    // Парная сторона: канвас не «замораживает» рёбра, он просто ждёт документ
+    const { state, Probe } = probe()
+    const view = render(
+      <ReactFlowProvider>
+        <GraphCanvas
+          docKey="template:u-2"
+          nodes={NODES}
+          edges={[EDGE]}
+          nodeTypes={NODE_TYPES}
+          edgeTypes={{}}
+          selectedId={null}
+          onSelect={vi.fn()}
+          isValidConnection={() => true}
+          onConnect={vi.fn()}
+          onEdgesDelete={vi.fn()}
+          targetKinds={['group']}
+          columns={[{ kind: 'boxKind', title: 'колонка', x: 0 }]}
+        >
+          <Probe />
+        </GraphCanvas>
+      </ReactFlowProvider>,
+    )
+    await act(async () => {
+      await state.remove!()
+    })
+    expect(state.edges.map((e) => e.id)).toEqual(['e1'])
+
+    view.rerender(
+      <ReactFlowProvider>
+        <GraphCanvas
+          docKey="template:u-2"
+          nodes={NODES}
+          edges={[]}
+          nodeTypes={NODE_TYPES}
+          edgeTypes={{}}
+          selectedId={null}
+          onSelect={vi.fn()}
+          isValidConnection={() => true}
+          onConnect={vi.fn()}
+          onEdgesDelete={vi.fn()}
+          targetKinds={['group']}
+          columns={[{ kind: 'boxKind', title: 'колонка', x: 0 }]}
+        >
+          <Probe />
+        </GraphCanvas>
+      </ReactFlowProvider>,
+    )
+    expect(state.edges).toEqual([])
   })
 })

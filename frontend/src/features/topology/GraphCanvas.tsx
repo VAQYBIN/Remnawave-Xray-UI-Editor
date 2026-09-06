@@ -50,6 +50,29 @@ export function resyncEdges(prev: Edge[], next: Edge[]): Edge[] {
   return next.map((e) => (selected.has(e.id) ? { ...e, selected: true } : e))
 }
 
+/**
+ * Локальные изменения рёбер, КРОМЕ удаления. Рёбра — картинка документа, и
+ * убрать их с холста имеет право только сам документ: React Flow спрашивает
+ * разрешения через `onEdgesDelete`, а топология отвечает правкой либо ОТКАЗОМ с
+ * причиной (список у Mihomo — `MihomoRefusal`; у Xray отказ выражен тем, что
+ * мутация вернула тот же конфиг).
+ *
+ * Раньше `remove` применялся локально сразу же. Когда правка отказывала,
+ * документ не менялся, `graphEdges` оставался ТОЙ ЖЕ ссылкой, ресинк-эффект не
+ * срабатывал — и ребро висело убранным до следующей пересборки графа: холст
+ * показывал документ, которого нет. Дефект общий для обоих графов; заметнее он
+ * стал, когда топология Mihomo начала отказывать сразу на нескольких рёбрах.
+ *
+ * Теперь удаление идёт только через документ. Выполнилась правка — ребро
+ * исчезнет на следующем рендере (граф пересобран, ресинк отработал); отказала —
+ * останется на месте, как и в документе. Кадр задержки не виден, а пропавшее
+ * ни с того ни с сего ребро — видно.
+ */
+export function applyLocalEdgeChanges(changes: EdgeChange[], edges: Edge[]): Edge[] {
+  const local = changes.filter((c) => c.type !== 'remove')
+  return local.length === changes.length ? applyEdgeChanges(changes, edges) : applyEdgeChanges(local, edges)
+}
+
 /** Ширина инспектора; держится в паре с --inspector-w в tokens.css */
 export function inspectorWidth(viewportWidth: number): number {
   return Math.min(440, viewportWidth * 0.92)
@@ -213,7 +236,7 @@ export function GraphCanvas({
   )
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    (changes: EdgeChange[]) => setEdges((eds) => applyLocalEdgeChanges(changes, eds)),
     [],
   )
 
