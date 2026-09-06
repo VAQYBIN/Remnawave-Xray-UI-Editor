@@ -29,7 +29,14 @@ export interface MihomoField {
   key: string
   /** Русское описание: подпись-подсказка в форме и tooltip подсказки в тексте */
   doc: string
-  type: 'string' | 'number' | 'boolean' | 'strings'
+  /**
+   * `'map'` — значение само является вложенным отображением (`nameserver-policy`,
+   * `sniff` и подобные), а не скаляром или списком строк. Форма инспектора обязана
+   * рендерить такое поле read-only с подписью «правится на вкладке YAML» — текстовый
+   * инпут поверх отображения при сохранении заменил бы его скаляром и испортил
+   * документ. Подсказки и описание ключа при этом работают как обычно.
+   */
+  type: 'string' | 'number' | 'boolean' | 'strings' | 'map'
   /**
    * Известные значения. Это ПОДСКАЗКА, а не ограничение: значение остаётся
    * строкой, и незнакомое значение чужого шаблона проходит насквозь — тот же
@@ -182,8 +189,8 @@ const DNS_FIELDS: MihomoField[] = [
   { key: 'direct-nameserver', doc: 'DNS для доменов, уходящих в прямой выход (DIRECT).', type: 'strings' },
   {
     key: 'nameserver-policy',
-    doc: 'Соответствие «домен/geosite/rule-set → свой DNS-сервер»: вложенное отображение, а не список.',
-    type: 'string',
+    doc: 'Соответствие «домен/geosite/rule-set → свой DNS-сервер».',
+    type: 'map',
   },
   { key: 'respect-rules', doc: 'Резолвить DNS-запросы с учётом правил маршрутизации (через соответствующий outbound).', type: 'boolean' },
   { key: 'use-hosts', doc: 'Учитывать секцию hosts при резолвинге.', type: 'boolean' },
@@ -218,8 +225,8 @@ const SNIFFER_FIELDS: MihomoField[] = [
   { key: 'override-destination', doc: 'Подменять адрес назначения найденным доменом (иначе домен идёт только в правила).', type: 'boolean' },
   {
     key: 'sniff',
-    doc: 'Настройки по протоколам (HTTP/TLS/QUIC): порты и override-destination для каждого — вложенное отображение.',
-    type: 'string',
+    doc: 'Настройки по протоколам (HTTP/TLS/QUIC): порты и override-destination для каждого.',
+    type: 'map',
   },
   { key: 'skip-domain', doc: 'Домены, для которых sniffing не выполняется.', type: 'strings' },
   { key: 'skip-dst-address', doc: 'Адреса назначения, для которых sniffing не выполняется.', type: 'strings' },
@@ -267,6 +274,11 @@ const ROOT_FIELDS: MihomoField[] = [
       { value: 'random', doc: 'Реалистичный современный отпечаток по данным Cloudflare Radar' },
       { value: 'none' },
     ],
+  },
+  {
+    key: 'enable-process',
+    doc: 'Устаревший переключатель сопоставления по процессам (вкл/выкл). Ядро всё ещё принимает ключ, но современная замена — find-process-mode.',
+    type: 'boolean',
   },
   { key: 'find-process-mode', doc: 'Определение процесса-источника соединения (для правил по процессам).', type: 'string', enum: [
     { value: 'always', doc: 'Определять всегда' },
