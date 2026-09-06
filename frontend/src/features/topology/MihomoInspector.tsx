@@ -142,7 +142,9 @@ function SubRuleCard({ md, name, draft }: { md: MihomoDoc; name: string; draft: 
           </div>
         ))
       )}
-      <Button onClick={() => draft.openTextTab()}>Открыть в YAML</Button>
+      {/* Переход и прокрутка — одно действие черновика: порознь они не
+          собираются, см. revealAt в useDocumentDraft */}
+      <Button onClick={() => draft.revealAt(['sub-rules', name])}>Открыть в YAML</Button>
     </>
   )
 }

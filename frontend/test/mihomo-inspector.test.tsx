@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { MihomoFieldsForm } from '../src/features/inspector/MihomoFieldsForm'
 import { MihomoInspector } from '../src/features/topology/MihomoInspector'
 import { fieldsOf, parseMihomo } from '../src/entities/mihomo'
+import { buildMihomoGraph } from '../src/entities/graph/mihomo/buildGraph'
 import type { MihomoDraft } from '../src/features/editor/useMihomoDraft'
 import { selectOption } from './helpers'
 
@@ -205,7 +206,7 @@ function inspector(nodeId: string, over: Record<string, unknown> = {}) {
     moveSelected: vi.fn(),
     removeSelected: vi.fn(),
     replaceRule: vi.fn(),
-    openTextTab: vi.fn(),
+    revealAt: vi.fn(),
     setSelectedNode: vi.fn(),
     ...over,
   })
@@ -245,12 +246,30 @@ describe('инспектор узла Mihomo', () => {
     expect(screen.getByText(/filter: \(\?i\)nl/)).toBeInTheDocument()
   })
 
-  it('подсписок показан только для чтения и ведёт в YAML', async () => {
+  // Кнопка обязана вести К МЕСТУ подсписка, а не просто переключать вкладку:
+  // переход и прокрутка собираются только вместе (revealAt), порознь прокрутка
+  // уходит в ветку графа по устаревшему состоянию вкладки.
+  it('подсписок показан только для чтения и ведёт к своему месту в YAML', async () => {
     const draft = inspector('subrule:block')
     expect(screen.getByText('- MATCH,REJECT')).toBeInTheDocument()
     expect(screen.queryByLabelText('Тип')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Открыть в YAML' }))
-    expect(draft.openTextTab).toHaveBeenCalled()
+    expect(draft.revealAt).toHaveBeenCalledWith(['sub-rules', 'block'])
+  })
+
+  // Узел берём из настоящего графа, а не из строки-фикстуры: id подсписка задаёт
+  // buildMihomoGraph, и разойтись эти две схемы обязаны заметно. Узел ищем по
+  // `data.kind` — у графа Mihomo `type` узла (`mihomoSubRule`) с ним НЕ совпадает,
+  // и сравнение по `type` прошло бы мимо.
+  it('узел подсписка из живого графа открывается инспектором', () => {
+    const md = parseMihomo(NODES_DOC)
+    const node = buildMihomoGraph(md).nodes.find(
+      (n) => (n.data as { kind?: string }).kind === 'mihomo-subrule',
+    )
+    expect(node).toBeDefined()
+    render(<MihomoInspector draft={draftStub({ revealAt: vi.fn() })} md={md} nodeId={node!.id} />)
+    expect(screen.getByText('- MATCH,REJECT')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Открыть в YAML' })).toBeInTheDocument()
   })
 
   it('встроенная цель объясняется карточкой', () => {

@@ -69,6 +69,11 @@ function lockOf(md: MihomoDoc, parts: PathParts, field: MihomoField, origin: Fie
  *
  * Значение-отображение (`type: 'map'`) читатель тоже отдаёт как `undefined`,
  * поэтому `own`/`merged` доверяем без него.
+ *
+ * Это НЕ дефект `originAt` и чинить его там не нужно: `FieldOrigin` отвечает на
+ * вопрос «можно ли сюда писать», и для ключа, отсутствующего в цели якоря,
+ * `alias` — верный ответ (писатель откажет). Ошибкой было бы принять его за
+ * ответ на вопрос «есть ли значение» — на него отвечает эта функция.
  */
 function isSet(md: MihomoDoc, parts: PathParts, field: MihomoField): boolean {
   const { value, origin } = readFieldAt(md, parts, field.key)
@@ -275,6 +280,11 @@ export function MihomoFieldsForm({
 }) {
   // Заполненные поля сверху, остальные — под раскрывашкой: у группы 25 полей
   // словаря, и показанные разом они прячут то, что в документе реально задано.
+  //
+  // Делит именно `isSet`, а НЕ `origin !== 'absent'`: `FieldOrigin` отвечает на
+  // вопрос «можно ли сюда писать», а не «есть ли значение», и у ключа, которого
+  // в цели якоря нет, ответ на первый вопрос всё равно `alias` (писать нельзя).
+  // Разделение спрашивает про второе — не «чините» это обратно на `origin`.
   const filled = fields.filter((f) => isSet(md, parts, f))
   const rest = fields.filter((f) => !isSet(md, parts, f))
   return (

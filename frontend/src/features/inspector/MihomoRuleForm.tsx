@@ -5,6 +5,7 @@
 import { useId, useState } from 'react'
 import {
   BUILTIN_TARGETS,
+  NO_PAYLOAD,
   RULE_MODIFIERS,
   RULE_TYPES,
   formatRule,
@@ -18,13 +19,6 @@ import {
 import { Checkbox, TextInput, type SelectOption } from '../../shared/ui'
 import type { MihomoDraft } from '../editor/useMihomoDraft'
 import { Field, SelectField } from './fields'
-
-/**
- * Типы без значения: сразу после типа идёт цель. Список зеркалит NO_PAYLOAD в
- * entities/mihomo/rules.ts — там он не экспортирован, а форма обязана знать
- * ответ ДО разбора: у только что выбранного типа значения ещё нет.
- */
-const NO_PAYLOAD = new Set(['MATCH'])
 
 function optionsOf(names: readonly string[], current: string): SelectOption[] {
   const options = names.map((n) => ({ value: n, label: n }))

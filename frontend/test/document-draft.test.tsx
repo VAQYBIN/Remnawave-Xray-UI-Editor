@@ -108,6 +108,21 @@ describe('ядро черновика', () => {
     expect(result.current.reveal?.parts).toEqual(['lines', 0])
   })
 
+  // Одним действием, потому что порознь не собирается: `selectIssue` читает
+  // `tab` из замыкания, и сразу после `openTextTab()` там ещё вкладка графа —
+  // прокрутка ушла бы в ветку выбора узла.
+  it('revealAt переводит в текст и прокручивает одним действием', () => {
+    const { result } = draft()
+    act(() => result.current.revealAt(['lines', 1]))
+    expect(result.current.tab).toBe('text')
+    expect(result.current.reveal?.parts).toEqual(['lines', 1])
+    expect(result.current.selectedNode).toBeNull()
+    const first = result.current.reveal?.nonce
+    // Повторный вызов из того же места обязан сработать снова — за это отвечает nonce
+    act(() => result.current.revealAt(['lines', 1]))
+    expect(result.current.reveal?.nonce).not.toBe(first)
+  })
+
   it('поиск идёт через адаптер', () => {
     const { result } = draft()
     act(() => result.current.setSearchQuery('b'))

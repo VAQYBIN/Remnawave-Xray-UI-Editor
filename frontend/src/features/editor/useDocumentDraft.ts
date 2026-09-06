@@ -115,6 +115,14 @@ export interface DocumentDraft<TModel> extends EditorShellDraft {
   adoptPanelVersion: () => void
 
   reveal: { parts: PathParts; nonce: number } | null
+  /**
+   * Перейти в текст и прокрутить к месту пути ОДНИМ действием. Порознь это не
+   * собирается: `selectIssue` смотрит на `tab` из замыкания, и сразу после
+   * `openTextTab()` там ещё старая вкладка — переход ушёл бы в ветку графа, а
+   * вызывающий (инспектор узла) к этому моменту уже размонтирован вместе со
+   * снятым выбором.
+   */
+  revealAt: (parts: PathParts) => void
 
   searchQuery: string
   setSearchQuery: (value: string) => void
@@ -312,6 +320,11 @@ export function useDocumentDraft<TModel>({
     doUndo,
     doRedo,
     reveal,
+    revealAt: (parts) => {
+      openTextTab()
+      revealNonce.current += 1
+      setReveal({ parts, nonce: revealNonce.current })
+    },
     canSelectIssue,
     selectIssue,
     searchQuery,
