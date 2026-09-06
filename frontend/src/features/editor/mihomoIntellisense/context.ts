@@ -183,18 +183,26 @@ function seqAtColumn(md: MihomoDoc, parts: PathParts, column: number): PathParts
  * скобок уместны имена серверов и групп, которых он не знает, а внутри фигурных
  * подсказка вставила бы значение туда, где ядро ждёт список. Молчим.
  *
+ * Проверяется именно ДИАПАЗОН узла, а не сам факт flow-значения по пути: путь
+ * курсора, стоящего на КЛЮЧЕ такой строки, уже ведёт в коллекцию, и проверка по
+ * пути погасила бы описание самого ключа — а `nameserver: [1.1.1.1]` объяснять
+ * надо ровно так же, как блочный вариант.
+ *
  * Путь берётся ТОЛЬКО от курсора, а не от подставного якоря выше: после
  * закрытой скобки (`proxies: [DIRECT]` и курсор на следующей строке) курсор уже
  * не в коллекции, и подсказки корня там законны.
  */
-function inFlow(md: MihomoDoc, atCursor: PathParts): boolean {
-  const flow = (node: unknown): boolean =>
-    (isSeq(node) || isMap(node)) && (node as { flow?: boolean }).flow === true
+function inFlow(md: MihomoDoc, atCursor: PathParts, pos: number): boolean {
+  const covers = (node: unknown): boolean => {
+    if (!(isSeq(node) || isMap(node)) || (node as { flow?: boolean }).flow !== true) return false
+    const range = rangeOf(node)
+    return range !== null && pos >= range.from && pos <= range.to
+  }
   let node: unknown = md.doc.contents
-  if (flow(node)) return true
+  if (covers(node)) return true
   for (const part of atCursor) {
     node = child(node, part)
-    if (flow(node)) return true
+    if (covers(node)) return true
   }
   return false
 }
@@ -242,7 +250,7 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
   // диапазона там нет. Тогда отталкиваемся от последнего непробельного символа
   // выше, а лишние сегменты снимет containerOf.
   const atCursor = pathAt(md, pos)
-  if (inFlow(md, atCursor)) return null
+  if (inFlow(md, atCursor, pos)) return null
 
   let parts = atCursor
   if (parts.length === 0) {

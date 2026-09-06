@@ -87,13 +87,28 @@ describe('наведение на YAML-вкладке', () => {
     expect(hoverAt(flat, inside(flat, 'name: сервер'))).toBeNull()
   })
 
-  it('во flow-коллекции наведения нет', () => {
-    const flow = 'proxies: [DIRECT]\nproxy-groups: [{name: A}]\ndns: {enhanced-mode: fake-ip}\n'
-    for (const needle of ['proxies', 'DIRECT', 'proxy-groups', 'name: A', 'enhanced-mode']) {
-      expect(hoverAt(flow, inside(flow, needle))).toBeNull()
-    }
-    // тот же ключ блочным стилем описан
-    expect(hoverAt('dns:\n  enhanced-mode: fake-ip\n', 8)?.field.doc).toContain('Режим работы DNS')
+  it('ключ строки с flow-значением описан, а внутренность скобок молчит', () => {
+    // обе стороны на одной фикстуре: стиль массовый, и терять на нём описание
+    // ключа нельзя, но внутри скобок стоят имена, которых словарь не знает
+    const flow = [
+      'dns:',
+      '  nameserver: [1.1.1.1, 8.8.8.8]',
+      'proxy-groups:',
+      '  - name: A',
+      '    proxies: [DIRECT]',
+      '',
+    ].join('\n')
+    expect(hoverAt(flow, inside(flow, 'nameserver'))?.field.doc).toContain('DNS-серверы')
+    expect(hoverAt(flow, inside(flow, 'proxies:'))?.field.doc).toContain('Участники')
+    expect(hoverAt(flow, inside(flow, '1.1.1.1'))).toBeNull()
+    expect(hoverAt(flow, inside(flow, '8.8.8.8'))).toBeNull()
+    expect(hoverAt(flow, inside(flow, 'DIRECT'))).toBeNull()
+  })
+
+  it('внутри flow-отображения молчание сохраняется', () => {
+    const flow = 'dns: {enhanced-mode: fake-ip}\n'
+    expect(hoverAt(flow, inside(flow, 'enhanced-mode'))).toBeNull()
+    expect(hoverAt(flow, inside(flow, 'fake-ip'))).toBeNull()
   })
 
   it('разметка тултипа несёт ключ, описание и значения', () => {

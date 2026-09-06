@@ -231,6 +231,12 @@ describe('flow-коллекции молчат', () => {
     expect(labels('proxy-groups:\n  - name: A\n    strategy: ‸\n')).toContain('round-robin')
   })
 
+  it('на ключе строки с flow-значением контекст остаётся', () => {
+    // курсор ещё вне скобок: строка написана flow-стилем, но правится ключ
+    expect(ctx('dns:\n  namese‸rver: [1.1.1.1]\n')?.section).toBe('dns')
+    expect(ctx('proxy-groups:\n  - name: A\n    proxi‸es: [DIRECT]\n')?.section).toBe('proxy-group')
+  })
+
   it('за закрытой скобкой подсказки снова работают', () => {
     expect(ctx('proxies: [DIRECT]\n‸\n')?.section).toBe('root')
     expect(labels('proxies: [DIRECT]\n‸\n')).toContain('proxy-groups')

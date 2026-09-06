@@ -16,8 +16,6 @@ interface Hovered {
   /** Что подсвечивать тултипом: сам ключ либо его значение */
   from: number
   to: number
-  /** Позиция ключа — по ней contextAt определяет секцию */
-  keyEnd: number
 }
 
 /** Ключ строки под курсором и подсвечиваемый диапазон, либо null */
@@ -32,7 +30,7 @@ function hoveredKey(text: string, pos: number): Hovered | null {
   const keyTo = keyFrom + match[2].length
   const colon = keyTo + match[3].length
   if (pos >= keyFrom && pos <= keyTo) {
-    return { key: match[2], from: keyFrom, to: keyTo, keyEnd: keyTo }
+    return { key: match[2], from: keyFrom, to: keyTo }
   }
   if (pos <= colon) return null
 
@@ -44,7 +42,7 @@ function hoveredKey(text: string, pos: number): Hovered | null {
   const from = colon + 1 + lead
   const to = from + value.length
   if (pos < from || pos > to) return null
-  return { key: match[2], from, to, keyEnd: keyTo }
+  return { key: match[2], from, to }
 }
 
 export interface MihomoHover {
@@ -63,7 +61,10 @@ export interface MihomoHover {
 export function hoverAt(text: string, pos: number): MihomoHover | null {
   const hovered = hoveredKey(text, pos)
   if (hovered === null) return null
-  const cursor = contextAt(text, hovered.keyEnd)
+  // Контекст спрашивается о САМОЙ позиции наведения, а не о ключе строки: иначе
+  // молчание внутри flow-коллекции (`proxies: [DIRECT]`) пришлось бы повторять
+  // здесь второй проверкой, а описание ключа той же строки — из контекста ключа
+  const cursor = contextAt(text, pos)
   if (cursor === null) return null
   const field = fieldFor(cursor, hovered.key)
   if (field === undefined) return null
