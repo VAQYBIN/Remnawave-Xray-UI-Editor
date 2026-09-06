@@ -12,6 +12,7 @@ export * from './groups'
 export * from './resolve'
 export * from './validate'
 export * from './edits'
+export * from './docSchema'
 
 // `inject.ts` реэкспортирует `INJECT_MARKER` из `marker.ts` (единственный
 // владелец константы) — исключаем его здесь, чтобы `export *` не столкнул
