@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { runProcess, type SpawnRunner } from '../proc/spawn.js'
 import { withPanelClients, type Injected } from './panelClients.js'
 import {
   parseXrayOutput,
@@ -9,6 +9,8 @@ import {
   versionOf,
   type XrayTestError,
 } from './parseOutput.js'
+
+export type { SpawnRunner, SpawnOutcome } from '../proc/spawn.js'
 
 export interface XrayTestResult {
   /** false — бинаря нет; UI показывает «инструмент недоступен», а не ошибку */
@@ -22,34 +24,7 @@ export interface XrayTestResult {
   injected: Injected[]
 }
 
-export interface SpawnOutcome {
-  code: number | null
-  output: string
-  error?: NodeJS.ErrnoException
-}
-
-export type SpawnRunner = (
-  bin: string,
-  args: string[],
-  opts: { env: Record<string, string>; timeoutMs: number },
-) => Promise<SpawnOutcome>
-
 const TIMEOUT_MS = 10_000
-
-/** Ядро пишет и в stdout, и в stderr — вердикт может оказаться в любом из них */
-const runProcess: SpawnRunner = (bin, args, opts) =>
-  new Promise((resolve) => {
-    const child = spawn(bin, args, {
-      env: opts.env,
-      timeout: opts.timeoutMs,
-      killSignal: 'SIGKILL',
-    })
-    let output = ''
-    child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
-    child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
-    child.on('error', (error: NodeJS.ErrnoException) => resolve({ code: null, output, error }))
-    child.on('close', (code) => resolve({ code, output }))
-  })
 
 export class XrayService {
   constructor(

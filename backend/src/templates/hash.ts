@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { SubscriptionTemplate, TemplateType } from '../remnawave/types.js'
 
 /**
  * У шаблонов подписки нет updatedAt, поэтому чужие правки ловятся сравнением
@@ -27,4 +28,23 @@ export function canonicalize(value: unknown): unknown {
 export function hashTemplateJson(templateJson: unknown): string {
   const canonical = JSON.stringify(canonicalize(templateJson) ?? null)
   return createHash('sha256').update(canonical).digest('hex')
+}
+
+/** Типы, чьё содержимое лежит в encodedTemplateYaml, а templateJson у них null */
+export const YAML_TEMPLATE_TYPES: readonly TemplateType[] = ['MIHOMO', 'CLASH', 'STASH']
+
+/**
+ * У YAML-шаблона хэшируется сам текст: канонизировать нечего — текст и есть
+ * содержимое. Любая нормализация сделала бы хэш слепым к правке, которую панель
+ * сохранит: перестановка ключей в YAML меняет файл, а не только его смысл.
+ */
+export function hashTemplateYaml(encoded: string | null): string {
+  const text = encoded === null ? '' : Buffer.from(encoded, 'base64').toString('utf8')
+  return createHash('sha256').update(text).digest('hex')
+}
+
+export function hashTemplate(template: SubscriptionTemplate): string {
+  return YAML_TEMPLATE_TYPES.includes(template.templateType)
+    ? hashTemplateYaml(template.encodedTemplateYaml)
+    : hashTemplateJson(template.templateJson)
 }

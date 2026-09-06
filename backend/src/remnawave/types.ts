@@ -75,6 +75,7 @@ export interface RemnawavePort {
     uuid: string
     name?: string
     templateJson?: unknown
+    encodedTemplateYaml?: string
   }): Promise<SubscriptionTemplate>
   deleteTemplate(uuid: string): Promise<void>
 }

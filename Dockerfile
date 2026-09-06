@@ -22,6 +22,27 @@ RUN set -eu; \
     chmod +x /usr/local/bin/xray; \
     rm /tmp/xray.zip
 
+# Ядро Mihomo для проверки шаблонов подписки (`mihomo -t -f`). Приём тот же, что
+# у стадии xray: закреплённая версия и контрольная сумма, архитектура — от buildx.
+FROM alpine:3.24 AS mihomo
+ARG TARGETARCH
+ARG MIHOMO_VERSION=v1.19.30
+ARG MIHOMO_SHA256_AMD64=cf06ce2c7d1421bdbda14ee4a5b6046672dc35ebf8eecd8e77504ec3c0ed9a84
+ARG MIHOMO_SHA256_ARM64=58896873736d28628f66de3677c8654fa0f180662523148e136cff4f6e890069
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) asset="mihomo-linux-amd64-${MIHOMO_VERSION}.gz"; sha="$MIHOMO_SHA256_AMD64" ;; \
+      arm64) asset="mihomo-linux-arm64-${MIHOMO_VERSION}.gz"; sha="$MIHOMO_SHA256_ARM64" ;; \
+      *) echo "неподдерживаемая архитектура: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    apk add --no-cache curl; \
+    curl -fsSL -o /tmp/mihomo.gz \
+      "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/${asset}"; \
+    echo "${sha}  /tmp/mihomo.gz" | sha256sum -c -; \
+    gunzip -c /tmp/mihomo.gz > /usr/local/bin/mihomo; \
+    chmod +x /usr/local/bin/mihomo; \
+    rm /tmp/mihomo.gz
+
 FROM node:24-alpine AS backend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -43,7 +64,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV STATIC_DIR=/app/frontend/dist
 ENV XRAY_BIN=/usr/local/bin/xray
+ENV MIHOMO_BIN=/usr/local/bin/mihomo
 COPY --from=xray /usr/local/bin/xray /usr/local/bin/xray
+COPY --from=mihomo /usr/local/bin/mihomo /usr/local/bin/mihomo
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 RUN npm ci --workspace backend --omit=dev

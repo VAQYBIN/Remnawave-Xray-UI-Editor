@@ -15,6 +15,7 @@
     "@fastify/static": "^10.1.2",
     "bcryptjs": "^3.0.2",
     "fastify": "^5.10.0",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

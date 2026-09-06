@@ -46,3 +46,24 @@ export function selectedValue(target: string | HTMLElement): string | null {
   const trigger = typeof target === 'string' ? screen.getByLabelText(target) : target
   return trigger.getAttribute('data-value')
 }
+
+import defaultYaml from './fixtures/mihomo/default.yaml?raw'
+import simpleYaml from './fixtures/mihomo/simple.yaml?raw'
+import bundleYaml from './fixtures/mihomo/bundle.yaml?raw'
+
+const mihomoFixtures = {
+  default: defaultYaml,
+  simple: simpleYaml,
+  bundle: bundleYaml,
+}
+
+/**
+ * Настоящие шаблоны из remnawave/templates: якоря, слияния и обе роли маркера.
+ * Читаем через `?raw`-импорт Vite (тип объявлен в `vite/client`), а не `node:fs`/`node:url`:
+ * фронтенд намеренно не тянет амбиентные типы Node в `src/`, а глобальный `URL` в jsdom —
+ * это whatwg-url, а не реализация Node, и она на Windows ломает относительное разрешение
+ * `file:`-адреса с буквой диска.
+ */
+export function mihomoFixture(name: 'default' | 'simple' | 'bundle'): string {
+  return mihomoFixtures[name]
+}

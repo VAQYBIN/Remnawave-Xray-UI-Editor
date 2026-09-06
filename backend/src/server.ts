@@ -19,8 +19,11 @@ import { toolsRoutes } from './routes/tools.js'
 import { GeoService } from './geo/service.js'
 import { geoRoutes } from './routes/geo.js'
 import { XrayService } from './xray/service.js'
+import { MihomoService } from './mihomo/service.js'
 import type { RealityProbe } from './tools/realityProbe.js'
 import type { WarpRegister } from './tools/warp.js'
+import { CatalogService } from './catalog/service.js'
+import { catalogRoutes } from './routes/catalog.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -28,6 +31,8 @@ declare module 'fastify' {
     backups: BackupService
     geo: GeoService
     xray: XrayService
+    mihomo: MihomoService
+    catalog: CatalogService
   }
 }
 
@@ -36,6 +41,8 @@ export interface ServerDeps {
   backups?: BackupService
   geo?: GeoService
   xray?: XrayService
+  mihomo?: MihomoService
+  catalog?: CatalogService
   /** Подменяется в тестах: настоящая проба открывает TLS-соединение наружу */
   probeReality?: RealityProbe
   /** Подменяется в тестах: настоящая регистрация ходит в Cloudflare */
@@ -74,6 +81,11 @@ export async function buildServer(
     deps.geo ?? new GeoService(config.dataDir, { allowPrivate: config.geoAllowPrivateUrls }),
   )
   app.decorate('xray', deps.xray ?? new XrayService(config.xrayBin, config.dataDir))
+  app.decorate('mihomo', deps.mihomo ?? new MihomoService(config.mihomoBin, config.dataDir))
+  app.decorate(
+    'catalog',
+    deps.catalog ?? new CatalogService({ allowPrivate: config.geoAllowPrivateUrls }),
+  )
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err instanceof RemnawaveError) {
@@ -107,6 +119,7 @@ export async function buildServer(
   await app.register(templateRoutes)
   await app.register(panelRoutes, { config })
   await app.register(backupRoutes)
+  await app.register(catalogRoutes)
   await app.register(toolsRoutes, {
     probeReality: deps.probeReality,
     registerWarp: deps.registerWarp,

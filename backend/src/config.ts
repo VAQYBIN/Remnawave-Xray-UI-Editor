@@ -19,6 +19,9 @@ const envSchema = z.object({
   // Путь к бинарю ядра для проверки конфига. Не найден — проверка отдаёт
   // available: false, редактор продолжает работать (в т.ч. на Windows).
   XRAY_BIN: z.string().min(1).default('xray'),
+  // Путь к ядру Mihomo для проверки шаблона подписки. Не найдено — проверка
+  // отдаёт available: false, редактор продолжает работать.
+  MIHOMO_BIN: z.string().min(1).default('mihomo'),
 })
 
 export interface AppConfig {
@@ -32,6 +35,7 @@ export interface AppConfig {
   sessionTtlSeconds: number
   geoAllowPrivateUrls: boolean
   xrayBin: string
+  mihomoBin: string
 }
 
 /**
@@ -74,5 +78,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sessionTtlSeconds: e.SESSION_TTL_SECONDS,
     geoAllowPrivateUrls: e.GEO_ALLOW_PRIVATE_URLS,
     xrayBin: e.XRAY_BIN,
+    mihomoBin: e.MIHOMO_BIN,
   }
 }
