@@ -46,6 +46,40 @@ describe('контекст курсора', () => {
   })
 })
 
+// containerOf — приватная середина contextAt, и проверяется через его `parts`:
+// отдельный экспорт потребовал бы синтетического пути и колонки, а значение
+// имеет ровно то, во что они складываются на настоящем тексте
+describe('отображение, которому принадлежит курсор', () => {
+  function parts(src: string) {
+    const { text, pos } = at(src)
+    return contextAt(text, pos)?.parts
+  }
+
+  it('отступ пустой строки внутри элемента списка — сам элемент', () => {
+    expect(parts('proxy-groups:\n  - name: A\n    ‸\n')).toEqual(['proxy-groups', 0])
+  })
+
+  it('отступ внутри вложенной секции — сама секция', () => {
+    expect(parts('proxy-groups:\n  - name: A\n    remnawave:\n      ‸\n')).toEqual([
+      'proxy-groups',
+      0,
+      'remnawave',
+    ])
+  })
+
+  it('нулевая колонка — корень документа, а не секция выше', () => {
+    expect(parts('dns:\n  enable: true\n‸\n')).toEqual([])
+  })
+
+  it('после «type: » без значения — отображение группы, а не сама пара', () => {
+    expect(parts('proxy-groups:\n  - name: A\n    type: ‸\n')).toEqual(['proxy-groups', 0])
+  })
+
+  it('пустой документ — корень', () => {
+    expect(parts('‸')).toEqual([])
+  })
+})
+
 describe('подсказки Mihomo', () => {
   it('ключи группы предлагаются и не повторяют уже введённые', () => {
     const got = labels('proxy-groups:\n  - name: A\n    type: select\n    ‸\n')
@@ -68,6 +102,16 @@ describe('подсказки Mihomo', () => {
 
   it('в корне предлагаются секции верхнего уровня', () => {
     expect(labels('‸\n')).toEqual(expect.arrayContaining(['mode', 'log-level', 'dns', 'tun']))
+  })
+
+  it('в корне предлагаются и ключи-контейнеры', () => {
+    expect(labels('‸\n')).toEqual(
+      expect.arrayContaining(['proxies', 'proxy-groups', 'rules', 'rule-providers']),
+    )
+  })
+
+  it('уже написанный ключ-контейнер второй раз не предлагается', () => {
+    expect(labels('rules:\n  - MATCH,DIRECT\n‸\n')).not.toContain('rules')
   })
 
   it('битый YAML ниже курсора не мешает подсказкам выше', () => {

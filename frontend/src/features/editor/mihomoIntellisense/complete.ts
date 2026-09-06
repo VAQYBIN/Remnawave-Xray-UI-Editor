@@ -22,6 +22,31 @@ const SECTION_KEYS = Object.keys(MIHOMO_SECTIONS).filter(
   (name) => sectionForKey(name) === name,
 ) as MihomoSectionName[]
 
+/**
+ * Ключи-контейнеры корня. В словаре их нет намеренно: `docSchema` питает и
+ * формы инспектора, и `rules` там стал бы текстовым полем поверх списка правил.
+ * Поэтому описания живут здесь — они нужны ровно подсказкам.
+ */
+const CONTAINER_KEYS: { key: string; doc: string }[] = [
+  {
+    key: 'proxies',
+    doc: 'Список серверов. В шаблоне подписки обычно пуст: если панель подставит хосты, они попадут сюда, по маркеру `# LEAVE THIS LINE!`.',
+  },
+  {
+    key: 'proxy-groups',
+    doc: 'Группы выбора и балансировки: селекторы, url-test, fallback и прочие.',
+  },
+  { key: 'rules', doc: 'Правила маршрутизации. Побеждает первое совпавшее.' },
+  {
+    key: 'proxy-providers',
+    doc: 'Внешние источники серверов: файл или URL, с интервалом обновления.',
+  },
+  {
+    key: 'rule-providers',
+    doc: 'Внешние наборы правил: файл или URL, с интервалом обновления.',
+  },
+]
+
 // Уже набранная часть ключа или значения — её подсказка заменяет
 const TYPED_RE = /[^\s:]*$/
 
@@ -101,6 +126,15 @@ function keyCompletions(
         detail: 'map',
         info: MIHOMO_SECTIONS[name].title,
         apply: name + mapSuffix,
+      })
+    }
+    for (const container of CONTAINER_KEYS) {
+      if (taken.has(container.key)) continue
+      options.push({
+        label: container.key,
+        type: 'namespace',
+        info: container.doc,
+        apply: container.key + mapSuffix,
       })
     }
   }

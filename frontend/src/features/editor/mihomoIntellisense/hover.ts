@@ -5,6 +5,7 @@
 
 import { hoverTooltip, type Tooltip } from '@codemirror/view'
 import type { MihomoField } from '../../../entities/mihomo'
+import { renderHoverTooltip } from '../hoverTooltipDom'
 import { contextAt, fieldFor } from './context'
 
 // «  - name: A» — отступ и дефис, имя ключа, пробелы до двоеточия
@@ -46,62 +47,39 @@ function hoveredKey(text: string, pos: number): Hovered | null {
   return { key: match[2], from, to, keyEnd: keyTo }
 }
 
-/** Разметка тултипа общая с JSON-вкладкой — стили лежат в tokens.css */
-function renderTooltip(key: string, field: MihomoField): HTMLElement {
-  const dom = document.createElement('div')
-  dom.className = 'cm-xray-hover'
+export interface MihomoHover {
+  key: string
+  field: MihomoField
+  /** Диапазон подсветки в тексте */
+  from: number
+  to: number
+}
 
-  const head = document.createElement('div')
-  head.className = 'cm-xray-hover-key'
-  head.textContent = key
-  const type = document.createElement('span')
-  type.className = 'cm-xray-hover-type'
-  type.textContent = field.type
-  head.appendChild(type)
-  dom.appendChild(head)
-
-  const doc = document.createElement('div')
-  doc.className = 'cm-xray-hover-doc'
-  doc.textContent = field.doc
-  dom.appendChild(doc)
-
-  if (field.enum && field.enum.length > 0) {
-    const list = document.createElement('div')
-    list.className = 'cm-xray-hover-enum'
-    for (const item of field.enum) {
-      const row = document.createElement('div')
-      row.className = 'cm-xray-hover-enum-row'
-      const value = document.createElement('code')
-      value.textContent = item.value
-      row.appendChild(value)
-      if (item.doc) {
-        const text = document.createElement('span')
-        text.textContent = item.doc
-        row.appendChild(text)
-      }
-      list.appendChild(row)
-    }
-    dom.appendChild(list)
-  }
-
-  return dom
+/**
+ * Что показать при наведении на позицию — без EditorView и без DOM: всё, что
+ * нужно тултипу, выводится из текста и словаря, а значит и проверяется тестом
+ * без поднятия редактора.
+ */
+export function hoverAt(text: string, pos: number): MihomoHover | null {
+  const hovered = hoveredKey(text, pos)
+  if (hovered === null) return null
+  const cursor = contextAt(text, hovered.keyEnd)
+  if (cursor === null) return null
+  const field = fieldFor(cursor, hovered.key)
+  if (field === undefined) return null
+  return { key: hovered.key, field, from: hovered.from, to: hovered.to }
 }
 
 export function mihomoHover() {
   return hoverTooltip((view, pos): Tooltip | null => {
     try {
-      const text = view.state.doc.toString()
-      const hovered = hoveredKey(text, pos)
-      if (hovered === null) return null
-      const cursor = contextAt(text, hovered.keyEnd)
-      if (cursor === null) return null
-      const field = fieldFor(cursor, hovered.key)
-      if (field === undefined) return null
+      const found = hoverAt(view.state.doc.toString(), pos)
+      if (found === null) return null
       return {
-        pos: hovered.from,
-        end: hovered.to,
+        pos: found.from,
+        end: found.to,
         above: true,
-        create: () => ({ dom: renderTooltip(hovered.key, field) }),
+        create: () => ({ dom: renderHoverTooltip(found.key, found.field) }),
       }
     } catch {
       return null

@@ -6,6 +6,7 @@ import { hoverTooltip, type Tooltip } from '@codemirror/view'
 import type { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
 import { nodeFields, type DocField } from '../../../entities/xray/docSchema'
+import { renderHoverTooltip } from '../hoverTooltipDom'
 import { resolvePath, type XrayRootKind } from './context'
 
 function stripQuotes(text: string): string {
@@ -38,50 +39,6 @@ function keyAtNode(state: EditorState, node: SyntaxNode): { key: string; from: n
   return null
 }
 
-function renderTooltip(key: string, field: DocField): HTMLElement {
-  const dom = document.createElement('div')
-  dom.className = 'cm-xray-hover'
-
-  const head = document.createElement('div')
-  head.className = 'cm-xray-hover-key'
-  head.textContent = key
-  if (field.type) {
-    const t = document.createElement('span')
-    t.className = 'cm-xray-hover-type'
-    t.textContent = field.type
-    head.appendChild(t)
-  }
-  dom.appendChild(head)
-
-  if (field.doc) {
-    const p = document.createElement('div')
-    p.className = 'cm-xray-hover-doc'
-    p.textContent = field.doc
-    dom.appendChild(p)
-  }
-
-  if (field.enum && field.enum.length > 0) {
-    const list = document.createElement('div')
-    list.className = 'cm-xray-hover-enum'
-    for (const e of field.enum) {
-      const row = document.createElement('div')
-      row.className = 'cm-xray-hover-enum-row'
-      const v = document.createElement('code')
-      v.textContent = e.value
-      row.appendChild(v)
-      if (e.doc) {
-        const d = document.createElement('span')
-        d.textContent = e.doc
-        row.appendChild(d)
-      }
-      list.appendChild(row)
-    }
-    dom.appendChild(list)
-  }
-
-  return dom
-}
-
 export function makeHover(rootKind: XrayRootKind) {
   return hoverTooltip((view, pos, side): Tooltip | null => {
     try {
@@ -99,7 +56,7 @@ export function makeHover(rootKind: XrayRootKind) {
         pos: at.from,
         end: at.to,
         above: true,
-        create: () => ({ dom: renderTooltip(at.key, field) }),
+        create: () => ({ dom: renderHoverTooltip(at.key, field) }),
       }
     } catch {
       return null
