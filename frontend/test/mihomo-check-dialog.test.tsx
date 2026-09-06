@@ -46,6 +46,9 @@ describe('отчёт проверки ядром Mihomo', () => {
     expect(screen.queryByText(/ядро отклонило/i)).not.toBeInTheDocument()
     // Третье состояние обязано отличаться и от успеха: «недоступно» — не «принято»
     expect(screen.queryByText(/Ядро приняло шаблон/)).not.toBeInTheDocument()
+    // И оговорки про подмену тут быть не должно: ядро вообще не запускалось,
+    // подменять было нечего
+    expect(screen.queryByText(/фиктивн/i)).not.toBeInTheDocument()
   })
 
   it('успех сопровождается оговоркой про фиктивные серверы', async () => {
@@ -71,6 +74,11 @@ describe('отчёт проверки ядром Mihomo', () => {
     expect(screen.getByText(/Ядро отклонило шаблон/)).toBeInTheDocument()
     expect(screen.queryByText(/Ядро приняло шаблон/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Проверка ядром недоступна/)).not.toBeInTheDocument()
+    // В ОТКАЗЕ оговорка нужнее, чем в успехе: бэкенд подставил фиктивные прокси
+    // и вырезал remnawave, поэтому ядро может назвать имя, которого в шаблоне
+    // пользователя нет, — и он пойдёт искать у себя то, чего не писал
+    expect(screen.getByText(/фиктивн/i)).toBeInTheDocument()
+    expect(screen.getByText(/remnawave/)).toBeInTheDocument()
   })
 
   it('невалидный YAML показывает русский текст бэкенда, а не «неизвестная ошибка»', async () => {

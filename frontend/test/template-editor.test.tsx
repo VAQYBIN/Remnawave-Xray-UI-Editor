@@ -5,6 +5,7 @@ import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TemplateEditorPage } from '../src/features/templates/TemplateEditorPage'
 import { useDraftStore } from '../src/features/editor/draftStore'
+import { useHistoryStore } from '../src/features/editor/historyStore'
 import { docStorageKey } from '../src/shared/lib/docKey'
 import { selectOption } from './helpers'
 
@@ -391,18 +392,36 @@ describe('редактор шаблона', () => {
  */
 const CATALOG_XRAY_URL = 'https://raw.githubusercontent.com/remnawave/templates/main/xray.json'
 const CATALOG_MIHOMO_URL = 'https://raw.githubusercontent.com/remnawave/templates/main/a.yaml'
-/** Что «скачали»: документ заведомо другой, чем TEMPLATE_JSON панели */
+/**
+ * Что «скачали»: документ заведомо другой, чем TEMPLATE_JSON панели. Правило в
+ * нём есть НАМЕРЕННО: узел `rule:0` обязан существовать и после замены
+ * документа, иначе проверка «импорт снял выбор» зеленела бы сама собой — узел
+ * исчез бы вместе с документом (ровно та ловушка, что уже ловилась на группе
+ * в редакторе Mihomo).
+ */
 const IMPORTED_XRAY = JSON.stringify(
-  { outbounds: [{ tag: 'imported', protocol: 'freedom' }] },
+  {
+    outbounds: [{ tag: 'imported', protocol: 'freedom' }],
+    routing: { rules: [{ type: 'field', outboundTag: 'imported', domain: ['example.org'] }] },
+  },
   null,
   2,
 )
 
+/** Шаблон панели с одной диагностикой на узле `rule:0`: правило ведёт в никуда */
+const ISSUE_TEMPLATE_JSON = {
+  log: { loglevel: 'warning' },
+  inbounds: [{ tag: 'socks', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: {} }],
+  outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+  routing: { rules: [{ type: 'field', outboundTag: 'нет-такого', domain: ['example.com'] }] },
+}
+
 /**
  * Панель плюс каталог. Отдельно от `mockPanel`: тот на адреса каталога отвечает
- * шаблоном панели, и список записей вышел бы пустым.
+ * шаблоном панели, и список записей вышел бы пустым. Документ параметризован —
+ * одному из тестов нужен шаблон с диагностикой; умолчание оставляет прежний.
  */
-function mockPanelWithCatalog() {
+function mockPanelWithCatalog(templateJson: unknown = TEMPLATE_JSON) {
   const calls: { url: string; init?: RequestInit }[] = []
   vi.stubGlobal(
     'fetch',
@@ -429,7 +448,17 @@ function mockPanelWithCatalog() {
       if (url.includes('/api/geo')) {
         return json({ geosite: { url: '', present: false }, geoip: { url: '', present: false } })
       }
-      return json(templatePayload(UUID, 'Xray Default', 'XRAY_JSON', HASH1))
+      return json({
+        template: {
+          uuid: UUID,
+          viewPosition: 0,
+          name: 'Xray Default',
+          templateType: 'XRAY_JSON',
+          templateJson,
+          encodedTemplateYaml: null,
+        },
+        hash: HASH1,
+      })
     }),
   )
   return calls
@@ -505,5 +534,69 @@ describe('импорт из каталога в редакторе Xray-шабл
         IMPORTED_XRAY,
       ),
     )
+  }, 30_000)
+
+  // Импорт кладётся в историю (`{ history: true }`): диалог подтверждения прямо
+  // обещает возврат через Ctrl+Z, и обещание обязано быть проверено
+  it('импорт отменяется через «Отменить»', async () => {
+    mockPanelWithCatalog()
+    useHistoryStore.setState({ stacks: {} })
+    const before = JSON.stringify({ outbounds: [{ tag: 'до импорта', protocol: 'freedom' }] })
+    useDraftStore.getState().setDraft(docStorageKey('template', UUID), before, HASH1)
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Xray Default' })
+    // Пока ничего не импортировано, отменять нечего: иначе тест зеленел бы на
+    // кнопке, доступной и без записи в историю
+    expect(screen.getByRole('button', { name: 'Отменить' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Импорт' }))
+    await user.click(await screen.findByText('xray-default'))
+    await screen.findByText(/imported/)
+    await user.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+    await user.click(screen.getByRole('button', { name: 'Затереть и импортировать' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(
+        IMPORTED_XRAY,
+      ),
+    )
+
+    expect(screen.getByRole('button', { name: 'Отменить' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Отменить' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(before),
+    )
+  }, 30_000)
+
+  // Документ заменяется целиком, а id узлов считаются по тегам и позициям
+  // правил. Выбор берём не с канваса, а из списка проблем в статус-баре
+  // (`selectIssue`), и ведёт он в `rule:0` — узел, который есть и в
+  // импортируемом документе: исчезни он вместе с документом, проверка зеленела
+  // бы и без снятия выбора
+  it('импорт снимает выбранный узел', async () => {
+    mockPanelWithCatalog(ISSUE_TEMPLATE_JSON)
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Xray Default' })
+
+    // Диагностика здесь предупреждение, а не ошибка: узел у неё есть, а больше
+    // для выбора ничего не нужно
+    await user.click(screen.getByRole('button', { name: /предупреждений/ }))
+    // По роли, а не по тексту: тот же список проблем рендерит и закрытый диалог
+    // сохранения, а из дерева доступности закрытый <dialog> выпадает
+    await user.click(await screen.findByRole('button', { name: /несуществующий outbound/ }))
+    expect(screen.getByRole('button', { name: 'Удалить узел' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Импорт' }))
+    await user.click(await screen.findByText('xray-default'))
+    await screen.findByText(/imported/)
+    await user.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(
+        IMPORTED_XRAY,
+      ),
+    )
+    expect(screen.queryByRole('button', { name: 'Удалить узел' })).not.toBeInTheDocument()
   }, 30_000)
 })

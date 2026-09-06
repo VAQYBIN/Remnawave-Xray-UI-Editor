@@ -88,6 +88,10 @@ export function ImportTemplateDialog({
 
   const entries = catalog.data ?? []
   const shown = filter === 'all' ? entries : entries.filter((e) => e.type === filter)
+  // Поиск по всем записям, а не по видимым, безопасен ровно потому, что смена
+  // фильтра снимает выбор (см. onChange ниже): выбранной записи, которой нет в
+  // списке, не бывает. Убрать тот сброс — и здесь появится предпросмотр
+  // невидимой записи
   const picked = entries.find((e) => e.url === pickedUrl)
 
   // Закрытие забывает выбор: иначе следующее открытие встречает предпросмотром
@@ -190,7 +194,14 @@ export function ImportTemplateDialog({
               { value: docType, label: `Только ${docType}` },
               { value: 'all', label: 'Все типы' },
             ]}
-            onChange={setFilter}
+            onChange={(value) => {
+              // Смена фильтра снимает выбор: иначе в предпросмотре осталась бы
+              // запись, которой в списке уже нет, — состояние, которое нечем
+              // объяснить смотрящему
+              setFilter(value)
+              setPickedUrl(null)
+              setConfirming(false)
+            }}
           />
           <span className="spacer" />
           <Button variant="ghost" onClick={close}>

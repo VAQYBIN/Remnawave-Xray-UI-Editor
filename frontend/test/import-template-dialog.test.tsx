@@ -37,12 +37,16 @@ function mockCatalog(over: { list?: { status: number; body: unknown } } = {}) {
   )
 }
 
+/** Шпион закрытия: отдельной переменной, чтобы renderDialog по-прежнему возвращал onImport */
+let onClose = vi.fn()
+
 function renderDialog(props: Partial<Parameters<typeof ImportTemplateDialog>[0]> = {}) {
   const onImport = vi.fn()
+  onClose = vi.fn()
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={qc}>
-      <ImportTemplateDialog open docType="MIHOMO" dirty={false} onImport={onImport} onClose={() => {}} {...props} />
+      <ImportTemplateDialog open docType="MIHOMO" dirty={false} onImport={onImport} onClose={onClose} {...props} />
     </QueryClientProvider>,
   )
   return onImport
@@ -131,6 +135,33 @@ describe('импорт шаблона из каталога', () => {
         ([, init]) => init?.method === 'PATCH',
       ),
     ).toBe(false)
+  })
+
+  // Без закрытия диалог остаётся висеть поверх редактора — с прежним выбором и
+  // кнопкой, готовой импортировать во второй раз
+  it('после импорта диалог закрывается', async () => {
+    mockCatalog()
+    renderDialog()
+    await userEvent.click(await screen.findByText('mihomo-default'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Импортировать в редактор' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  // Выбор пережил бы смену фильтра — и в предпросмотре осталась бы запись,
+  // которой в списке уже нет
+  it('смена фильтра снимает выбор', async () => {
+    mockCatalog()
+    renderDialog()
+    await screen.findByText('mihomo-default')
+    await selectOption('Тип', 'all')
+    await userEvent.click(screen.getByText('xray-default'))
+    expect(await screen.findByText(/MATCH,DIRECT/)).toBeInTheDocument()
+
+    await selectOption('Тип', 'MIHOMO')
+
+    expect(screen.queryByText('xray-default')).not.toBeInTheDocument()
+    expect(screen.queryByText(/MATCH,DIRECT/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Импортировать в редактор' })).toBeDisabled()
   })
 
   it('поверх черновика спрашивает подтверждение', async () => {

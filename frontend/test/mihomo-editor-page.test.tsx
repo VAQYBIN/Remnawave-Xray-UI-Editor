@@ -228,6 +228,54 @@ describe('страница редактора Mihomo', () => {
     expect(screen.queryByText('rule:0')).not.toBeInTheDocument()
   }, 30_000)
 
+  // Импорт кладётся в историю (`{ history: true }`): диалог подтверждения прямо
+  // обещает, что вернуть прежний текст можно через Ctrl+Z, и обещание обязано
+  // быть проверено, а не просто написано
+  it('импорт отменяется через «Отменить»', async () => {
+    mockApi({
+      'GET /api/templates/u-1': { status: 200, body: { template: template(), hash: HASH } },
+      'GET /api/catalog/templates': {
+        status: 200,
+        body: {
+          templates: [
+            {
+              name: 'mihomo-default',
+              type: 'MIHOMO',
+              author: 'remnawave',
+              url: 'https://raw.githubusercontent.com/remnawave/templates/main/a.yaml',
+            },
+          ],
+        },
+      },
+      'GET /api/catalog/template': { status: 200, body: { content: IMPORTED } },
+    })
+    const before = `${YAML}mode: rule\n`
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    useDraftStore.getState().setDraft('template:u-1', before, HASH)
+    // Пока ничего не импортировано, отменять нечего: иначе тест зеленел бы на
+    // кнопке, доступной и без записи в историю
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Отменить' })).toBeDisabled(),
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Импорт' }))
+    await userEvent.click(await screen.findByText('mihomo-default'))
+    await screen.findByText(/MATCH,DIRECT/)
+    // Черновик изменён — импорт сперва спрашивает
+    await userEvent.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Затереть и импортировать' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts['template:u-1']?.text).toBe(IMPORTED),
+    )
+
+    expect(screen.getByRole('button', { name: 'Отменить' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Отменить' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts['template:u-1']?.text).toBe(before),
+    )
+  }, 30_000)
+
   // Каталог живёт на GitHub и ходят к нему через наш бэкенд: пока диалог не
   // открыли, запроса быть не должно
   it('закрытый диалог импорта каталог не грузит', async () => {
