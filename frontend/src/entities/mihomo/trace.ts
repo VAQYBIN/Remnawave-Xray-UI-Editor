@@ -6,9 +6,14 @@
 // источнику), ОСТАНАВЛИВАЕТ проход, а не пропускается. Пропустить его значило
 // бы соврать: всё, что стоит ниже, выполняется ровно при условии, что
 // непроверяемое правило не совпало, — а этого условия мы не знаем. По той же
-// причине в `verdicts` не попадают правила ниже остановки и ниже победителя: их
-// состояние неизвестно не потому, что они не совпали, а потому, что до них не
-// дошли.
+// причине в `verdicts` не попадают правила ниже остановки: их состояние
+// неизвестно не потому, что они не совпали, а потому, что до них не дошли.
+//
+// Ниже ПОБЕДИТЕЛЯ список тоже обрывается, и здесь причина другая — размер. У
+// Xray правил в конфиге единицы, и показать их все полезно; у mihomo списки
+// живых шаблонов — 40–200 строк, почти целиком из `RULE-SET`, и хвост в две
+// сотни серых строк превратил бы панель разбора в шум. Подписать их «не
+// проверялось» было бы честно, но не помогло бы: читать всё равно нечего.
 //
 // Предикаты полей общие с Xray (`entities/xray/traceMatch`): geo-данные те же, а
 // второй разбор CIDR был бы второй копией той же арифметики. Своё здесь —
@@ -68,6 +73,14 @@ const YES: CondResult = { state: 'yes' }
 const NO: CondResult = { state: 'no' }
 
 /**
+ * Цель, которая не заканчивает маршрут: правило с ней СЧИТАЕТСЯ совпавшим, но
+ * его ветка пропускается, и разбор продолжается со следующих правил. Объявлять
+ * такое правило победителем значило бы дать уверенный неверный ответ — ровно то,
+ * ради запрета чего в этой трассировке заведена остановка.
+ */
+const PASS_TARGET = 'PASS'
+
+/**
  * Типы, которые редактор знает, но проверить не может: этих данных в цели
  * трассировки нет и взять их неоткуда. Список выводится из `RULE_TYPES`, а не
  * переписывается руками: новый тип ядра, добавленный в модель, попадёт сюда сам
@@ -120,6 +133,13 @@ function parseOneCondition(text: string): Cond | null {
   return { type: type.trim(), payload: rest.join(',') || undefined }
 }
 
+/** Все метасимволы регулярного выражения, включая обе подстановки шаблона домена */
+const RE_META = /[.*+?^${}()|[\]\\]/g
+
+function escapeRe(value: string): string {
+  return value.replace(RE_META, '\\$&')
+}
+
 /** Домен по шаблону конкретного типа правила Mihomo */
 function matchDomain(type: string, pattern: string, address: string): MatchState {
   const a = address.toLowerCase()
@@ -128,9 +148,22 @@ function matchDomain(type: string, pattern: string, address: string): MatchState
   if (type === 'DOMAIN-SUFFIX') return a === p || a.endsWith(`.${p}`) ? 'yes' : 'no'
   if (type === 'DOMAIN-KEYWORD') return a.includes(p) ? 'yes' : 'no'
   if (type === 'DOMAIN-WILDCARD') {
-    // Подстановка ядра: * — любой сегмент, + — один и более символов
-    const re = new RegExp(`^${p.replace(/[.]/g, '\\.').replace(/\*/g, '[^.]*').replace(/\+/g, '.+')}$`)
-    return re.test(a) ? 'yes' : 'no'
+    // Подстановки ядра здесь ровно две: `*` — ноль или более ЛЮБЫХ символов,
+    // `?` — ровно один. Доки mihomo отдельно предупреждают, что это НЕ те
+    // подстановки, что в clash-form списках доменов (там `*` — один сегмент), и
+    // что `+` здесь обычный символ, а не квантификатор.
+    //
+    // Шаблон приходит из чужого документа, поэтому экранируется всё, кроме двух
+    // подстановок: иначе `[` или `\` в имени превратили бы `new RegExp` в
+    // SyntaxError. try/catch — вторая застава: трассировка считается на каждую
+    // правку текста, ErrorBoundary в приложении нет, и исключение отсюда гасит
+    // весь редактор.
+    try {
+      const body = escapeRe(p).replace(/\\\*/g, '.*').replace(/\\\?/g, '.')
+      return new RegExp(`^${body}$`).test(a) ? 'yes' : 'no'
+    } catch {
+      return 'unknown'
+    }
   }
   if (type === 'DOMAIN-REGEX') {
     // Регулярка автора шаблона может быть невалидной для JS — это не повод
@@ -198,9 +231,16 @@ function evalCondition(ctx: Ctx, cond: Cond): CondResult {
         : NO
   }
   if (type === 'DST-PORT') {
-    const verdict = matchPortField('port', payload, ctx.target.port)
+    // У mihomo несколько портов перечисляются через `/` (`DST-PORT,80/443`):
+    // запятая здесь невозможна в принципе — она разделяет поля самого правила.
+    // Арифметику диапазонов берём общую с Xray, поменяв разделитель, а вот текст
+    // отказа пишем свой: сообщение Xray обещало бы список через запятую.
+    const verdict = matchPortField('port', payload.split('/').join(','), ctx.target.port)
     return verdict.state === 'unknown'
-      ? { state: 'unknown', reason: verdict.reason }
+      ? {
+          state: 'unknown',
+          reason: `порты «${payload}» не разбираются: ожидается 443, 1000-2000 или их список через «/»`,
+        }
       : { state: verdict.state }
   }
   if (type === 'NETWORK') {
@@ -289,10 +329,18 @@ function walkSubRule(ctx: Ctx, name: string, seen: Set<string>): Judged {
     if (res.state === 'unknown') {
       return { ...res, reason: `в подсписке «${name}»: ${res.reason}` }
     }
+    // PASS внутри подсписка выводит из него обратно в основной список — то же
+    // самое, что и «ничего не совпало», только по явной команде документа
+    if (res.state === 'yes' && res.target === PASS_TARGET) return { state: 'no', via: name }
     if (res.state === 'yes') return { ...res, via: res.via ?? name }
   }
-  // Ни одно правило подсписка не совпало — ядро продолжает основной список
-  return NO
+  // Ни одно правило подсписка не совпало — проход возвращается в основной
+  // список. Это ВЫВОД из документации ядра, а не проверенный факт: там сказано,
+  // что `PASS` выводит из подсписка в основные правила и что ссылка на
+  // несуществующий подсписок откатывается туда же — обе формулировки не имели
+  // бы смысла, будь ветка подсписка терминальной. Прямого утверждения «ничего
+  // не совпало — идём дальше по основному списку» в доках нет.
+  return { state: 'no', via: name }
 }
 
 /** Вердикт одного правила целиком: условие плюс цель, куда уйдёт трафик */
@@ -380,7 +428,7 @@ export function traceMihomo(
   const verdicts: MihomoRuleVerdict[] = []
   let winner: MihomoTraceResult['winner']
   let stopped: MihomoTraceResult['stopped']
-  let via: string | undefined
+  const notes: Notes = { opened: [], passed: [] }
 
   const entries = rulesOf(md)
   for (const entry of entries) {
@@ -397,11 +445,20 @@ export function traceMihomo(
       stopped = { index: entry.index, reason: res.reason ?? 'проверить это правило редактор не может' }
       break
     }
-    if (res.state === 'yes') {
-      winner = { ruleIndex: entry.index, target: res.target ?? entry.rule!.target }
-      via = res.via
-      break
+    if (res.state === 'no') {
+      // Подсписок открылся, но ни одно его правило не подошло — проход вернулся
+      // сюда. Пользователю это так же неочевидно, как и выигрыш из подсписка
+      if (res.via !== undefined) notes.opened.push({ index: entry.index, name: res.via })
+      continue
     }
+    // Правило совпало, но его цель — PASS: ветка пропускается, разбор идёт дальше
+    if (res.target === PASS_TARGET) {
+      notes.passed.push(entry.index)
+      continue
+    }
+    winner = { ruleIndex: entry.index, target: res.target ?? entry.rule!.target }
+    notes.via = res.via
+    break
   }
 
   // Дошли до конца списка и ни одно правило не совпало. MATCH в таком документе
@@ -411,13 +468,23 @@ export function traceMihomo(
     winner = { ruleIndex: null, target: 'DIRECT' }
   }
 
-  return { verdicts, winner, stopped, caveats: collectCaveats(ctx, winner, via) }
+  return { verdicts, winner, stopped, caveats: collectCaveats(ctx, winner, notes) }
+}
+
+/** Что случилось по дороге и требует объяснения — сам вердикт об этом молчит */
+interface Notes {
+  /** Подсписок, из которого пришла цель победителя */
+  via?: string
+  /** Подсписки, которые открылись, но никого не выбрали */
+  opened: { index: number; name: string }[]
+  /** Правила, совпавшие в PASS: ветка пропущена, проход продолжен */
+  passed: number[]
 }
 
 function collectCaveats(
   ctx: Ctx,
   winner: MihomoTraceResult['winner'],
-  via: string | undefined,
+  notes: Notes,
 ): string[] {
   const caveats: string[] = []
 
@@ -426,14 +493,30 @@ function collectCaveats(
       'Ни одно правило не совпало, а MATCH в списке нет: трафик, не подошедший ни под одно правило, пойдёт напрямую (DIRECT).',
     )
   }
-  if (via !== undefined) {
-    caveats.push(`Цель пришла из подсписка «${via}» — правило верхнего списка только открыло его.`)
+  if (notes.via !== undefined) {
+    caveats.push(
+      `Цель пришла из подсписка «${notes.via}» — правило верхнего списка только открыло его.`,
+    )
+  }
+  for (const { index, name } of notes.opened) {
+    // «Маршрут не определился», а не «ничего не совпало»: из подсписка выводит и
+    // PASS, при котором правило как раз совпало
+    caveats.push(
+      `Условие правила #${index + 1} совпало и открыло подсписок «${name}», но маршрут в нём не определился — проход вернулся в основной список.`,
+    )
+  }
+  for (const index of notes.passed) {
+    caveats.push(
+      `Правило #${index + 1} совпало, но его цель — PASS: ветка пропущена, и разбор продолжился со следующих правил.`,
+    )
   }
   if (!ctx.geo.loaded && usesGeo(ctx.md)) {
     caveats.push('Geo-базы не загружены: вердикты по GEOSITE и GEOIP неизвестны.')
   }
   for (const key of ctx.geo.missing) {
-    caveats.push(`Категории «${key}» нет в загруженной базе — ядро отвергнет такой документ.`)
+    // Что сделает с таким документом ядро клиента, редактор не знает: базы у
+    // клиента свои. Утверждаем только то, что следует из отсутствия категории
+    caveats.push(`Категории «${key}» нет в загруженной базе — правило по ней не сработает.`)
   }
   // Имена подставленных панелью хостов редактор не знает по определению, поэтому
   // цель, которой нет в документе, — не ошибка и утверждать о ней нечего

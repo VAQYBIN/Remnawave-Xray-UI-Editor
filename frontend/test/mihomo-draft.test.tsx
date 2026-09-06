@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -244,5 +244,62 @@ describe('трассировка в черновике Mihomo', () => {
     expect(result.current.trace).toBeDefined()
     act(() => result.current.setTraceTarget(null))
     expect(result.current.trace).toBeUndefined()
+  })
+})
+
+describe('трассировка спрашивает geo-базу по ключам документа', () => {
+  const GEO_DOC = [
+    'proxy-groups:',
+    '  - name: A',
+    '    proxies:',
+    '      - DIRECT',
+    'rules:',
+    '  - GEOSITE,ads,A',
+    '  - MATCH,DIRECT',
+    '',
+  ].join('\n')
+
+  /** Тела POST-запросов к ручке geo — по ним видно, какие ключи ушли */
+  let geoBodies: Record<string, unknown>[] = []
+
+  beforeEach(() => {
+    useDraftStore.setState({ drafts: {} })
+    useHistoryStore.setState({ stacks: {} })
+    qc.clear()
+    geoBodies = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/api/tools/geo/match')) {
+          geoBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+        }
+        return new Response(
+          JSON.stringify({ loaded: true, answers: { 'geosite:ads': true }, missing: [] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }),
+    )
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const target = { address: 'a.com', port: 443, network: 'tcp' as const }
+
+  it('ключи правил уходят в запрос, а ответ доходит до вердикта', async () => {
+    const { result } = draft(GEO_DOC)
+    act(() => result.current.setTraceTarget(target))
+    // Пауза ввода настоящая: подменять таймеры посреди react-query дороже
+    await waitFor(() => expect(geoBodies).toHaveLength(1), { timeout: 3000 })
+    expect(geoBodies[0]).toEqual({ domain: 'a.com', ip: undefined, keys: ['geosite:ads'] })
+    // Ответ базы обязан дойти до трассировки: иначе GEOSITE вечно останавливал
+    // бы проход, выглядя при этом «честным»
+    await waitFor(() => expect(result.current.trace?.winner?.target).toBe('A'), { timeout: 3000 })
+    expect(result.current.trace?.stopped).toBeUndefined()
+  })
+
+  it('без geo-правил базу не спрашивают вовсе', async () => {
+    const { result } = draft()
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace).toBeDefined(), { timeout: 3000 })
+    expect(geoBodies).toEqual([])
   })
 })

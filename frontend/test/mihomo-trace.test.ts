@@ -50,8 +50,21 @@ describe('трассировка Mihomo', () => {
     expect(traceMihomo(doc('NETWORK,tcp,A', 'MATCH,D'), T(), NO_GEO).winner?.target).toBe('A')
     // Живые шаблоны пишут сеть заглавными — регистр значить не должен
     expect(traceMihomo(doc('NETWORK,TCP,A', 'MATCH,D'), T(), NO_GEO).winner?.target).toBe('A')
-    // Диапазон портов — тот же формат, что у Xray
+    // Диапазон портов
     expect(traceMihomo(doc('DST-PORT,440-450,A', 'MATCH,D'), T(), NO_GEO).winner?.target).toBe('A')
+    expect(traceMihomo(doc('DST-PORT,100-200,A', 'MATCH,D'), T(), NO_GEO).winner?.target).toBe('D')
+  })
+
+  it('несколько портов перечисляются через «/», а не через запятую', () => {
+    // Запятая у mihomo невозможна в принципе: она разделяет поля самого правила
+    expect(traceMihomo(doc('DST-PORT,80/443,A', 'MATCH,D'), T(), NO_GEO).winner?.target).toBe('A')
+    expect(traceMihomo(doc('DST-PORT,80/8080,A', 'MATCH,D'), T(), NO_GEO).winner?.target).toBe('D')
+    // Диапазон внутри списка разбирается тем же кодом
+    expect(traceMihomo(doc('DST-PORT,80/440-450,A', 'MATCH,D'), T(), NO_GEO).winner?.target).toBe('A')
+    // Мусор вместо портов — остановка, а не молчаливое «не совпало»
+    const broken = traceMihomo(doc('DST-PORT,http,A', 'MATCH,D'), T(), NO_GEO)
+    expect(broken.stopped?.index).toBe(0)
+    expect(broken.stopped?.reason).toMatch(/«\/»/)
   })
 
   it('IP-CIDR без адреса не вычисляется и останавливает проход', () => {
@@ -142,11 +155,38 @@ describe('трассировка Mihomo', () => {
     expect(on('DOMAIN-SUFFIX,a.com,A', 'xa.com')).toBe('D')
     expect(on('DOMAIN-KEYWORD,goog,A', 'www.google.com')).toBe('A')
     expect(on('DOMAIN-KEYWORD,goog,A', 'www.yandex.ru')).toBe('D')
-    // Звёздочка — ровно один сегмент, а не «сколько угодно»
-    expect(on('DOMAIN-WILDCARD,*.a.com,A', 'x.a.com')).toBe('A')
-    expect(on('DOMAIN-WILDCARD,*.a.com,A', 'y.x.a.com')).toBe('D')
     expect(on('DOMAIN-REGEX,^a\\.com$,A', 'a.com')).toBe('A')
     expect(on('DOMAIN-REGEX,^a\\.com$,A', 'xa.com')).toBe('D')
+  })
+
+  it('DOMAIN-WILDCARD знает подстановки ядра, а не clash-form', () => {
+    const on = (raw: string, address: string) =>
+      traceMihomo(doc(raw, 'MATCH,D'), T({ address }), NO_GEO).winner?.target
+    // `*` — ноль или более ЛЮБЫХ символов, точки в том числе. Это прямо
+    // оговорено в доках mihomo: подстановки здесь не те, что в списках доменов
+    expect(on('DOMAIN-WILDCARD,*.google.com,A', 'a.google.com')).toBe('A')
+    expect(on('DOMAIN-WILDCARD,*.google.com,A', 'a.b.google.com')).toBe('A')
+    expect(on('DOMAIN-WILDCARD,*.google.com,A', 'google.ru')).toBe('D')
+    // `?` — ровно один символ
+    expect(on('DOMAIN-WILDCARD,?.a.com,A', 'x.a.com')).toBe('A')
+    expect(on('DOMAIN-WILDCARD,?.a.com,A', 'xy.a.com')).toBe('D')
+    // `+` здесь обычный символ, а не квантификатор
+    expect(on('DOMAIN-WILDCARD,a+.com,A', 'ab.com')).toBe('D')
+    expect(on('DOMAIN-WILDCARD,a+.com,A', 'a+.com')).toBe('A')
+    // Точка — тоже литерал, а не «любой символ»
+    expect(on('DOMAIN-WILDCARD,a.com,A', 'axcom')).toBe('D')
+  })
+
+  it('метасимвол в шаблоне домена не роняет трассировку', () => {
+    // Трассировка пересчитывается на КАЖДУЮ правку текста, а ErrorBoundary в
+    // приложении нет: исключение отсюда — белый экран вместо редактора
+    for (const ch of ['[', ']', '{', '}', '\\', '|', '+', '^', '$', '?', '*']) {
+      const raw = `DOMAIN-WILDCARD,${ch}zzz.com,A`
+      expect(() => traceMihomo(doc(raw, 'MATCH,D'), T(), NO_GEO), raw).not.toThrow()
+      const res = traceMihomo(doc(raw, 'MATCH,D'), T(), NO_GEO)
+      // Ни падения, ни ложного совпадения: адрес a.com под такой шаблон не подходит
+      expect(res.winner?.target, raw).toBe('D')
+    }
   })
 
   it('регулярка, которую JS не понимает, останавливает проход, а не роняет разбор', () => {
@@ -181,6 +221,60 @@ describe('трассировка Mihomo', () => {
   it('непроверяемое вложенное условие останавливает логическое правило целиком', () => {
     const res = traceMihomo(doc('AND,((DOMAIN,a.com),(UID,1000)),A', 'MATCH,D'), T(), NO_GEO)
     expect(res.stopped?.index).toBe(0)
+  })
+
+  it('непроверяемое условие проходит наружу через OR и через NOT, а не гасится', () => {
+    // Форма OR из двух RULE-SET стоит в обеих эталонных фикстурах: если OR
+    // вернёт «нет» вместо «проверить нечем», разбор уверенно уйдёт мимо
+    const or = traceMihomo(doc('OR,((RULE-SET,ads),(RULE-SET,ru)),A', 'MATCH,D'), T(), NO_GEO)
+    expect(or.stopped?.index).toBe(0)
+    expect(or.stopped?.reason).toMatch(/набор правил/i)
+    expect(or.winner).toBeUndefined()
+    // NOT от неизвестного — тоже неизвестное: отрицать нечего
+    const not = traceMihomo(doc('NOT,((RULE-SET,ads)),A', 'MATCH,D'), T(), NO_GEO)
+    expect(not.stopped?.index).toBe(0)
+    expect(not.winner).toBeUndefined()
+    // Точное «да» внутри OR перевешивает непроверяемое — остановки нет
+    const hit = traceMihomo(doc('OR,((DOMAIN,a.com),(RULE-SET,ads)),A', 'MATCH,D'), T(), NO_GEO)
+    expect(hit.stopped).toBeUndefined()
+    expect(hit.winner?.target).toBe('A')
+  })
+
+  it('модификатор src останавливает проход: он про источник, а не про назначение', () => {
+    // Посчитать `IP-CIDR,…,src` условием по назначению значило бы дать
+    // уверенный неверный ответ — данных об источнике в цели трассировки нет
+    const res = traceMihomo(
+      doc('IP-CIDR,10.0.0.0/8,A,src', 'MATCH,D'),
+      T({ ip: '10.1.2.3' }),
+      NO_GEO,
+    )
+    expect(res.stopped?.index).toBe(0)
+    expect(res.stopped?.reason).toMatch(/src/)
+    expect(res.winner).toBeUndefined()
+    // Без модификатора то же правило вычисляется и побеждает
+    const plain = traceMihomo(doc('IP-CIDR,10.0.0.0/8,A', 'MATCH,D'), T({ ip: '10.1.2.3' }), NO_GEO)
+    expect(plain.winner?.target).toBe('A')
+    // no-resolve модификатором проход не глушит: он про резолв домена ядром
+    const noResolve = traceMihomo(
+      doc('IP-CIDR,10.0.0.0/8,A,no-resolve', 'MATCH,D'),
+      T({ ip: '10.1.2.3' }),
+      NO_GEO,
+    )
+    expect(noResolve.winner?.target).toBe('A')
+  })
+
+  it('PASS не объявляется победителем: ветка пропускается, разбор идёт дальше', () => {
+    const res = traceMihomo(doc('DOMAIN,a.com,PASS', 'DOMAIN-SUFFIX,a.com,A', 'MATCH,D'), T(), NO_GEO)
+    // Правило совпало — но маршрут даёт следующее
+    expect(res.verdicts[0]!.state).toBe('yes')
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'A' })
+    expect(res.caveats.join(' ')).toMatch(/PASS/)
+  })
+
+  it('PASS в конце списка не мешает дефолтному маршруту', () => {
+    const res = traceMihomo(doc('DOMAIN,a.com,PASS'), T(), NO_GEO)
+    expect(res.winner).toEqual({ ruleIndex: null, target: 'DIRECT' })
+    expect(res.stopped).toBeUndefined()
   })
 
   it('точный промах во вложенном условии перевешивает непроверяемое', () => {
@@ -245,6 +339,32 @@ describe('трассировка спускается в подсписок пр
     const res = traceMihomo(parseMihomo(text), T(), NO_GEO)
     expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
     expect(res.verdicts[0]!.state).toBe('no')
+    // Открытый впустую подсписок объясняется: без этого «условие совпало, а
+    // маршрут дало другое правило» выглядит необъяснимо
+    expect(res.caveats.join(' ')).toMatch(/открыло подсписок «ru»/)
+  })
+
+  it('PASS внутри подсписка выводит обратно в основной список', () => {
+    const text = [
+      'sub-rules:',
+      '  ru:',
+      '    - DOMAIN,a.com,PASS',
+      '    - MATCH,M',
+      'rules:',
+      '  - SUB-RULE,(NETWORK,tcp),ru',
+      '  - MATCH,D',
+      '',
+    ].join('\n')
+    const res = traceMihomo(parseMihomo(text), T(), NO_GEO)
+    // MATCH,M внутри подсписка стоит ниже PASS и до него дело не доходит
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+    // Маршрут тут получается один и тот же, что бы ни решил редактор про PASS
+    // внутри подсписка, — отличается ОБЪЯСНЕНИЕ, и оно обязано быть верным:
+    // управление вернул подсписок, а цель правила #1 — «ru», а вовсе не PASS
+    const text2 = res.caveats.join(' ')
+    expect(text2).toMatch(/подсписок «ru»/)
+    expect(text2).toMatch(/вернулся в основной список/)
+    expect(text2).not.toMatch(/цель — PASS/)
   })
 
   it('непроверяемое правило внутри подсписка останавливает проход и называет подсписок', () => {

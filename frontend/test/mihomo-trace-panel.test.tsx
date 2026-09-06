@@ -99,6 +99,32 @@ describe('MihomoTracePanel', () => {
     expect(screen.getByText(/из подсписка «ru»/)).toBeInTheDocument()
   })
 
+  it('сноска об усечении печатается только там, где список действительно оборван', () => {
+    const note = /ниже .* список не выполняется/i
+    // Победитель: правила ниже него не выполняются
+    const { unmount } = render(
+      <MihomoTracePanel result={result} onClose={noop} onSelectRule={noop} />,
+    )
+    expect(screen.getByText(note)).toBeInTheDocument()
+    unmount()
+
+    // Список пройден целиком — усечения не было, сообщать не о чем
+    const fell: MihomoTraceResult = {
+      verdicts: [{ index: 0, state: 'no', target: 'VPN' }],
+      winner: { ruleIndex: null, target: 'DIRECT' },
+      caveats: [],
+    }
+    const second = render(<MihomoTracePanel result={fell} onClose={noop} onSelectRule={noop} />)
+    expect(screen.queryByText(note)).not.toBeInTheDocument()
+    second.unmount()
+
+    // Правил нет вовсе
+    render(
+      <MihomoTracePanel result={{ verdicts: [], caveats: [] }} onClose={noop} onSelectRule={noop} />,
+    )
+    expect(screen.queryByText(note)).not.toBeInTheDocument()
+  })
+
   it('клик по строке правила выбирает его в графе', async () => {
     const onSelectRule = vi.fn()
     render(<MihomoTracePanel result={result} onClose={noop} onSelectRule={onSelectRule} />)
