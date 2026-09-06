@@ -107,10 +107,13 @@ function MihomoGroupNode({ data, selected }: { data: MihomoGroupNodeData; select
       <div className="fnode-title">{data.name}</div>
       <div className="metrics">
         {data.manual > 0 && <Metric>{`вручную: ${data.manual}`}</Metric>}
-        {/* Условная формулировка обязательна: сколько хостов подойдёт под
-            фильтр, знает только панель */}
+        {/* Условная формулировка обязательна ровно в одной ветке. «Панель
+            подставит хосты» — обещание, которого никто не давал: под `filter`
+            может не подойти ни один хост, и группа останется пустой. Вторая
+            ветка безусловна законно — она следует из ключей самого документа
+            (`groupGetsHosts`), а не из того, что сделает панель. */}
         <Metric accent={data.getsHosts}>
-          {data.getsHosts ? 'панель добавит хосты' : 'хостов от панели не будет'}
+          {data.getsHosts ? 'если панель подставит хосты — сюда' : 'хостов от панели не будет'}
         </Metric>
       </div>
       <Handle type="source" position={Position.Right} />

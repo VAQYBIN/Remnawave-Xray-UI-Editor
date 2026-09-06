@@ -1,8 +1,19 @@
+// Исходник стилей читаем с диска. `?raw` тут не работает: у vitest `css: false`,
+// и любой импорт CSS — включая сырой — подменяется пустой строкой (проверено:
+// тест зеленел бы на пустом файле). @types/node в tsconfig фронтенда нет, а
+// заводить их ради одного теста дороже точечного подавления.
+// @ts-expect-error нет @types/node — модуль есть только в рантайме vitest
+import { readFileSync } from 'node:fs'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
-import { MihomoTopology, mihomoColumns, nextGroupName } from '../src/features/topology/MihomoTopology'
+import {
+  MihomoTopology,
+  mihomoColumns,
+  MIHOMO_TARGET_KINDS,
+  nextGroupName,
+} from '../src/features/topology/MihomoTopology'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
 import { buildMihomoGraph, layoutMihomo } from '../src/entities/graph/mihomo/buildGraph'
 import { parseMihomo } from '../src/entities/mihomo'
@@ -58,6 +69,37 @@ describe('граф Mihomo', () => {
     const titles = mihomoColumns(nodes).map((c) => c.title)
     expect(titles[0]).toBe('правила')
     expect(titles[titles.length - 1]).toBe('выходы')
+  })
+
+  it('узел подсписка попадает в колонку правил после раскладки', () => {
+    // Сравнивать x ДО layoutMihomo бессмысленно: там оба литерально 0 в одном и
+    // том же файле. Проверяем то, что видит пользователь: разложенные узлы и
+    // подпись колонки, в которую подсписок попал.
+    const md = parseMihomo(
+      'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT\n' +
+        'sub-rules:\n  ru:\n    - MATCH,DIRECT\nrules:\n  - SUB-RULE,(NETWORK,udp),ru\n',
+    )
+    const nodes = layoutMihomo(buildMihomoGraph(md).nodes)
+    const sub = nodes.find((n) => n.id === 'subrule:ru')!
+    const rule = nodes.find((n) => n.id === 'rule:0')!
+    const group = nodes.find((n) => n.id === 'group:VPN')!
+    expect(sub.position.x).toBe(rule.position.x)
+    // Колонка правил — не та же, что колонка групп: без этого равенство выше
+    // выполнялось бы и при схлопывании всех колонок в одну
+    expect(sub.position.x).not.toBe(group.position.x)
+    expect(mihomoColumns(nodes).find((c) => c.x === sub.position.x)?.title).toBe('правила')
+    // Раскладка развела их по вертикали — узлы не лежат друг на друге
+    expect(sub.position.y).not.toBe(rule.position.y)
+  })
+
+  it('подсписок без единого правила в документе всё равно называет колонку правилами', () => {
+    // Отступление 4 отчёта: `mihomo-subrule` заведён в COLUMN_TITLE ровно ради
+    // документа с `sub-rules` и БЕЗ `rules` — иначе первым узлом колонки был бы
+    // подсписок, и колонка правил назвалась бы «выходы»
+    const md = parseMihomo('proxy-groups:\n  - name: VPN\nsub-rules:\n  ru:\n    - MATCH,VPN\n')
+    const nodes = layoutMihomo(buildMihomoGraph(md).nodes)
+    expect(nodes.some((n) => n.id === 'rule:0')).toBe(false)
+    expect(mihomoColumns(nodes)[0]?.title).toBe('правила')
   })
 
   it('док заводит правило и группу', async () => {
@@ -137,8 +179,36 @@ describe('граф Mihomo', () => {
         <MihomoTopology draft={draftStub()} md={md} />
       </ReactFlowProvider>,
     )
-    expect(screen.getByText('панель добавит хосты')).toBeInTheDocument()
+    // Ветка «хосты будут» — про то, что сделает панель, и обещать этого нельзя:
+    // под `filter` может не подойти ни один хост. Проверяем условность, а не
+    // формулировку, но безусловное обещание ловим отдельно.
+    const positive = screen.getByText(/хост/i, { selector: '.metric-accent' })
+    expect(positive.textContent).toMatch(/^если панель/)
+    // Обратная ветка следует из ключей документа и условной быть не обязана
     expect(screen.getByText('хостов от панели не будет')).toBeInTheDocument()
+  })
+
+  it('подсказка пустого холста не называет документ пустым и не обещает импорта', () => {
+    // Узлов нет, но документ не пуст: ни групп, ни правил, ни провайдеров в нём
+    // просто нет, а `port`/`mode` есть. Сказать «документ пуст» — соврать.
+    const md = parseMihomo('port: 7890\nmode: rule\n')
+    const { container } = render(
+      <ReactFlowProvider>
+        <MihomoTopology draft={draftStub()} md={md} />
+      </ReactFlowProvider>,
+    )
+    const hint = container.querySelector('.canvas-hint')
+    expect(hint).not.toBeNull()
+    const text = hint!.textContent ?? ''
+    expect(text).toMatch(/нет ни групп, ни правил, ни провайдеров/)
+    expect(text).not.toMatch(/[Дд]окумент пуст/)
+    // Диалога импорта во фронтенде пока нет ни одного — обещать его нельзя
+    expect(text).not.toMatch(/импорт/i)
+  })
+
+  it('подсказки нет, как только на холсте появился хоть один узел', () => {
+    const { container } = renderTopology()
+    expect(container.querySelector('.canvas-hint')).toBeNull()
   })
 
   it('причина отказа коммутации показывается диалогом и закрывается', async () => {
@@ -147,6 +217,37 @@ describe('граф Mihomo', () => {
     expect(screen.getByText(/одну строку/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Понятно' }))
     expect(dismissRefusal).toHaveBeenCalledOnce()
+  })
+})
+
+// Подсветка «куда можно воткнуть кабель» — не украшение: без неё кабель тянут
+// вслепую. `data-accepts` проставляет PatchbayState по targetKinds, а рисует
+// подсветку CSS по префиксу id узла — два независимых списка, которые обязаны
+// сходиться. Вид без правила в tokens.css молча остаётся неподсвеченным.
+describe('подсветка целей кабеля', () => {
+  // Путь относительный: корень vitest — каталог frontend
+  const CSS: string = readFileSync('src/shared/ui/tokens.css', 'utf8')
+
+  // Оформления ДВА и проверять надо оба: рамка карточки (`.fnode`) говорит «сюда
+  // можно», гнездо (`.react-flow__handle-left`) — куда именно целиться. Проверка
+  // одного лишь префикса зеленела бы, пока жив хоть один из двух блоков.
+  function highlighted(kind: string): string[] {
+    const head = `[data-accepts~='${kind}'] .react-flow__node[data-id^='${kind}:']`
+    return [`${head} .fnode`, `${head} .react-flow__handle-left`].filter((s) => CSS.includes(s))
+  }
+
+  it('каждый вид цели Mihomo подсвечивает и карточку, и гнездо', () => {
+    for (const kind of MIHOMO_TARGET_KINDS) {
+      expect(highlighted(kind), kind).toHaveLength(2)
+    }
+  })
+
+  it('виды целей Xray подсвечиваются по-прежнему', () => {
+    // Список литеральный: он сторожит правку, сделанную ради Mihomo, от
+    // случайного выпадения колонок соседнего графа
+    for (const kind of ['rule', 'out', 'inj', 'bal']) {
+      expect(highlighted(kind), kind).toHaveLength(2)
+    }
   })
 })
 

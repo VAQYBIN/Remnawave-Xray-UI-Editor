@@ -2,7 +2,7 @@
 // отказов. Всё, что не зависит от вида документа (позиции, фокус, патчбей,
 // док, подписи колонок), живёт в GraphCanvas.
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { Connection, Edge } from '@xyflow/react'
 import { buildMihomoGraph, layoutMihomo } from '../../entities/graph/mihomo/buildGraph'
 import { isValidMihomoConnection, refusalText } from '../../entities/graph/mihomo/mutations'
@@ -66,8 +66,13 @@ export function canConnect(
   )
 }
 
-/** Колонки, куда вообще можно воткнуть кабель. Ключ — префикс id узла. */
-const TARGET_KINDS = ['group', 'provider', 'builtin'] as const
+/**
+ * Колонки, куда вообще можно воткнуть кабель. Ключ — префикс id узла.
+ * Экспортируется ради теста: каждый вид отсюда обязан иметь правило подсветки в
+ * tokens.css, иначе `data-accepts` проставится, а цель не подсветится — кабель
+ * тянется вслепую.
+ */
+export const MIHOMO_TARGET_KINDS = ['group', 'provider', 'builtin'] as const
 
 /**
  * Имя новой группы: `Группа`, `Группа 2`, `Группа 3`… — первое, которого нет в
@@ -118,6 +123,11 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
     return { nodes, edges }
   }, [graph, saved, draft.selectedNode, draft.nodeIssues])
 
+  // Считается по узлам, а не по документу, и меняется только вместе с графом.
+  // Инлайн в JSX давал бы новый массив на каждый рендер — `useMemo` внутри
+  // GraphCanvas тогда пересчитывался бы всегда и не мемоизировал ничего.
+  const columns = useMemo(() => mihomoColumns(graph.nodes), [graph.nodes])
+
   const isValid = useCallback(
     (conn: { source?: string | null; target?: string | null }) => canConnect(graph.nodes, conn),
     [graph.nodes],
@@ -128,13 +138,27 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
     [draft],
   )
 
+  // Попытка разорвать несколько рёбер разом: отказываем целиком и объясняем
+  const [multiCut, setMultiCut] = useState(false)
+
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
+      if (deleted.length === 0) return
       // Одно ребро за раз: у Mihomo нет позиционных id, которые смещались бы
       // друг относительно друга, но каждая правка считает отступы по ТЕКУЩЕМУ
-      // тексту — накладывать вторую поверх первой без пересчёта нельзя
-      const first = deleted[0]
-      if (first) draft.disconnect(first.id)
+      // тексту, а текст меняется только после перерисовки — вторая правка
+      // поверх первой без пересчёта попала бы не туда.
+      //
+      // Отсюда следует ОТКАЗ, а не «сделать одну и промолчать»: молчаливое
+      // частичное выполнение — это порча, писатель видит исчезнувшие рёбра и не
+      // знает, что применилось. Накладывать по одной с перепарсингом между
+      // правками тоже можно, но пачечная операция должна жить в черновике
+      // (`useMihomoDraft`), где есть текст, — не в топологии.
+      if (deleted.length > 1) {
+        setMultiCut(true)
+        return
+      }
+      draft.disconnect(deleted[0]!.id)
     },
     [draft],
   )
@@ -151,12 +175,19 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
       isValidConnection={isValid}
       onConnect={onConnect}
       onEdgesDelete={onEdgesDelete}
-      targetKinds={TARGET_KINDS}
-      columns={mihomoColumns(graph.nodes)}
+      targetKinds={MIHOMO_TARGET_KINDS}
+      columns={columns}
       focus={draft.focus}
       hint={
         graph.nodes.length === 0 ? (
-          <>Документ пуст. Заведите группу и правило кнопками ниже либо импортируйте готовый шаблон.</>
+          // Утверждать «документ пуст» нельзя: узлов нет и у документа с `port`,
+          // `mode` и `dns` — просто в нём нет ни одной сущности, которую рисует
+          // граф. Говорим ровно то, что видно, и называем способы, которые
+          // существуют СЕЙЧАС (образец — подсказка графа Xray).
+          <>
+            На холсте пусто: в документе нет ни групп, ни правил, ни провайдеров. Заведите группу и
+            правило кнопками ниже или впишите их на вкладке YAML.
+          </>
         ) : undefined
       }
       dockActions={
@@ -175,6 +206,25 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
         <div className="row">
           <span className="spacer" />
           <Button variant="ghost" onClick={draft.dismissRefusal}>
+            Понятно
+          </Button>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={multiCut}
+        title="За раз разрывается одна связь"
+        onClose={() => setMultiCut(false)}
+      >
+        <p>
+          Выделено несколько кабелей. Каждая правка считает отступы по текущему тексту документа,
+          поэтому вторую нельзя наложить поверх первой, не пересчитав его заново — а частично
+          выполненный разрыв хуже невыполненного: непонятно, что применилось.
+        </p>
+        <p className="muted">Снимите выделение, выберите один кабель и повторите.</p>
+        <div className="row">
+          <span className="spacer" />
+          <Button variant="ghost" onClick={() => setMultiCut(false)}>
             Понятно
           </Button>
         </div>

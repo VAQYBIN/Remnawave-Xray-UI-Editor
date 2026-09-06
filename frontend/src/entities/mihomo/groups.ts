@@ -136,10 +136,35 @@ export function ruleProvidersOf(md: MihomoDoc): RuleProviderRef[] {
   return out
 }
 
-export function subRuleNames(md: MihomoDoc): string[] {
+export interface SubRuleEntry {
+  name: string
+  /** Узел значения подсписка — список строк-правил; не seq, если документ кривой */
+  node: unknown
+}
+
+/**
+ * Записи `sub-rules`. ЕДИНСТВЕННОЕ место, решающее, какие подсписки в документе
+ * есть: имена отсюда берут и валидация (через `subRuleNames`), и граф (узлы
+ * `subrule:<имя>` в `buildMihomoGraph`), и резолвер диагностик
+ * (`mihomoNodeIdForPath`). Собственный обход секции у любого из них разошёлся бы
+ * с остальными на первом же нестандартном документе — и узлы графа перестали бы
+ * совпадать с тем, на что ссылаются диагностики.
+ *
+ * Значение отдаём как есть, не проверяя, что это список: «подсписок существует»
+ * и «его содержимое разбирается» — разные вопросы, и второй решает потребитель.
+ */
+export function subRuleEntries(md: MihomoDoc): SubRuleEntry[] {
   const node = sectionNode(md, 'sub-rules')
   if (!isMap(node)) return []
-  return node.items
-    .map((pair) => (pair.key as { value?: unknown } | null)?.value)
-    .filter((name): name is string => typeof name === 'string')
+  const out: SubRuleEntry[] = []
+  for (const pair of node.items) {
+    const name = (pair.key as { value?: unknown } | null)?.value
+    if (typeof name !== 'string') continue
+    out.push({ name, node: pair.value })
+  }
+  return out
+}
+
+export function subRuleNames(md: MihomoDoc): string[] {
+  return subRuleEntries(md).map((e) => e.name)
 }

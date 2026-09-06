@@ -383,6 +383,58 @@ describe('коммутация объясняет отказ', () => {
     expect(refusalText(res.refusal!)).toMatch(/якор/)
   })
 
+  // Список задан ССЫЛКОЙ на якорь: собственная пара `proxies` есть, но её
+  // значение — узел Alias, а сам список лежит у объявления якоря. Раньше общий
+  // путь дописывал элемент после строки со ссылкой: YAML получался битым, а
+  // refusal оставался пустым — редактор молча ломал документ и отчитывался об
+  // успехе. Это порча, а не неверный текст, поэтому проверок три: отказ,
+  // побайтовая неизменность документа и то, что он по-прежнему разбирается.
+  const aliasBase = [
+    'x-anchors:',
+    '  base: &base',
+    '    - DIRECT',
+    'proxy-groups:',
+    '  - name: A',
+    '    proxies: *base',
+    '  - name: B',
+    '    proxies:',
+    '      - DIRECT',
+    '',
+  ].join('\n')
+
+  it('соединение с группой, чей список задан ссылкой на якорь, отказывает и не трогает текст', () => {
+    const md = parseMihomo(aliasBase)
+    const res = connectMihomo(md, 'group:A', 'builtin:REJECT')
+    expect(res.refusal).toBe('alias-list')
+    expect(res.edits).toEqual([])
+    expect(refusalText(res.refusal!)).toMatch(/якор/)
+    // Побайтово тот же документ
+    const out = applyEdits(aliasBase, res.edits)
+    expect(out).toBe(aliasBase)
+    // И он по-прежнему разбирается: именно эта проверка отличает починку от
+    // «отказ добавили, а порчу оставили»
+    expect(parseMihomo(out).doc.errors).toEqual([])
+  })
+
+  it('разрыв на списке-ссылке отказывает по той же причине, а не «узла уже нет»', () => {
+    const md = parseMihomo(aliasBase)
+    const res = disconnectMihomo(md, 'e:group:A->builtin:DIRECT')
+    expect(res.refusal).toBe('alias-list')
+    expect(res.edits).toEqual([])
+  })
+
+  it('на той же фикстуре группа с блочным списком соединяется и документ остаётся валидным', () => {
+    const md = parseMihomo(aliasBase)
+    const res = connectMihomo(md, 'group:B', 'builtin:REJECT')
+    expect(res.refusal).toBeUndefined()
+    const out = applyEdits(aliasBase, res.edits)
+    const parsed = parseMihomo(out)
+    expect(parsed.doc.errors).toEqual([])
+    expect(groupsOf(parsed).find((g) => g.name === 'B')!.proxies).toEqual(['DIRECT', 'REJECT'])
+    // Группа со ссылкой не тронута
+    expect(out).toContain('proxies: *base')
+  })
+
   it('ключа proxies нет вовсе — структуру группы не выдумываем', () => {
     const md = parseMihomo(['proxy-groups:', '  - name: A', '    type: select', ''].join('\n'))
     const res = connectMihomo(md, 'group:A', 'builtin:REJECT')

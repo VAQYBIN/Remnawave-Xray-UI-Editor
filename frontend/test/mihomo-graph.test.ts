@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildMihomoGraph, groupDepths, layoutMihomo } from '../src/entities/graph/mihomo/buildGraph'
-import { groupsOf } from '../src/entities/mihomo/groups'
+import { groupsOf, subRuleNames } from '../src/entities/mihomo/groups'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { mihomoFixture } from './helpers'
 
@@ -108,14 +108,43 @@ describe('подсписки правил', () => {
     expect(edges.map((e) => e.id)).toContain('e:subrule:block->builtin:REJECT')
   })
 
-  it('узел подсписка стоит в колонке правил', () => {
+  it('две строки подсписка на одну цель дают одно ребро и одну цель в узле', () => {
+    // Без дедупликации в targets узел соврал бы про число выходов, а pushEdge
+    // молча отбросил бы второе ребро — расхождение видно только в данных узла
     const md = parseMihomo(
-      'sub-rules:\n  ru:\n    - MATCH,DIRECT\nrules:\n  - SUB-RULE,(NETWORK,udp),ru\n',
+      'proxy-groups:\n  - name: VPN\n' +
+        'sub-rules:\n  ru:\n    - DOMAIN,a.com,VPN\n    - DOMAIN,b.com,VPN\n    - MATCH,VPN\n',
     )
+    const { nodes, edges } = buildMihomoGraph(md)
+    const data = nodes.find((n) => n.id === 'subrule:ru')?.data as {
+      targets: string[]
+      count: number
+    }
+    expect(data.targets).toEqual(['VPN'])
+    // Правил всё-таки три: count считает строки, targets — разные цели
+    expect(data.count).toBe(3)
+    expect(edges.filter((e) => e.source === 'subrule:ru')).toHaveLength(1)
+  })
+
+  it('подсписок с нечитаемым содержимым остаётся узлом, но без правил и целей', () => {
+    // Имена подсписков даёт модель (`subRuleEntries`), и «подсписок объявлен» —
+    // не то же, что «его содержимое разбирается». Спрятать узел значило бы
+    // соврать, что подсписка нет, и разойтись с резолвером диагностик.
+    const md = parseMihomo('sub-rules:\n  ru: not-a-list\n')
     const { nodes } = buildMihomoGraph(md)
-    expect(nodes.find((n) => n.id === 'subrule:ru')?.position.x).toBe(
-      nodes.find((n) => n.id === 'rule:0')?.position.x,
-    )
+    expect(nodes.find((n) => n.id === 'subrule:ru')?.data).toMatchObject({
+      kind: 'mihomo-subrule',
+      count: 0,
+      targets: [],
+    })
+  })
+
+  it('имена подсписков у графа и у модели — один список', () => {
+    const md = parseMihomo('sub-rules:\n  ru: not-a-list\n  block:\n    - MATCH,DIRECT\n')
+    const inGraph = buildMihomoGraph(md)
+      .nodes.filter((n) => n.id.startsWith('subrule:'))
+      .map((n) => n.id.slice('subrule:'.length))
+    expect(inGraph).toEqual(subRuleNames(md))
   })
 
   it('SUB-RULE ведёт в подсписок, а не в одноимённую группу', () => {

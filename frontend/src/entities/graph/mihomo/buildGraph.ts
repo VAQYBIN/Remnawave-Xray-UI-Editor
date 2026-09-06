@@ -3,10 +3,10 @@
 // не вешает: узел, уже находящийся в обходе, даёт нулевой вклад, а сама ошибка
 // приходит диагностикой из validate.ts.
 
-import { isMap, isScalar, isSeq } from 'yaml'
-import { groupsOf, providersOf, type MihomoGroup } from '../../mihomo/groups'
+import { isScalar, isSeq } from 'yaml'
+import { groupsOf, providersOf, subRuleEntries, type MihomoGroup } from '../../mihomo/groups'
 import { groupGetsHosts, hasRootMarker } from '../../mihomo/inject'
-import { sectionNode, type MihomoDoc } from '../../mihomo/parse'
+import type { MihomoDoc } from '../../mihomo/parse'
 import { resolveTarget } from '../../mihomo/resolve'
 import { parseRule, rulesOf } from '../../mihomo/rules'
 import { edgeId } from '../edgeIds'
@@ -53,32 +53,33 @@ interface SubRuleList {
 }
 
 /**
- * Подсписки правил: `sub-rules` — это карта «имя → список строк-правил». Читаем
- * их прямо здесь, а не через entities/mihomo: наружу оттуда торчат только имена
- * (`subRuleNames`), а графу нужны ещё число правил и их цели. Разбор строки —
- * тот же `parseRule`, что и у обычных правил.
+ * Подсписки правил для графа. КАКИЕ подсписки есть, решает не этот файл, а
+ * `subRuleEntries` из модели — тот же источник, на котором стоят валидация и
+ * резолвер диагностик: собственный обход секции разошёлся бы с ними, и узлы
+ * `subrule:<имя>` перестали бы совпадать с тем, на что ссылаются диагностики.
+ * Здесь только СВОЁ поверх имён: число правил и их цели.
+ *
+ * Значение, которое не оказалось списком, узел всё равно получает — с нулём
+ * правил и без целей: подсписок в документе объявлен, и прятать его с холста
+ * из-за кривого содержимого значило бы соврать, что его нет.
  *
  * Значение скаляра берём ДЕКОДИРОВАННЫМ, а не срезом текста: в кавычках
  * (`- "MATCH,DIRECT"`) YAML их уже снял, и разбор среза дал бы тип правила
  * `"MATCH` (тот же приём, что в `rulesOf`).
  */
 function subRuleLists(md: MihomoDoc): SubRuleList[] {
-  const node = sectionNode(md, 'sub-rules')
-  if (!isMap(node)) return []
-  const out: SubRuleList[] = []
-  for (const pair of node.items) {
-    const name = (pair.key as { value?: unknown } | null)?.value
-    const list = pair.value
-    if (typeof name !== 'string' || !isSeq(list)) continue
+  return subRuleEntries(md).map(({ name, node }) => {
+    if (!isSeq(node)) return { name, count: 0, targets: [] }
     const targets: string[] = []
-    for (const item of list.items) {
+    for (const item of node.items) {
       const value = isScalar(item) && typeof item.value === 'string' ? item.value : null
       const target = value === null ? undefined : parseRule(value)?.target
+      // Без дедупликации две строки на одну цель дали бы два ребра с одним id —
+      // pushEdge второе отбросит, но targets уже соврал бы про число выходов
       if (target !== undefined && !targets.includes(target)) targets.push(target)
     }
-    out.push({ name, count: list.items.length, targets })
-  }
-  return out
+    return { name, count: node.items.length, targets }
+  })
 }
 
 function pickOf(group: MihomoGroup): 'all' | 'random' | 'shuffled' {
