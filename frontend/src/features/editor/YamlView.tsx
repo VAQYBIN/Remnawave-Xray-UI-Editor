@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useRef } from 'react'
 import CodeMirror, { EditorView } from '@uiw/react-codemirror'
-import { json } from '@codemirror/lang-json'
+import { yaml } from '@codemirror/lang-yaml'
 import { linter, lintGutter } from '@codemirror/lint'
-import { validateXrayConfig, type PathParts } from '../../entities/xray'
+import { locateMihomo, parseMihomo, validateMihomo } from '../../entities/mihomo'
+import type { PathParts } from '../../entities/xray'
 import { editorTheme } from './editorTheme'
-import { xrayIntellisense } from './intellisense'
-import { diagnosticsFor, locateRange } from './jsonLocate'
+import { mihomoIntellisense } from './mihomoIntellisense'
+import { mihomoDiagnostics } from './yamlLocate'
 
-function xrayLinter() {
-  return linter((view) =>
-    diagnosticsFor(view.state, validateXrayConfig(view.state.doc.toString()).issues),
-  )
+function mihomoLinter() {
+  return linter((view) => {
+    // Разбор один и тот же, но проверкам нужен документ, а диагностикам — текст:
+    // печатать модель обратно нельзя, поэтому текст берём у буфера редактора
+    const text = view.state.doc.toString()
+    return mihomoDiagnostics(text, validateMihomo(parseMihomo(text)))
+  })
 }
 
-export function JsonView({
+export function YamlView({
   text,
   onChange,
   reveal,
@@ -28,7 +32,7 @@ export function JsonView({
   useEffect(() => {
     const view = viewRef.current
     if (!view || !reveal) return
-    const range = locateRange(view.state, reveal.parts)
+    const range = locateMihomo(parseMihomo(view.state.doc.toString()), reveal.parts)
     if (!range) return
     view.dispatch({
       selection: { anchor: range.from, head: range.to },
@@ -38,7 +42,7 @@ export function JsonView({
   }, [reveal])
 
   const extensions = useMemo(
-    () => [json(), lintGutter(), xrayLinter(), xrayIntellisense('config'), editorTheme],
+    () => [yaml(), lintGutter(), mihomoLinter(), mihomoIntellisense(), editorTheme],
     [],
   )
   return (
