@@ -4839,7 +4839,13 @@ git commit -m "feat(frontend): import templates from the remnawave catalog"
 - Modify: `frontend/src/features/editor/useMihomoDraft.ts` (поле `trace`)
 - Modify: `frontend/src/features/templates/MihomoEditorPage.tsx` (панель и строка ввода)
 - Modify: `frontend/src/features/topology/mihomoNodes.tsx` (вердикт на карточке правила)
+- Modify: `frontend/src/features/topology/MihomoTopology.tsx` (пропы `dockExtra`/`dockRow`)
 - Test: `frontend/test/mihomo-trace.test.ts`, `frontend/test/mihomo-trace-panel.test.tsx`
+
+**Пропуск, найденный при исполнении задачи 9 и закрытый здесь:** `MihomoTopology` задачи 9
+не принимает `dockExtra`/`dockRow` — в её брифе этих пропов нет, и правильно, что нет: до
+трассировки их нечем наполнять. Но панель трассировки и строка ввода живут именно в доке, поэтому
+пропы добавляются здесь, по образцу того, как их принимает `TopologyView` у Xray.
 
 **Interfaces:**
 - Consumes: `matchDomainPattern` не подходит (у Xray другой синтаксис шаблонов), а вот
