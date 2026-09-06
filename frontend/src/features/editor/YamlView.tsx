@@ -10,10 +10,10 @@ import { mihomoDiagnostics } from './yamlLocate'
 
 function mihomoLinter() {
   return linter((view) => {
-    // Разбор один и тот же, но проверкам нужен документ, а диагностикам — текст:
-    // печатать модель обратно нельзя, поэтому текст берём у буфера редактора
-    const text = view.state.doc.toString()
-    return mihomoDiagnostics(text, validateMihomo(parseMihomo(text)))
+    // Разбор ровно один на прогон: он нужен и проверкам, и поиску мест. Текст
+    // берётся у буфера редактора — печатать модель обратно нельзя
+    const md = parseMihomo(view.state.doc.toString())
+    return mihomoDiagnostics(md, validateMihomo(md))
   })
 }
 

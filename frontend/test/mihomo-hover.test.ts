@@ -13,6 +13,11 @@ const DOC = [
   'dns:',
   '  enhanced-mode: fake-ip',
   '  что-то-своё: 1',
+  '  nameserver:',
+  '    - 1.1.1.1',
+  'proxies:',
+  '  - name: сервер',
+  '    port: 443',
   'proxy-groups:',
   '  - name: A',
   '    interval: 300',
@@ -51,9 +56,17 @@ describe('наведение на YAML-вкладке', () => {
     expect(group?.field.doc).toContain('проверки живости')
   })
 
-  it('строка без ключа не даёт тултипа', () => {
-    const text = 'rules:\n  - MATCH,DIRECT\n'
-    expect(hoverAt(text, inside(text, 'MATCH'))).toBeNull()
+  it('ключ записи proxies не описывается корнем', () => {
+    // корневой `port` — «Порт HTTP-входа», и для порта сервера это враньё
+    expect(hoverAt(DOC, inside(DOC, 'port: 443'))).toBeNull()
+    expect(hoverAt(DOC, inside(DOC, 'name: сервер'))).toBeNull()
+    // а тот же ключ `name` в группе описан
+    expect(hoverAt(DOC, inside(DOC, 'name: A'))?.field.doc).toContain('Имя группы')
+  })
+
+  it('строка без ключа тултипа не даёт, соседняя с ключом — даёт', () => {
+    expect(hoverAt(DOC, inside(DOC, '1.1.1.1'))).toBeNull()
+    expect(hoverAt(DOC, inside(DOC, 'nameserver:'))?.field.doc).toContain('DNS-серверы')
   })
 
   it('разметка тултипа несёт ключ, описание и значения', () => {

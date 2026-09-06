@@ -20,6 +20,11 @@ function complete(src: string): CompletionResult | null {
   return mihomoCompletionSource(new CompletionContext(state, pos, true))
 }
 
+function ctx(src: string) {
+  const { text, pos } = at(src)
+  return contextAt(text, pos)
+}
+
 function labels(src: string): string[] {
   return (complete(src)?.options ?? []).map((o) => String(o.label))
 }
@@ -44,6 +49,13 @@ describe('контекст курсора', () => {
     expect(ctx?.mode).toBe('value')
     expect(ctx?.key).toBe('type')
   })
+
+  it('пробел внутри значения значением его быть не отменяет', () => {
+    const written = ctx('dns:\n  nameserver: 1.1.1.1 8.8‸\n')
+    expect(written?.mode).toBe('value')
+    expect(written?.key).toBe('nameserver')
+    expect(ctx('proxy-groups:\n  - name: A\n    filter: (US|HK) ‸\n')?.mode).toBe('value')
+  })
 })
 
 // containerOf — приватная середина contextAt, и проверяется через его `parts`:
@@ -51,8 +63,7 @@ describe('контекст курсора', () => {
 // имеет ровно то, во что они складываются на настоящем тексте
 describe('отображение, которому принадлежит курсор', () => {
   function parts(src: string) {
-    const { text, pos } = at(src)
-    return contextAt(text, pos)?.parts
+    return ctx(src)?.parts
   }
 
   it('отступ пустой строки внутри элемента списка — сам элемент', () => {
@@ -75,8 +86,90 @@ describe('отображение, которому принадлежит кур
     expect(parts('proxy-groups:\n  - name: A\n    type: ‸\n')).toEqual(['proxy-groups', 0])
   })
 
+  it('дефис заводит новый элемент, а не продолжает предыдущий', () => {
+    const next = ctx('proxy-groups:\n  - name: A\n  - ‸\n')
+    expect(next?.parts).toEqual(['proxy-groups'])
+    expect(next?.existingKeys).toEqual([])
+  })
+
   it('пустой документ — корень', () => {
     expect(parts('‸')).toEqual([])
+  })
+})
+
+// Правило одно: подсказка выдаётся ТОЛЬКО в отображении, которому словарь знает
+// секцию. Не опознали место — молчим; откат к корню выдал бы описание чужого
+// ключа (у `port` внутри записи `proxies` это был бы «порт HTTP-входа»)
+describe('места, где словарь молчит', () => {
+  // Один документ на положительный и отрицательный случай: курсор ставится то в
+  // запись сервера, то в группу, то в dns — меняется место, а не фикстура
+  const doc = (where: 'server' | 'group' | 'dns'): string =>
+    [
+      'proxies:',
+      '  - name: сервер',
+      '    port: 443',
+      ...(where === 'server' ? ['    ‸'] : []),
+      'proxy-groups:',
+      '  - name: A',
+      ...(where === 'group' ? ['    ‸'] : []),
+      'dns:',
+      '  nameserver:',
+      '    - 1.1.1.1',
+      ...(where === 'dns' ? ['  ‸'] : []),
+      '',
+    ].join('\n')
+
+  it('внутри записи proxies подсказок нет, а внутри группы того же документа есть', () => {
+    expect(ctx(doc('server'))).toBeNull()
+    expect(labels(doc('server'))).toEqual([])
+    expect(ctx(doc('group'))?.section).toBe('proxy-group')
+    expect(labels(doc('group'))).toContain('type')
+  })
+
+  it('в секции dns того же документа подсказки есть', () => {
+    expect(ctx(doc('dns'))?.section).toBe('dns')
+    expect(labels(doc('dns'))).toContain('enhanced-mode')
+  })
+
+  it('новый элемент proxies не описан, новый элемент proxy-groups описан', () => {
+    expect(ctx('proxies:\n  - ‸\n')).toBeNull()
+    expect(labels('proxies:\n  - ‸\n')).toEqual([])
+    expect(ctx('proxy-groups:\n  - ‸\n')?.section).toBe('proxy-group')
+    expect(labels('proxy-groups:\n  - ‸\n')).toContain('name')
+  })
+
+  it('элемент rules — скаляр, подсказывать там нечего', () => {
+    expect(ctx('rules:\n  - ‸\n')).toBeNull()
+    expect(ctx('rules:\n  - MATCH,DIRECT\n  - ‸\n')).toBeNull()
+  })
+
+  it('элемент списка серверов DNS — тоже', () => {
+    expect(ctx('dns:\n  enable: true\n  nameserver:\n    - ‸\n')).toBeNull()
+    // а сама секция dns на том же документе описана
+    expect(ctx('dns:\n  enable: true\n  nameserver:\n    - 1.1.1.1\n  ‸\n')?.section).toBe('dns')
+  })
+
+  it('произвольное отображение без секции (якоря шаблона) молчит', () => {
+    expect(ctx('x-anchors:\n  common: &common\n    type: http\n    ‸\n')).toBeNull()
+  })
+
+  it('провайдеры описаны по имени записи, но не на уровне самой карты', () => {
+    expect(ctx('proxy-providers:\n  наш:\n    type: http\n    ‸\n')?.section).toBe('proxy-provider')
+    expect(ctx('rule-providers:\n  наш:\n    type: http\n    ‸\n')?.section).toBe('rule-provider')
+    expect(ctx('proxy-providers:\n  ‸\n')).toBeNull()
+  })
+
+  it('вложенные отображения словаря описаны, чужие — нет', () => {
+    expect(ctx('proxy-groups:\n  - name: A\n    remnawave:\n      ‸\n')?.section).toBe('proxy-group')
+    expect(ctx('proxy-groups:\n  - name: A\n    своё:\n      ‸\n')).toBeNull()
+  })
+
+  it('внутри комментария подсказок нет', () => {
+    expect(ctx('proxies:\n  # LEAVE THIS LINE‸\n')).toBeNull()
+    expect(ctx('# proxies: LEAVE‸')).toBeNull()
+    expect(ctx('dns:\n  enable: true  # включено‸\n')).toBeNull()
+    // решётка внутри значения комментария не начинает — там подсказки работают
+    expect(ctx('dns:\n  nameserver: https://x/dns-query#VPN‸\n')?.mode).toBe('value')
   })
 })
 
@@ -104,6 +197,15 @@ describe('подсказки Mihomo', () => {
     expect(labels('‸\n')).toEqual(expect.arrayContaining(['mode', 'log-level', 'dns', 'tun']))
   })
 
+  it('имена секций словаря ключами корня не притворяются', () => {
+    // dns/tun/sniffer/profile в корне лежат под своими именами, а root и
+    // proxy-group — только имена секций: таких ключей в Mihomo нет
+    const got = labels('‸\n')
+    for (const name of ['root', 'proxy-group', 'proxy-provider', 'rule-provider']) {
+      expect(got).not.toContain(name)
+    }
+  })
+
   it('в корне предлагаются и ключи-контейнеры', () => {
     expect(labels('‸\n')).toEqual(
       expect.arrayContaining(['proxies', 'proxy-groups', 'rules', 'rule-providers']),
@@ -111,7 +213,9 @@ describe('подсказки Mihomo', () => {
   })
 
   it('уже написанный ключ-контейнер второй раз не предлагается', () => {
-    expect(labels('rules:\n  - MATCH,DIRECT\n‸\n')).not.toContain('rules')
+    const got = labels('rules:\n  - MATCH,DIRECT\n‸\n')
+    expect(got).toContain('proxy-groups')
+    expect(got).not.toContain('rules')
   })
 
   it('битый YAML ниже курсора не мешает подсказкам выше', () => {

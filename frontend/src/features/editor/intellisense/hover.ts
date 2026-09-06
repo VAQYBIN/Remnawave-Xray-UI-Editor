@@ -5,7 +5,7 @@ import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { hoverTooltip, type Tooltip } from '@codemirror/view'
 import type { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
-import { nodeFields, type DocField } from '../../../entities/xray/docSchema'
+import { nodeFields } from '../../../entities/xray/docSchema'
 import { renderHoverTooltip } from '../hoverTooltipDom'
 import { resolvePath, type XrayRootKind } from './context'
 

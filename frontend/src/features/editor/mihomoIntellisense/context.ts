@@ -27,19 +27,59 @@ export interface MihomoCursor {
   key?: string
 }
 
-// «  type: » — вводим ЗНАЧЕНИЕ; «  ty» — вводим КЛЮЧ
-const VALUE_RE = /^\s*(?:-\s*)?([A-Za-z0-9_-]+)\s*:\s*\S*$/
-// Отступ, с которого на строке начинается ключ: пробелы плюс дефис элемента списка
-const KEY_INDENT_RE = /^\s*(?:-\s+)?/
+// «  type: » и «  nameserver: 1.1.1.1 8.8» — вводим ЗНАЧЕНИЕ; «  ty» — КЛЮЧ.
+// Пробел внутри значения его значением быть не перестаёт: список серверов и
+// строка вроде «expected-status: 200/204» пишутся с пробелами
+const VALUE_RE = /^\s*(?:-\s*)?([A-Za-z0-9_-]+)\s*:(?:\s.*)?$/
+// Отступ строки и, если строка заводит элемент списка, его дефис
+const KEY_INDENT_RE = /^(\s*)(-\s+)?/
 
-/** Секция по пути от корня. Пустой путь — корень документа. */
-function sectionOf(parts: PathParts): MihomoSectionName {
-  const [head] = parts
-  if (head === 'proxy-groups') return 'proxy-group'
-  if (head === 'proxy-providers') return 'proxy-provider'
-  if (head === 'rule-providers') return 'rule-provider'
-  if (typeof head === 'string') return sectionForKey(head) ?? 'root'
-  return 'root'
+/**
+ * Хвост пути внутри секции. Пусто — это сама секция; единственный сегмент,
+ * который служит префиксом составного ключа (`remnawave`, `override`,
+ * `health-check`), — вложенное отображение той же секции. Всё остальное
+ * словарь не описывает.
+ */
+function withinSection(rest: PathParts, section: MihomoSectionName): MihomoSectionName | null {
+  if (rest.length === 0) return section
+  const [only] = rest
+  if (rest.length === 1 && typeof only === 'string') {
+    return fieldsOf(section).some((f) => f.key.startsWith(`${only}.`)) ? section : null
+  }
+  return null
+}
+
+/**
+ * Секция словаря, описывающая отображение по этому пути; null — про это место
+ * словарь не знает ничего, и тогда молчание единственный честный ответ.
+ * Откат к корню был бы враньём: `port` внутри записи `proxies` — порт сервера,
+ * а не «порт HTTP-входа» из корневых настроек.
+ *
+ * `item` — курсор заводит НОВЫЙ элемент списка (строка начинается с дефиса), и
+ * путь ведёт к самому списку. Единственный описанный список отображений —
+ * `proxy-groups`; `proxies` и `rules` словарь не описывает, у `rules` элементы
+ * и вовсе скаляры.
+ */
+function sectionOf(parts: PathParts, item: boolean): MihomoSectionName | null {
+  if (item) return parts.length === 1 && parts[0] === 'proxy-groups' ? 'proxy-group' : null
+
+  const [head, second] = parts
+  if (head === undefined) return 'root'
+  if (head === 'proxy-groups') {
+    return typeof second === 'number' ? withinSection(parts.slice(2), 'proxy-group') : null
+  }
+  if (head === 'proxy-providers') {
+    return typeof second === 'string' ? withinSection(parts.slice(2), 'proxy-provider') : null
+  }
+  if (head === 'rule-providers') {
+    return typeof second === 'string' ? withinSection(parts.slice(2), 'rule-provider') : null
+  }
+  if (typeof head !== 'string') return null
+  const section = sectionForKey(head)
+  if (section !== undefined) return withinSection(parts.slice(1), section)
+  // Не секция — значит либо вложенное отображение составного ключа корня
+  // (`remnawave`), либо место, которого словарь не знает
+  return withinSection(parts, 'root')
 }
 
 function keyOf(node: unknown): string | undefined {
@@ -110,15 +150,16 @@ function lastNonSpaceBefore(text: string, pos: number): number {
 }
 
 /**
- * Списки скаляров (`rules`, `proxies`, `nameserver`…) словарь не описывает:
- * их элементы — не пары «ключ: значение», и подсказывать там ключи секции
- * значит подсказывать заведомо неверное. Единственный описанный список
- * отображений — `proxy-groups`, и то лишь на уровне самого списка: там
- * дефисом заводят новую группу.
+ * Курсор внутри комментария. В YAML решётка начинает комментарий в начале
+ * строки или после пробела — внутри значения (`https://dns#🌍 VPN`) она
+ * обычная. Подсказывать там нечего, а над строкой `# LEAVE THIS LINE!`, по
+ * которой панель ищет место подстановки хостов, — тем более.
  */
-function describedContainer(node: unknown, parts: PathParts): boolean {
-  if (!isSeq(node)) return true
-  return parts.length === 1 && parts[0] === 'proxy-groups'
+function inComment(before: string): boolean {
+  for (let i = 0; i < before.length; i += 1) {
+    if (before[i] === '#' && (i === 0 || /\s/.test(before[i - 1]))) return true
+  }
+  return false
 }
 
 export function contextAt(text: string, pos: number): MihomoCursor | null {
@@ -127,10 +168,15 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
 
   const lineStart = text.lastIndexOf('\n', pos - 1) + 1
   const before = text.slice(lineStart, pos)
+  if (inComment(before)) return null
   const value = VALUE_RE.exec(before)
   const mode = value ? 'value' : 'key'
   const key = value?.[1]
-  const column = (KEY_INDENT_RE.exec(before)?.[0] ?? '').length
+  const indent = KEY_INDENT_RE.exec(before)
+  // Дефис на строке означает НОВЫЙ элемент списка: его отображения в тексте ещё
+  // нет, и хозяин строки — сам список, чей дефис стоит левее ключей элемента
+  const item = indent?.[2] !== undefined
+  const column = indent?.[1].length ?? 0
 
   // Путь берём от курсора. На «пустом» месте — отступе новой строки — его не
   // накрывает ни один узел: разбор о ненаписанное ещё не спотыкается, но и
@@ -148,14 +194,15 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
     parts = parts.slice(0, -1)
   }
 
-  const node = nodeAt(md, parts)
-  if (!describedContainer(node, parts)) return null
+  const section = sectionOf(parts, item)
+  if (section === null) return null
 
+  const node = nodeAt(md, parts)
   const existingKeys = isMap(node)
     ? node.items.map((pair) => keyOf(pair.key)).filter((k): k is string => k !== undefined)
     : []
 
-  return { section: sectionOf(parts), parts, existingKeys, mode, key }
+  return { section, parts, existingKeys, mode, key }
 }
 
 /**

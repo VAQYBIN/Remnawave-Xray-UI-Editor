@@ -8,15 +8,16 @@
 // одноимённые смысловые копии этих же ошибок из списка вычитаем.
 
 import type { Diagnostic } from '@codemirror/lint'
-import { locateMihomo, parseMihomo, type MihomoDoc } from '../../entities/mihomo'
+import { locateMihomo, type MihomoDoc } from '../../entities/mihomo'
 import type { ValidationIssue } from '../../entities/xray'
 
 /** Ошибки разбора YAML — на своих местах в тексте */
 function syntaxDiagnostics(md: MihomoDoc): Diagnostic[] {
   return md.doc.errors.map((error, index): Diagnostic => {
-    // Формулировка живёт в parse.ts и приходит сюда готовой: md.issues идут
-    // ровно в порядке md.doc.errors
-    const message = md.issues[index]?.message ?? `Синтаксис YAML: ${error.message}`
+    // Формулировка живёт в parse.ts и приходит сюда готовой: md.issues строятся
+    // из md.doc.errors один в один и в том же порядке, так что своего шаблона
+    // сообщения здесь нет — иначе он разошёлся бы с тамошним
+    const { message } = md.issues[index]
     const [from, to] = error.pos
     const start = Math.min(Math.max(from, 0), md.text.length)
     const end = Math.min(Math.max(to, start), md.text.length)
@@ -24,8 +25,9 @@ function syntaxDiagnostics(md: MihomoDoc): Diagnostic[] {
   })
 }
 
-export function mihomoDiagnostics(text: string, issues: ValidationIssue[]): Diagnostic[] {
-  const md = parseMihomo(text)
+/** Разбор приходит готовым: линтеру он нужен и для проверок, второй раз документ
+ *  такого размера разбирать незачем */
+export function mihomoDiagnostics(md: MihomoDoc, issues: ValidationIssue[]): Diagnostic[] {
   const syntax = new Set(md.issues.map((i) => i.message))
 
   const semantic = issues
