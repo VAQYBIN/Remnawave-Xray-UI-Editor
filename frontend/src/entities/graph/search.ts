@@ -8,7 +8,18 @@ import type { GraphContext } from './types'
 
 export interface SearchHit {
   nodeId: string
-  kind: 'inbound' | 'outbound' | 'rule' | 'squad' | 'dns' | 'balancer' | 'inject'
+  kind:
+    | 'inbound'
+    | 'outbound'
+    | 'rule'
+    | 'squad'
+    | 'dns'
+    | 'balancer'
+    | 'inject'
+    | 'mihomo-group'
+    | 'mihomo-rule'
+    | 'mihomo-provider'
+    | 'mihomo-hosts'
   title: string
   /** Чем совпало — иначе в списке правил непонятно, почему они там */
   matchedOn: string
