@@ -55,50 +55,66 @@ export interface DocumentDraftOptions<TModel> {
   adapter: DocumentAdapter<TModel>
 }
 
-export interface DocumentDraft<TModel> {
+/**
+ * Подмножество черновика, которое читает хром редактора (`EditorShell`), —
+ * **без параметра модели**: топбар, статус-бар и общие диалоги одинаковы у Xray
+ * и Mihomo, и знать разобранный документ им незачем. `DocumentDraft<TModel>`
+ * расширяет этот интерфейс, поэтому хром принимает любой черновик как есть.
+ */
+export interface EditorShellDraft {
   /** Uuid документа: он же адрес бэкапов в панели */
   docKey: string
   /** Ключ локальных хранилищ: `<вид>:<uuid>` — черновик, история, позиции узлов */
   storageKey: string
-  /** Контекст графа, с которым построен документ: его же ждёт TopologyView */
-  ctx: GraphContext
   text: string
-  /** Текст, каким его отдала панель: левая сторона сравнения при сохранении */
-  panelText: string
-  /** Версия, от которой отсчитывается черновик, — она уходит в сохранение */
-  baseVersion: string
   dirty: boolean
-  /** Разобранный документ; undefined — текст не разбирается, граф не строится */
-  model: TModel | undefined
   issues: ValidationIssue[]
-  hasErrors: boolean
   errorCount: number
   warningCount: number
-  nodeIssues: Record<string, IssueCount>
 
   tab: 'graph' | 'text'
-  openTextTab: () => void
   openGraphTab: () => void
-
-  selectedNode: string | null
-  setSelectedNode: (id: string | null) => void
-
-  writeDraft: (text: string, opts: { history: boolean }) => void
-  /** Отменить локальные правки и вернуться к версии панели (сам шаг отменяем через undo) */
-  resetDraft: () => void
-  /** Сохранение прошло: черновик и история относятся к прежней базе */
-  clearAfterSave: () => void
-  /** Принять версию панели при конфликте: документ меняется целиком */
-  adoptPanelVersion: () => void
+  openTextTab: () => void
 
   undoAvailable: boolean
   redoAvailable: boolean
   doUndo: () => void
   doRedo: () => void
 
-  reveal: { parts: PathParts; nonce: number } | null
   canSelectIssue: (issue: ValidationIssue) => boolean
   selectIssue: (issue: ValidationIssue) => void
+
+  issuesOpen: boolean
+  setIssuesOpen: (open: boolean) => void
+  shortcutsOpen: boolean
+  setShortcutsOpen: (open: boolean) => void
+
+  writeDraft: (text: string, opts: { history: boolean }) => void
+  /** Отменить локальные правки и вернуться к версии панели (сам шаг отменяем через undo) */
+  resetDraft: () => void
+  setSelectedNode: (id: string | null) => void
+}
+
+export interface DocumentDraft<TModel> extends EditorShellDraft {
+  /** Контекст графа, с которым построен документ: его же ждёт TopologyView */
+  ctx: GraphContext
+  /** Текст, каким его отдала панель: левая сторона сравнения при сохранении */
+  panelText: string
+  /** Версия, от которой отсчитывается черновик, — она уходит в сохранение */
+  baseVersion: string
+  /** Разобранный документ; undefined — текст не разбирается, граф не строится */
+  model: TModel | undefined
+  hasErrors: boolean
+  nodeIssues: Record<string, IssueCount>
+
+  selectedNode: string | null
+
+  /** Сохранение прошло: черновик и история относятся к прежней базе */
+  clearAfterSave: () => void
+  /** Принять версию панели при конфликте: документ меняется целиком */
+  adoptPanelVersion: () => void
+
+  reveal: { parts: PathParts; nonce: number } | null
 
   searchQuery: string
   setSearchQuery: (value: string) => void
@@ -113,12 +129,8 @@ export interface DocumentDraft<TModel> {
   traceTarget: TraceTarget | null
   setTraceTarget: (target: TraceTarget | null) => void
 
-  shortcutsOpen: boolean
-  setShortcutsOpen: (open: boolean) => void
   geoOpen: boolean
   setGeoOpen: (open: boolean) => void
-  issuesOpen: boolean
-  setIssuesOpen: (open: boolean) => void
 }
 
 export function useDocumentDraft<TModel>({
