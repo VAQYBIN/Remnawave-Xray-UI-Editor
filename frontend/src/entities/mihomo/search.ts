@@ -4,35 +4,13 @@
 import { groupsOf, providersOf } from './groups'
 import type { MihomoDoc } from './parse'
 import { rulesOf } from './rules'
-import type { SearchHit } from '../graph/search'
+// `firstMatch` берётся отсюда, а не пишется своя: результаты обоих поисков
+// рисует один `SearchBox`, и «почему нашлось» обязано звучать одинаково.
+// Здесь была копия, и она разъехалась с оригиналом дважды — см. комментарий
+// у самой функции.
+import { firstMatch, type SearchHit } from '../graph/search'
 
 const LIMIT = 20
-
-/**
- * Первое совпавшее поле — построчная копия `firstMatch` из
- * `entities/graph/search.ts` (поиск по графу Xray), и копия обязана оставаться
- * ПОВЕДЕНЧЕСКОЙ копией. Финальное ревью поймало её разъехавшейся сразу дважды:
- *  - список сравнивался склеенным через пробел (`value.join(' ')`), из-за чего у
- *    группы с `proxies: [ru, us]` запрос «ru us» давал ЛОЖНОЕ совпадение по
- *    подстроке шва, которой в документе нет. Сравнение поэлементное;
- *  - `matchedOn` возвращался голой меткой («имя»), а оригинал — «метка: значение».
- *    В списке результатов рядом с хитами Xray это выглядело как разные виды
- *    подсказки, хотя рисует их один `SearchBox`.
- * Тот же корень, поэтому и починка одна: копия приведена к оригиналу целиком.
- */
-function firstMatch(
-  needle: string,
-  fields: { label: string; value: string | string[] | undefined }[],
-): string | undefined {
-  for (const { label, value } of fields) {
-    const values = Array.isArray(value) ? value : [value]
-    for (const item of values) {
-      if (item === undefined) continue
-      if (item.toLowerCase().includes(needle)) return `${label}: ${item}`
-    }
-  }
-  return undefined
-}
 
 export function searchMihomo(md: MihomoDoc, query: string): SearchHit[] {
   const needle = query.trim().toLowerCase()

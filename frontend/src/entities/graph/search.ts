@@ -27,8 +27,22 @@ export interface SearchHit {
 
 const LIMIT = 20
 
-/** Первое совпавшее поле: показываем одну причину, а не все сразу */
-function firstMatch(needle: string, fields: { label: string; value: unknown }[]): string | undefined {
+/**
+ * Первое совпавшее поле: показываем одну причину, а не все сразу.
+ *
+ * Экспортируется ради поиска по графу Mihomo (`entities/mihomo/search.ts`):
+ * результаты обоих поисков рисует один `SearchBox`, поэтому «почему нашлось»
+ * обязано звучать одинаково. Здесь была построчная копия, и финальное ревью
+ * поймало её разъехавшейся сразу дважды — по формату (`метка` против
+ * `метка: значение`) и по ПОВЕДЕНИЮ: копия склеивала список через пробел, из-за
+ * чего у группы с `proxies: [ru, us]` находился запрос «ru us» — совпадение по
+ * шву, которого в документе нет. Одна реализация вместо двух убирает саму
+ * возможность третьего расхождения.
+ */
+export function firstMatch(
+  needle: string,
+  fields: { label: string; value: unknown }[],
+): string | undefined {
   for (const { label, value } of fields) {
     const values = Array.isArray(value) ? value : [value]
     for (const item of values) {
