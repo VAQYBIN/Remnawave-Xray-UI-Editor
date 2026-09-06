@@ -235,6 +235,36 @@ describe('правки полей секций', () => {
     expect(next.split('\n')).toEqual(['rules:', '  - MATCH,B', '  - DOMAIN,a.com,A  # первый', ''])
   })
 
+  it('переставляет правило без завершающего \\n в файле, не склеивая строки (ревью раунд 2)', () => {
+    // Раунд 1 сам внёс этот дефект: обмен «строка вместе со своим терминатором»
+    // переносил `\n` вместе с содержимым, когда у последней строки файла его нет
+    // вовсе, — два правила слипались в один скаляр, а `parseMihomo` результата
+    // не подавал об этом никакого сигнала (документ оставался валидным YAML).
+    // Проверка одной лишь строки текста не поймала бы слияние, если бы оно дало
+    // похожий текст, — поэтому здесь ещё и `rulesOf` результата.
+    const text = 'rules:\n  - DOMAIN,a.com,A\n  - MATCH,B'
+    const md = parseMihomo(text)
+    const next = applyEdits(text, moveMihomoRule(md, 0, 1))
+    expect(next).toBe('rules:\n  - MATCH,B\n  - DOMAIN,a.com,A')
+    const parsed = parseMihomo(next)
+    expect(parsed.issues).toHaveLength(0)
+    const rules = rulesOf(parsed)
+    expect(rules).toHaveLength(2)
+    expect(rules.map((r) => r.raw)).toEqual(['MATCH,B', 'DOMAIN,a.com,A'])
+  })
+
+  it('без завершающего \\n и с хвостовым комментарием у последнего правила — находки 5 и раунда 2 пересекаются здесь', () => {
+    const text = 'rules:\n  - DOMAIN,a.com,A\n  - MATCH,B  # последний'
+    const md = parseMihomo(text)
+    const next = applyEdits(text, moveMihomoRule(md, 0, 1))
+    expect(next).toBe('rules:\n  - MATCH,B  # последний\n  - DOMAIN,a.com,A')
+    const parsed = parseMihomo(next)
+    expect(parsed.issues).toHaveLength(0)
+    const rules = rulesOf(parsed)
+    expect(rules).toHaveLength(2)
+    expect(rules.map((r) => r.raw)).toEqual(['MATCH,B', 'DOMAIN,a.com,A'])
+  })
+
   it('перестановка за границы списка ничего не меняет', () => {
     const md = parseMihomo(DOC)
     expect(moveMihomoRule(md, 0, -1)).toEqual([])

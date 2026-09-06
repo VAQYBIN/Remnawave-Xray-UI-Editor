@@ -997,14 +997,42 @@ export function removeGroup(md: MihomoDoc, index: number): TextEdit[] {
 }
 
 /**
- * Перестановка правила: две правки, меняющие местами ПОЛНЫЕ ФИЗИЧЕСКИЕ СТРОКИ
- * (а не только диапазон значения правила). Находка 5 (ревью раунд 1): диапазон
- * элемента (`entry.range`) у скаляра заканчивается ДО хвостового комментария
- * (см. `scalar()`/`rangeOf`) — обмен одними только этими диапазонами оставлял
- * комментарий на своей физической строке, то есть приклеивал его к ЧУЖОМУ
- * правилу, которое туда переехало. Строка могла быть и в кавычках, и с
- * комментарием на конце, и заданной алиасом — пересборка из полей потеряла бы
- * это молча, поэтому меняются местами именно СРЕЗЫ ТЕКСТА целых строк.
+ * Диапазон физической строки, на которой лежит `range`, разложенный на
+ * СОДЕРЖИМОЕ (без завершающего `\n`) и ТЕРМИНАТОР (`'\n'`, если он в тексте
+ * есть, иначе `''` — бывает только у самой последней строки файла). Раздельно
+ * они нужны `moveMihomoRule` (находка 5→доп. находка раунда 2): перевод строки
+ * принадлежит МЕСТУ в файле, а не содержимому строки, которое туда переехало
+ * при обмене — если менять местами диапазоны «строка целиком, включая свой
+ * терминатор», перевод строки уедет вместе с содержимым, а не останется на
+ * месте (находка C1 плана 1 в новом обличье: `addRule`/`addGroup` по той же
+ * причине сами дописывают `\n`, когда его в исходнике не было).
+ */
+function lineOf(text: string, range: Range): { from: number; contentTo: number; terminator: '\n' | '' } {
+  const from = text.lastIndexOf('\n', range.from - 1) + 1
+  const nl = text.indexOf('\n', range.to)
+  return { from, contentTo: nl === -1 ? text.length : nl, terminator: nl === -1 ? '' : '\n' }
+}
+
+/**
+ * Перестановка правила: две правки, меняющие местами СОДЕРЖИМОЕ двух физических
+ * строк (без завершающего `\n`), а терминатор каждой строки остаётся НА МЕСТЕ.
+ * Находка 5 (ревью раунд 1): диапазон элемента (`entry.range`) у скаляра
+ * заканчивается ДО хвостового комментария (см. `scalar()`/`rangeOf`) — обмен
+ * одними только этими диапазонами оставлял комментарий на своей физической
+ * строке, то есть приклеивал его к ЧУЖОМУ правилу, которое туда переехало.
+ * Строка могла быть и в кавычках, и с комментарием на конце, и заданной
+ * алиасом — пересборка из полей потеряла бы это молча, поэтому меняется
+ * местами именно СРЕЗ ТЕКСТА строки, а не разобранное правило.
+ *
+ * Доп. находка ревью раунда 2 (сам раунд 1 её и внёс): если ПОСЛЕДНЯЯ строка
+ * файла не оканчивается на `\n`, у нужного правила терминатор — `''`, у
+ * соседнего — `'\n'`. Обмен диапазонами «строка вместе со своим терминатором»
+ * (как было) переносил `\n` вместе с содержимым — перевод строки между двумя
+ * переставленными правилами исчезал, и они слипались в один скаляр, а
+ * `parseMihomo` результата не подавал об этом никакого сигнала (документ
+ * оставался синтаксически валидным, просто терял одно правило). Раздельный
+ * обмен «содержимое ↔ содержимое» и «терминатор остаётся на месте» (см.
+ * `lineOf`) не зависит от того, есть ли у файла завершающий перевод строки.
  */
 export function moveMihomoRule(md: MihomoDoc, index: number, dir: -1 | 1): TextEdit[] {
   if (isFlowNode(sectionNode(md, 'rules'))) return []
@@ -1012,16 +1040,21 @@ export function moveMihomoRule(md: MihomoDoc, index: number, dir: -1 | 1): TextE
   const from = rules.find((r) => r.index === index)
   const to = rules.find((r) => r.index === index + dir)
   if (from === undefined || to === undefined) return []
-  const lineOf = (range: Range): Range => {
-    const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
-    const lineEnd = md.text.indexOf('\n', range.to)
-    return { from: lineStart, to: lineEnd === -1 ? md.text.length : lineEnd + 1 }
-  }
-  const fromLine = lineOf(from.range)
-  const toLine = lineOf(to.range)
+  const fromLine = lineOf(md.text, from.range)
+  const toLine = lineOf(md.text, to.range)
+  const fromContent = md.text.slice(fromLine.from, fromLine.contentTo)
+  const toContent = md.text.slice(toLine.from, toLine.contentTo)
   return [
-    { from: fromLine.from, to: fromLine.to, insert: md.text.slice(toLine.from, toLine.to) },
-    { from: toLine.from, to: toLine.to, insert: md.text.slice(fromLine.from, fromLine.to) },
+    {
+      from: fromLine.from,
+      to: fromLine.contentTo + fromLine.terminator.length,
+      insert: toContent + fromLine.terminator,
+    },
+    {
+      from: toLine.from,
+      to: toLine.contentTo + toLine.terminator.length,
+      insert: fromContent + toLine.terminator,
+    },
   ]
 }
 
