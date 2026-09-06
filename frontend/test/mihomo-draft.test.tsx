@@ -163,7 +163,10 @@ describe('черновик Mihomo', () => {
     // успешного разрыва выше, так что различает ветви именно ребро, а не документ
     const { result } = draft()
     act(() => result.current.disconnect('e:rule:0->group:A'))
-    expect(result.current.refusal).toBe('invalid-pair')
+    // Причина называет настоящее основание: связь у правила можно только
+    // сменить, а не убрать. Прежний `invalid-pair` объяснял отказ узлом
+    // подстановки, которого в этом ребре нет.
+    expect(result.current.refusal).toBe('rule-target-required')
     expect(result.current.text).toBe(DOC)
   })
 

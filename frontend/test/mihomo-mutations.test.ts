@@ -15,6 +15,14 @@ const base =
   'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT\n  - name: Fast\n    include-all: true\n' +
   'rules:\n  - DOMAIN,a.com,DIRECT\n  - MATCH,VPN\n'
 
+// Тот же документ с подсписком правил: у него есть и ребро правила в подсписок
+// (`e:rule:0->subrule:block`), и исходящее ребро самого подсписка, и обычное
+// ребро группы — три случая разрыва на одной фикстуре
+const subBase =
+  'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT\n' +
+  'sub-rules:\n  block:\n    - MATCH,REJECT\n' +
+  'rules:\n  - SUB-RULE,(NETWORK,udp),block\n'
+
 describe('допустимость соединений', () => {
   it('правило ведёт в группу, провайдера и встроенное имя', () => {
     expect(isValidMihomoConnection('rule:0', 'group:VPN')).toBe(true)
@@ -63,7 +71,36 @@ describe('разрыв', () => {
     const md = parseMihomo(base)
     const res = disconnectMihomo(md, 'e:rule:1->group:VPN')
     expect(res.edits).toEqual([])
-    expect(res.refusal).toBe('invalid-pair')
+    // Причина обязана называть НАСТОЯЩЕЕ основание. Прежний `invalid-pair`
+    // объяснял отказ узлом подстановки, которого в этом ребре нет вовсе.
+    expect(res.refusal).toBe('rule-target-required')
+    expect(refusalText(res.refusal!)).toMatch(/цель обязательна/)
+  })
+
+  it('разрыв ребра подсписка отказывает по тому же основанию, что и у правила', () => {
+    // `subrule:<имя> → цель` — это тоже строка правила, только внутри
+    // `sub-rules`: третье поле у неё так же обязательно
+    const md = parseMihomo(subBase)
+    const res = disconnectMihomo(md, 'e:subrule:block->builtin:REJECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('rule-target-required')
+  })
+
+  it('разрыв ребра SUB-RULE → подсписок объясняется тем же, а не узлом подстановки', () => {
+    const md = parseMihomo(subBase)
+    const res = disconnectMihomo(md, 'e:rule:0->subrule:block')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('rule-target-required')
+    expect(refusalText(res.refusal!)).not.toMatch(/подстановк/)
+  })
+
+  it('на той же фикстуре разрыв ребра ГРУППЫ по-прежнему выполняется', () => {
+    // Парный успешный случай: отказ выше — свойство ребра правила, а не
+    // поломка разрыва вообще
+    const md = parseMihomo(subBase)
+    const res = disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT')
+    expect(res.refusal).toBeUndefined()
+    expect(groupsOf(parseMihomo(applyEdits(subBase, res.edits)))[0]!.proxies).toEqual([])
   })
 })
 
@@ -331,5 +368,16 @@ describe('коммутация объясняет отказ', () => {
     const res = connectMihomo(md, 'rule:0', `group:${'a\nb'}`)
     expect(res.edits).toEqual([])
     expect(res.refusal).toBe('unprintable-rule')
+  })
+})
+
+// Вид `subrule` появился в разборе id ради честной причины отказа при разрыве.
+// Соединять с подсписком нельзя ни в одну сторону — сторожевой тест на то, что
+// расширение `split` этого не открыло.
+describe('подсписок не коммутируется кабелем', () => {
+  it('ни как источник, ни как цель', () => {
+    expect(isValidMihomoConnection('subrule:block', 'group:VPN')).toBe(false)
+    expect(isValidMihomoConnection('rule:0', 'subrule:block')).toBe(false)
+    expect(isValidMihomoConnection('group:VPN', 'subrule:block')).toBe(false)
   })
 })

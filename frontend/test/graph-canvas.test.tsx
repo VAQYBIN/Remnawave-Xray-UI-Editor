@@ -81,3 +81,40 @@ describe('GraphCanvas', () => {
     expect(usePositionsStore.getState().positions['template:u-1']).toBeUndefined()
   })
 })
+
+// У Xray колонка каждого вида ровно одна, поэтому дубликат ключа там не
+// возникал; у Mihomo колонок вида `mihomo-group` бывает несколько — их число
+// зависит от глубины ссылок документа.
+//
+// Проверяем ИМЕННО предупреждение React, а не разметку: под дублирующимся ключом
+// обе подписи всё равно оказываются в DOM и на своих координатах — и на первом
+// рендере, и после перерисовки (проверено). То есть тест на текст и transform
+// прошёл бы при ОБЕИХ версиях ключа и не поймал бы ничего. Наблюдаемое следствие
+// здесь ровно одно — «Encountered two children with the same key», а сам React
+// про такой случай пишет, что поведение не поддерживается и дети могут быть
+// продублированы или потеряны в любой следующей версии.
+describe('колонки одного вида на разных координатах', () => {
+  it('ключи подписей не сталкиваются, и каждая колонка получает свою', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { container } = renderCanvas({
+      nodes: [
+        { id: 'a', type: 'box', position: { x: 0, y: 0 }, data: { kind: 'boxKind', label: 'A' } },
+        { id: 'b', type: 'box', position: { x: 430, y: 0 }, data: { kind: 'boxKind', label: 'Б' } },
+      ],
+      columns: [
+        { kind: 'boxKind', title: 'группы', x: 0 },
+        { kind: 'boxKind', title: 'группы', x: 430 },
+      ],
+    })
+    const messages = errors.mock.calls.map((c) => String(c[0]))
+    errors.mockRestore()
+    expect(messages.filter((m) => m.includes('same key'))).toEqual([])
+
+    const labels = [...container.querySelectorAll('.column-label')]
+    expect(labels.map((l) => l.textContent)).toEqual(['группы', 'группы'])
+    expect(labels.map((l) => (l as HTMLElement).style.transform)).toEqual([
+      'translate(0px, -52px)',
+      'translate(430px, -52px)',
+    ])
+  })
+})

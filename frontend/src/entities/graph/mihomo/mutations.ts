@@ -7,13 +7,13 @@ import { detectIndentStep, fieldOrigin, isFlowNode, scalar, setRuleTarget, type 
 import { rangeOf, sectionNode, type MihomoDoc } from '../../mihomo/parse'
 import { rulesOf } from '../../mihomo/rules'
 
-type NodeKind = 'rule' | 'group' | 'provider' | 'builtin' | 'hosts'
+type NodeKind = 'rule' | 'subrule' | 'group' | 'provider' | 'builtin' | 'hosts'
 
 function split(id: string): { kind: NodeKind; rest: string } | null {
   const at = id.indexOf(':')
   if (at === -1) return null
   const kind = id.slice(0, at) as NodeKind
-  if (!['rule', 'group', 'provider', 'builtin', 'hosts'].includes(kind)) return null
+  if (!['rule', 'subrule', 'group', 'provider', 'builtin', 'hosts'].includes(kind)) return null
   return { kind, rest: id.slice(at + 1) }
 }
 
@@ -27,6 +27,11 @@ function split(id: string): { kind: NodeKind; rest: string } | null {
  * `SUB-RULE,...,<группа>`, конфиг, который ядро не примет (см. validate.ts,
  * edits.ts). Без переданного типа отказать по одному id нельзя — эту часть
  * проверки дублирует `connectMihomo`, у которого документ на руках.
+ *
+ * Вид `subrule` в `split` есть только ради разбора id рёбер (`disconnectMihomo`
+ * обязан назвать настоящую причину, а не «такие узлы не соединяются»): соединять
+ * с подсписком нельзя ни в одну сторону, и оба направления выпадают в общий
+ * `return false` ниже.
  */
 export function isValidMihomoConnection(source: string, target: string, ruleType?: string): boolean {
   const from = split(source)
@@ -53,6 +58,7 @@ function nameOf(id: string): string {
 export type MihomoRefusal =
   | 'invalid-pair'
   | 'already-connected'
+  | 'rule-target-required'
   | 'sub-rule-source'
   | 'flow-list'
   | 'merged-list'
@@ -70,6 +76,7 @@ export interface MihomoEditResult {
 const REFUSAL_TEXT: Record<MihomoRefusal, string> = {
   'invalid-pair': 'Такие узлы не соединяются: из узла подстановки кабель не выходит, а правило не может быть целью. Выберите другую пару узлов.',
   'already-connected': 'Эти узлы уже соединены — добавлять нечего.',
+  'rule-target-required': 'У правила цель обязательна: строка правила без неё невалидна, поэтому связь можно только СМЕНИТЬ, а не убрать. Протяните кабель к другой цели или задайте её в форме правила.',
   'sub-rule-source': 'У правила SUB-RULE третье поле — имя подсписка из sub-rules, а не группы. Выберите подсписок в форме правила.',
   'flow-list': 'Список записан в одну строку (`[A, B]`). Такую строку правка сплайсом порвала бы — перепишите список в столбик, и кабель заработает.',
   'merged-list': 'Список участников пришёл через якорь (`<<: *anchor`) — правка задела бы все места, где этот якорь используется. Правьте его в тексте, у объявления якоря.',
@@ -178,8 +185,17 @@ export function disconnectMihomo(md: MihomoDoc, edge: string): MihomoEditResult 
   if (match === null) return { edits: [], refusal: 'not-found' }
   const from = split(match[1]!)
   const name = nameOf(match[2]!)
-  // У правила цель обязательна: разрывать нечего, вызывающий предложит сменить её
-  if (from === null || from.kind !== 'group') return { edits: [], refusal: 'invalid-pair' }
+  if (from === null) return { edits: [], refusal: 'invalid-pair' }
+  // У правила цель обязательна — и у правила из `rules`, и у правила подсписка
+  // (`subrule:<имя>` ведёт в цели СВОИХ строк): строка без третьего поля ядру не
+  // конфиг, так что убрать связь нельзя, можно только сменить. Причина называет
+  // именно это. Раньше здесь возвращался `invalid-pair` с текстом про узел
+  // подстановки — неверное объяснение хуже отсутствующего: писатель шёл искать
+  // причину, которой в его документе нет.
+  if (from.kind === 'rule' || from.kind === 'subrule') {
+    return { edits: [], refusal: 'rule-target-required' }
+  }
+  if (from.kind !== 'group') return { edits: [], refusal: 'invalid-pair' }
 
   const group = groupsOf(md).find((g) => g.name === from.rest)
   if (group === undefined) return { edits: [], refusal: 'not-found' }

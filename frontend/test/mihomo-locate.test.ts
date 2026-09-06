@@ -84,3 +84,46 @@ describe('адресация Mihomo', () => {
     expect(searchMihomo(md, '')).toEqual([])
   })
 })
+
+// Подсписок правил рисуется одной карточкой (`subrule:<имя>`), отдельных узлов
+// у его правил нет — значит и диагностика внутри подсписка обязана вести на неё.
+describe('подсписки правил в резолвере узлов', () => {
+  const SUB = [
+    'sub-rules:',
+    '  block:',
+    '    - MATCH,REJECT',
+    'rules:',
+    '  - SUB-RULE,(NETWORK,udp),block',
+    '',
+  ].join('\n')
+
+  it('путь любой глубины внутри подсписка ведёт на его карточку', () => {
+    const md = parseMihomo(SUB)
+    expect(mihomoNodeIdForPath(['sub-rules', 'block'], md)).toBe('subrule:block')
+    expect(mihomoNodeIdForPath(['sub-rules', 'block', 0], md)).toBe('subrule:block')
+    expect(mihomoNodeIdForPath(['sub-rules', 'нет такого'], md)).toBeNull()
+    // Уровень всей секции узла не имеет — то же решение, что у proxy-groups:
+    // показать проблему на первом попавшемся подсписке значит соврать про место
+    expect(mihomoNodeIdForPath(['sub-rules'], md)).toBeNull()
+  })
+
+  it('счётчик проблем садится на узел подсписка', () => {
+    // validateMihomo пока не проверяет СОДЕРЖИМОЕ подсписков (единственная его
+    // диагностика про них — висячая ссылка, и она лежит на правиле-источнике),
+    // поэтому диагностику собираем руками: здесь проверяется резолвер, а не
+    // набор проверок. Появится проверка внутри подсписка — значок уже сядет.
+    const md = parseMihomo(SUB)
+    const counts = mihomoIssueCounts(
+      [
+        {
+          parts: ['sub-rules', 'block', 0],
+          path: 'sub-rules.block[0]',
+          message: 'проба',
+          level: 'warning',
+        },
+      ],
+      md,
+    )
+    expect(counts['subrule:block']).toEqual({ errors: 0, warnings: 1 })
+  })
+})

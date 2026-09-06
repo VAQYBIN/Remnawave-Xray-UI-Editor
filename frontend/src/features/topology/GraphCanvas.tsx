@@ -254,11 +254,16 @@ export function GraphCanvas({
       <RemeasureOnEnter />
       <PatchbayState targetKinds={targetKinds} isValidConnection={isValidConnection} />
 
-      {/* Подписи колонок живут в координатах канваса и едут вместе с узлами */}
+      {/* Подписи колонок живут в координатах канваса и едут вместе с узлами.
+          Ключ — вид ВМЕСТЕ с координатой: у Xray колонка каждого вида ровно
+          одна, а у Mihomo колонок вида `mihomo-group` бывает несколько (их
+          число зависит от глубины ссылок документа). По одному только виду
+          React считал бы их одним и тем же ребёнком и рисовал ПЕРВУЮ, молча
+          теряя подписи всех остальных колонок групп. */}
       <ViewportPortal>
         {filledColumns.map((c) => (
           <div
-            key={c.kind}
+            key={`${c.kind}:${c.x}`}
             className="column-label"
             style={{ position: 'absolute', transform: `translate(${c.x}px, -52px)` }}
           >
