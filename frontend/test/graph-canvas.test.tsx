@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GraphCanvas } from '../src/features/topology/GraphCanvas'
+import { usePositionsStore } from '../src/features/topology/positionsStore'
 
 const NODE_TYPES = {
   box: ({ data }: { data: { label: string } }) => <div>{data.label}</div>,
@@ -14,7 +15,14 @@ function renderCanvas(over: Partial<Parameters<typeof GraphCanvas>[0]> = {}) {
       <GraphCanvas
         docKey="template:u-1"
         nodes={[
-          { id: 'a', type: 'box', position: { x: 0, y: 0 }, data: { kind: 'box', label: 'узел A' } },
+          // `type` — ключ компонента-рендерера, `kind` — вид узла; в графе Mihomo это
+          // намеренно разные имена, поэтому и здесь они разведены
+          {
+            id: 'a',
+            type: 'box',
+            position: { x: 0, y: 0 },
+            data: { kind: 'boxKind', label: 'узел A' },
+          },
         ]}
         edges={[]}
         nodeTypes={NODE_TYPES}
@@ -24,7 +32,7 @@ function renderCanvas(over: Partial<Parameters<typeof GraphCanvas>[0]> = {}) {
         isValidConnection={() => true}
         onConnect={vi.fn()}
         targetKinds={['group']}
-        columns={[{ kind: 'box', title: 'колонка', x: 0 }]}
+        columns={[{ kind: 'boxKind', title: 'колонка', x: 0 }]}
         dockActions={<button type="button">+ Правило</button>}
         {...over}
       />
@@ -55,9 +63,21 @@ describe('GraphCanvas', () => {
     expect(screen.getByText('вторая строка')).toBeInTheDocument()
   })
 
-  it('подсказка пустого графа показывается только когда её передали', async () => {
-    renderCanvas({ hint: <p>правил пока нет</p> })
+  it('подсказка пустого графа показывается только когда её передали', () => {
+    const { container } = renderCanvas({ hint: <p>правил пока нет</p> })
     expect(screen.getByText('правил пока нет')).toBeInTheDocument()
+    expect(container.querySelector('.canvas-hint')).not.toBeNull()
+  })
+
+  it('без подсказки её места в разметке нет', () => {
+    const { container } = renderCanvas()
+    expect(container.querySelector('.canvas-hint')).toBeNull()
+  })
+
+  it('кнопка «Сбросить расположение» чистит позиции узлов документа', async () => {
+    usePositionsStore.getState().setPosition('template:u-1', 'a', { x: 42, y: 42 })
+    renderCanvas()
     await userEvent.click(screen.getByRole('button', { name: 'Сбросить расположение' }))
+    expect(usePositionsStore.getState().positions['template:u-1']).toBeUndefined()
   })
 })

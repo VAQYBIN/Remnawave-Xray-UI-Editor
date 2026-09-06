@@ -279,7 +279,7 @@ export function GraphCanvas({
         <div className={dockRow ? 'wb-dock wb-dock-stacked' : 'wb-dock'}>
           <div className="wb-dock-row">
             {dockActions}
-            <span className="wb-dock-sep" aria-hidden="true" />
+            {dockActions && <span className="wb-dock-sep" aria-hidden="true" />}
             {dockExtra}
             {dockExtra && <span className="wb-dock-sep" aria-hidden="true" />}
             <Button variant="ghost" onClick={() => resetPositions(docKey)}>
