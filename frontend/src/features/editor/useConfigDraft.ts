@@ -1,23 +1,19 @@
-// Документ, который правит редактор: черновик в localStorage, история, валидация,
-// выбор узла, вкладки, поиск и трассировка. Профильного здесь нет ничего — тот же
-// хук обслуживает шаблон подписки. Страница добавляет к нему только своё
-// сохранение и свои кнопки топбара.
+// Черновик конфига Xray: всё, что знает про Xray редактор профиля и шаблона
+// подписки. Общая машинерия (черновик в localStorage, история, вкладки, выбор
+// узла, поиск, хоткеи) живёт в ядре `useDocumentDraft` и о виде документа не
+// знает — сюда добавляются разбор конфига, трассировка и правки графа.
 
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ensureObservatorySection,
   geoKeysOf,
   traceRoute,
   validateXrayConfig,
   type GeoAnswers,
-  type PathParts,
   type TraceResult,
   type TraceTarget,
-  type ValidationIssue,
   type XrayConfig,
 } from '../../entities/xray'
-import { issueCountsByNode, nodeIdForPath } from '../../entities/graph/locate'
-import { searchNodes, type SearchHit } from '../../entities/graph/search'
 import {
   appendGeoKey,
   applyNodeJson,
@@ -25,13 +21,17 @@ import {
   moveRule,
   removeNode,
 } from '../../entities/graph/mutations'
-import type { GraphContext, IssueCount } from '../../entities/graph/types'
+import type { GraphContext } from '../../entities/graph/types'
 import { useGeoMatch } from '../../shared/api'
-import { docStorageKey, type DocKind } from '../../shared/lib/docKey'
+import { type DocKind } from '../../shared/lib/docKey'
 import { useDebounced } from '../../shared/lib/useDebounced'
-import { hasOpenDialog, useHotkeys } from '../../shared/lib/useHotkeys'
-import { useDraftStore, type Draft } from './draftStore'
-import { canRedo, canUndo, useHistoryStore } from './historyStore'
+import type { Draft } from './draftStore'
+import { useDocumentDraft, type DocumentDraft } from './useDocumentDraft'
+import { xrayAdapter } from './xrayAdapter'
+
+// Escape одинаков для любого документа и живёт в ядре; реэкспорт — чтобы
+// вызывающим не пришлось знать, в каком слое он оказался
+export { escapeTarget } from './useDocumentDraft'
 
 export function formatConfig(config: unknown): string {
   return JSON.stringify(config, null, 2)
@@ -98,21 +98,6 @@ export function moveSelectedRule(
 }
 
 /**
- * Что закрывает Escape. Порядок — от самого «верхнего» слоя к нижнему: сначала
- * инспектор узла, потом панель разбора трассы, потом результаты поиска.
- */
-export function escapeTarget(state: {
-  selectedNode: string | null
-  traceTarget: TraceTarget | null
-  searchQuery: string
-}): 'inspector' | 'trace' | 'search' | null {
-  if (state.selectedNode) return 'inspector'
-  if (state.traceTarget) return 'trace'
-  if (state.searchQuery.trim() !== '') return 'search'
-  return null
-}
-
-/**
  * Новый id узла, если правка сменила его тег: id inbound'а и outbound'а — это его
  * тег, поэтому после переименования выбор нужно вести за узлом, иначе инспектор
  * закрывается прямо во время редактирования.
@@ -151,75 +136,14 @@ export interface ConfigDraftOptions {
   ctx: GraphContext
 }
 
-export interface ConfigDraft {
-  /** Uuid документа: он же адрес бэкапов в панели */
-  docKey: string
-  /** Ключ локальных хранилищ: `<вид>:<uuid>` — черновик, история, позиции узлов */
-  storageKey: string
-  /** Контекст графа, с которым построен документ: его же ждёт TopologyView */
-  ctx: GraphContext
-  text: string
-  /** Текст, каким его отдала панель: левая сторона сравнения при сохранении */
-  panelText: string
-  /** Версия, от которой отсчитывается черновик, — она уходит в сохранение */
-  baseVersion: string
-  dirty: boolean
+export interface ConfigDraft extends DocumentDraft<XrayConfig> {
   validation: ReturnType<typeof validateXrayConfig>
   /** Разобранный конфиг; undefined — документ не проходит схему, топология не строится */
   parsedConfig: XrayConfig | undefined
-  hasErrors: boolean
-  errorCount: number
-  warningCount: number
-  nodeIssues: Record<string, IssueCount>
-
-  tab: 'topology' | 'json'
-  openJsonTab: () => void
-  openTopologyTab: () => void
-
-  selectedNode: string | null
-  setSelectedNode: (id: string | null) => void
-
-  writeDraft: (text: string, opts: { history: boolean }) => void
   changeConfig: (next: XrayConfig) => void
-  /** Отменить локальные правки и вернуться к версии панели (сам шаг отменяем через undo) */
-  resetDraft: () => void
-  /** Сохранение прошло: черновик и история относятся к прежней базе */
-  clearAfterSave: () => void
-  /** Принять версию панели при конфликте: документ меняется целиком */
-  adoptPanelVersion: () => void
-
-  undoAvailable: boolean
-  redoAvailable: boolean
-  doUndo: () => void
-  doRedo: () => void
-
-  reveal: { parts: PathParts; nonce: number } | null
-  canSelectIssue: (issue: ValidationIssue) => boolean
-  selectIssue: (issue: ValidationIssue) => void
-
-  searchQuery: string
-  setSearchQuery: (value: string) => void
-  searchFocus: number
-  searchHits: SearchHit[]
-  focus: { nodeId: string; nonce: number } | null
-  /** Выбрать узел и подвести к нему холст (из поиска) */
-  focusNode: (nodeId: string) => void
-
-  traceOpen: boolean
-  toggleTrace: () => void
-  traceTarget: TraceTarget | null
-  setTraceTarget: (target: TraceTarget | null) => void
   trace: TraceResult | undefined
-
-  shortcutsOpen: boolean
-  setShortcutsOpen: (open: boolean) => void
-  geoOpen: boolean
-  setGeoOpen: (open: boolean) => void
   settingsOpen: boolean
   setSettingsOpen: (open: boolean) => void
-  issuesOpen: boolean
-  setIssuesOpen: (open: boolean) => void
-
   /** Применить правку узла из инспектора */
   applyNode: (value: unknown) => void
   /** Переставить выбранное правило */
@@ -238,64 +162,27 @@ export function useConfigDraft({
   baseVersion,
   ctx,
 }: ConfigDraftOptions): ConfigDraft {
-  // Черновик, история и позиции узлов ключуются видом документа вместе с uuid:
-  // совпадение uuid профиля и шаблона иначе смешало бы два разных документа
-  const storageKey = docStorageKey(docKind, docKey)
-  const { drafts, setDraft, clearDraft } = useDraftStore()
-  const { stacks, record, undo, redo, clear: clearHistory } = useHistoryStore()
-  const stored = drafts[storageKey]
-  const text = resolveEditorText(stored, panelConfig)
   const panelText = useMemo(() => formatConfig(panelConfig), [panelConfig])
-  const dirty = stored !== undefined && stored.text !== panelText
-  // `||`, а не `??`: миграция v0 могла оставить пустую строку, и она не база
-  const base = stored?.baseVersion || baseVersion
-
-  // Единственная точка записи черновика: здесь же решается, попадает ли правка в историю
-  function writeDraft(nextText: string, opts: { history: boolean }) {
-    if (opts.history) record(storageKey, text)
-    setDraft(storageKey, nextText, base)
-  }
-
-  const validation = useMemo(() => validateXrayConfig(text), [text])
-  const errorCount = validation.issues.filter((i) => i.level === 'error').length
-  const hasErrors = errorCount > 0
-  const warningCount = validation.issues.length - errorCount
-
-  const [tab, setTab] = useState<'topology' | 'json'>('topology')
-  // Текст на момент входа в JSON-редактор: вся текстовая сессия сворачивается
-  // в один снимок истории при уходе с вкладки
-  const jsonEntryText = useRef<string | null>(null)
-  const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  // Цель трассировки — инструмент, а не документ: в localStorage ей делать нечего
-  const [traceOpen, setTraceOpen] = useState(false)
-  const [traceTarget, setTraceTarget] = useState<TraceTarget | null>(null)
-  const [geoOpen, setGeoOpen] = useState(false)
+  const core = useDocumentDraft({
+    docKind,
+    docKey,
+    panelText,
+    baseVersion,
+    ctx,
+    adapter: xrayAdapter,
+  })
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [issuesOpen, setIssuesOpen] = useState(false)
-  const [shortcutsOpen, setShortcutsOpen] = useState(false)
-  // Прокрутка к месту проблемы в JSON; nonce делает повторный клик рабочим
-  const [reveal, setReveal] = useState<{ parts: PathParts; nonce: number } | null>(null)
-  const revealNonce = useRef(0)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchFocus, setSearchFocus] = useState(0)
-  const [focus, setFocus] = useState<{ nodeId: string; nonce: number } | null>(null)
-  const focusNonce = useRef(0)
 
-  // топология строится только по валидному (по схеме) документу
-  const parsedConfig = validation.ok ? (validation.config as XrayConfig) : undefined
+  const parsedConfig = core.model
+  // validation остаётся публичной: страницы шлют validation.config в панель,
+  // а SaveDialog показывает validation.issues
+  const validation = useMemo(() => validateXrayConfig(core.text), [core.text])
+
   // Считаем и спрашиваем базу, когда ввод затих: иначе каждый символ адреса
   // пересчитывал бы граф и дергал бэкенд, а вердикты мигали бы на полуслове
-  const settledTarget = useDebounced(traceTarget, TRACE_DEBOUNCE_MS)
+  const settledTarget = useDebounced(core.traceTarget, TRACE_DEBOUNCE_MS)
   // Спрашиваем базу только по тем ключам, что реально есть в правилах
   const geoKeys = useMemo(() => (parsedConfig ? geoKeysOf(parsedConfig) : []), [parsedConfig])
-  const searchHits = useMemo(
-    () => (parsedConfig ? searchNodes(parsedConfig, ctx, searchQuery) : []),
-    [parsedConfig, ctx, searchQuery],
-  )
-  const nodeIssues = useMemo(
-    () => (parsedConfig ? issueCountsByNode(validation.issues, parsedConfig) : {}),
-    [validation.issues, parsedConfig],
-  )
   const geoQuery = useGeoMatch(
     settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
   )
@@ -304,198 +191,58 @@ export function useConfigDraft({
     [parsedConfig, settledTarget, geoQuery.data],
   )
 
-  // Переход зависит от вкладки: на топологии ведём к узлу, в JSON — к месту в тексте.
-  // Вкладку не переключаем: у log/policy узла нет, и прыжок увёл бы в никуда.
-  function canSelectIssue(issue: ValidationIssue): boolean {
-    if (tab === 'json') return issue.parts.length > 0
-    return parsedConfig !== undefined && nodeIdForPath(issue.parts, parsedConfig) !== null
-  }
-
-  function selectIssue(issue: ValidationIssue) {
-    if (tab === 'json') {
-      revealNonce.current += 1
-      setReveal({ parts: issue.parts, nonce: revealNonce.current })
-      return
-    }
-    const id = parsedConfig ? nodeIdForPath(issue.parts, parsedConfig) : null
-    if (id) setSelectedNode(id)
-  }
-
   function changeConfig(next: XrayConfig) {
     // Без разобранного документа менять нечего: nextSelection читает prev.routing,
     // а вызов приходит теперь и снаружи хука
     if (!parsedConfig) return
-    writeDraft(formatConfig(next), { history: true })
-    setSelectedNode((cur) => nextSelection(cur, parsedConfig, next))
+    core.writeDraft(formatConfig(next), { history: true })
+    core.setSelectedNode(nextSelection(core.selectedNode, parsedConfig, next))
   }
-
-  const historyDisabled = tab === 'json'
-  const undoAvailable = !historyDisabled && canUndo(stacks, storageKey)
-  const redoAvailable = !historyDisabled && canRedo(stacks, storageKey)
-
-  function doUndo() {
-    const prev = undo(storageKey, text)
-    if (prev === null) return
-    setDraft(storageKey, prev, base)
-    // Конфиг подменяется целиком — позиционные rule:N и inj:N дрейфуют
-    setSelectedNode(null)
-  }
-
-  function doRedo() {
-    const next = redo(storageKey, text)
-    if (next === null) return
-    setDraft(storageKey, next, base)
-    setSelectedNode(null)
-  }
-
-  function openJsonTab() {
-    jsonEntryText.current = text
-    setTab('json')
-    setSelectedNode(null)
-    // Панель разбора живёт над канвасом — над JSON-редактором ей не место
-    setTraceTarget(null)
-    setTraceOpen(false)
-  }
-
-  function openTopologyTab() {
-    // Вся текстовая сессия сворачивается в один шаг истории
-    const entry = jsonEntryText.current
-    if (entry !== null && entry !== text) record(storageKey, entry)
-    jsonEntryText.current = null
-    setTab('topology')
-  }
-
-  useHotkeys([
-    { combo: 'mod+z', handler: () => { if (undoAvailable) doUndo() } },
-    { combo: 'mod+shift+z', handler: () => { if (redoAvailable) doRedo() } },
-    { combo: 'mod+y', handler: () => { if (redoAvailable) doRedo() } },
-    {
-      combo: 'mod+f',
-      // На вкладке JSON Ctrl+F отдан поиску CodeMirror
-      handler: () => { if (tab === 'topology') setSearchFocus((v) => v + 1) },
-    },
-    {
-      combo: 'Escape',
-      // Нативный <dialog> закрывается по Escape сам — не мешаем и не отменяем действие
-      preventDefault: false,
-      whenEditable: true,
-      handler: () => {
-        if (hasOpenDialog()) return
-        const target = escapeTarget({ selectedNode, traceTarget, searchQuery })
-        if (target === 'inspector') setSelectedNode(null)
-        if (target === 'trace') setTraceTarget(null)
-        if (target === 'search') setSearchQuery('')
-      },
-    },
-    { combo: '?', handler: () => setShortcutsOpen(true) },
-  ])
 
   return {
-    docKey,
-    storageKey,
-    ctx,
-    text,
-    panelText,
-    baseVersion: base,
-    dirty,
+    ...core,
     validation,
     parsedConfig,
-    hasErrors,
-    errorCount,
-    warningCount,
-    nodeIssues,
-    tab,
-    openJsonTab,
-    openTopologyTab,
-    selectedNode,
-    setSelectedNode,
-    writeDraft,
     changeConfig,
-    resetDraft: () => {
-      // Сброс тоже отменяется: undo вернёт текст и создаст черновик заново
-      record(storageKey, text)
-      clearDraft(storageKey)
-      setSelectedNode(null)
-    },
-    clearAfterSave: () => {
-      clearDraft(storageKey)
-      // База сместилась: прежние снимки относятся к другому документу
-      clearHistory(storageKey)
-    },
-    adoptPanelVersion: () => {
-      clearDraft(storageKey)
-      clearHistory(storageKey)
-      setSelectedNode(null)
-    },
-    undoAvailable,
-    redoAvailable,
-    doUndo,
-    doRedo,
-    reveal,
-    canSelectIssue,
-    selectIssue,
-    searchQuery,
-    setSearchQuery,
-    searchFocus,
-    searchHits,
-    focus,
-    focusNode: (nodeId) => {
-      setSelectedNode(nodeId)
-      focusNonce.current += 1
-      setFocus({ nodeId, nonce: focusNonce.current })
-      setSearchQuery('')
-    },
-    traceOpen,
-    toggleTrace: () => {
-      setTraceOpen((v) => !v)
-      // Закрыли инструмент — снимаем и цель, иначе панель разбора висит
-      if (traceOpen) setTraceTarget(null)
-    },
-    traceTarget,
-    setTraceTarget,
     trace,
-    shortcutsOpen,
-    setShortcutsOpen,
-    geoOpen,
-    setGeoOpen,
     settingsOpen,
     setSettingsOpen,
-    issuesOpen,
-    setIssuesOpen,
     applyNode: (value) => {
-      if (!parsedConfig || !selectedNode) return
-      changeConfig(applyNodeJson(parsedConfig, selectedNode, value))
+      if (!parsedConfig || !core.selectedNode) return
+      changeConfig(applyNodeJson(parsedConfig, core.selectedNode, value))
       // Тег сменился — сменился и id узла: перекрываем сброс выбора из changeConfig
-      const renamed = renamedNodeId(selectedNode, value)
-      if (renamed !== null) setSelectedNode(renamed)
+      const renamed = renamedNodeId(core.selectedNode, value)
+      if (renamed !== null) core.setSelectedNode(renamed)
     },
     moveSelected: (dir) => {
       if (!parsedConfig) return
-      const moved = moveSelectedRule(parsedConfig, selectedNode, dir)
+      const moved = moveSelectedRule(parsedConfig, core.selectedNode, dir)
       if (!moved) return
       changeConfig(moved.config)
       // Перекрывает nextSelection: число правил не изменилось, но правило переехало
-      setSelectedNode(moved.selected)
+      core.setSelectedNode(moved.selected)
     },
     removeSelected: () => {
-      if (!parsedConfig || !selectedNode) return
-      changeConfig(removeNode(parsedConfig, selectedNode))
-      setSelectedNode(null)
+      if (!parsedConfig || !core.selectedNode) return
+      changeConfig(removeNode(parsedConfig, core.selectedNode))
+      core.setSelectedNode(null)
     },
     appendGeoKeyToRule: (key) => {
       if (!parsedConfig) return
       // Категория дописывается в открытое правило, иначе создаётся новое
-      const ruleIndex = selectedNode?.startsWith('rule:') ? Number(selectedNode.slice(5)) : null
+      const ruleIndex = core.selectedNode?.startsWith('rule:')
+        ? Number(core.selectedNode.slice(5))
+        : null
       const res = appendGeoKey(parsedConfig, ruleIndex, key)
       if (res.config !== parsedConfig) changeConfig(res.config)
       // Перекрывает сброс выбора: показываем, куда попала категория
-      setSelectedNode(`rule:${res.ruleIndex}`)
-      setGeoOpen(false)
+      core.setSelectedNode(`rule:${res.ruleIndex}`)
+      core.setGeoOpen(false)
     },
     setupObservatory: (kind, subjects) => {
       if (!parsedConfig) return
       changeConfig(ensureObservatorySection(parsedConfig, kind, subjects))
-      setSelectedNode('obs')
+      core.setSelectedNode('obs')
     },
   }
 }

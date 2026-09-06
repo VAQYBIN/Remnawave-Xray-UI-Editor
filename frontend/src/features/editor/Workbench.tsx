@@ -101,10 +101,10 @@ export function Workbench({
         </div>
 
         <div className="segmented">
-          <Button aria-pressed={draft.tab === 'topology'} onClick={draft.openTopologyTab}>
+          <Button aria-pressed={draft.tab === 'graph'} onClick={draft.openGraphTab}>
             Топология
           </Button>
-          <Button aria-pressed={draft.tab === 'json'} onClick={draft.openJsonTab}>
+          <Button aria-pressed={draft.tab === 'text'} onClick={draft.openTextTab}>
             JSON
           </Button>
         </div>
@@ -128,7 +128,7 @@ export function Workbench({
       </header>
 
       <div className="wb-stage">
-        {draft.tab === 'json' && (
+        {draft.tab === 'text' && (
           <div className="wb-canvas">
             <JsonView
               text={draft.text}
@@ -137,7 +137,7 @@ export function Workbench({
             />
           </div>
         )}
-        {draft.tab === 'topology' && parsedConfig === undefined && (
+        {draft.tab === 'graph' && parsedConfig === undefined && (
           <div className="wb-canvas wb-canvas-empty">
             <EmptyState
               title="Конфиг не проходит валидацию"
@@ -145,7 +145,7 @@ export function Workbench({
             />
           </div>
         )}
-        {draft.tab === 'topology' && parsedConfig !== undefined && (
+        {draft.tab === 'graph' && parsedConfig !== undefined && (
           <>
             <div className="wb-canvas">
               <TopologyView
