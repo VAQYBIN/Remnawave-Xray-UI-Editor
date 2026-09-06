@@ -212,6 +212,67 @@ describe('списки с нулевым отступом', () => {
   })
 })
 
+// Flow-стиль словарь не описывает: внутри квадратных скобок стоят имена
+// серверов и групп, которых он не знает, а внутри фигурных подсказка вставила
+// бы значение туда, где ядро ждёт список
+describe('flow-коллекции молчат', () => {
+  it('внутри flow-списка и flow-отображения контекста нет', () => {
+    expect(ctx('proxies: [DIRECT‸]\n')).toBeNull()
+    expect(ctx('proxies: [‸]\n')).toBeNull()
+    expect(ctx('proxy-groups: [{name: A‸}]\n')).toBeNull()
+    expect(ctx('proxy-groups: [{name: A, ‸}]\n')).toBeNull()
+    expect(ctx('dns: {enhanced-mode: ‸}\n')).toBeNull()
+  })
+
+  it('значения из словаря во flow-список не предлагаются', () => {
+    // ключ у strategy enum'ный, и без проверки его варианты сыпались бы прямо
+    // в скобки — туда, где ядро ждёт скаляр
+    expect(labels('proxy-groups:\n  - name: A\n    strategy: [‸]\n')).toEqual([])
+    expect(labels('proxy-groups:\n  - name: A\n    strategy: ‸\n')).toContain('round-robin')
+  })
+
+  it('за закрытой скобкой подсказки снова работают', () => {
+    expect(ctx('proxies: [DIRECT]\n‸\n')?.section).toBe('root')
+    expect(labels('proxies: [DIRECT]\n‸\n')).toContain('proxy-groups')
+  })
+})
+
+// Инвариант seqAtColumn: вдоль одной цепочки префиксов колонки дефисов строго
+// возрастают с глубиной, поэтому совпадение колонки даёт не более одного
+// кандидата, а соседние ветви отсекает сам префикс пути
+describe('вложенные списки', () => {
+  const NESTED = [
+    'rules:',
+    '  - MATCH,A',
+    'proxy-groups:',
+    '  - name: A',
+    '    proxies:',
+    '      - DIRECT',
+    '',
+  ].join('\n')
+
+  it('каждый уровень отвечает за себя', () => {
+    // внутренний список — имена целей, словарь их не описывает
+    expect(ctx(`${NESTED}      - ‸\n`)).toBeNull()
+    // внешний — список групп
+    expect(ctx(`${NESTED}  - ‸\n`)?.section).toBe('proxy-group')
+    // ключевая строка внутри элемента — тоже группа
+    expect(ctx(`${NESTED}    ‸\n`)?.section).toBe('proxy-group')
+  })
+
+  it('дефис, не попавший в колонку ни одного списка, молчит', () => {
+    // отбит глубже, чем список групп: чей это элемент — неизвестно, и ключи
+    // группы тут были бы догадкой
+    expect(ctx('proxy-groups:\n  - name: A\n      - ‸\n')).toBeNull()
+  })
+
+  it('соседняя ветвь с дефисами в той же колонке не подменяет секцию', () => {
+    // дефисы rules и proxy-groups стоят в одной колонке 2, но лежат в разных
+    // ветвях: путь курсора отбирает свою
+    expect(ctx('rules:\n  - MATCH,A\n  - ‸\nproxy-groups:\n  - name: A\n')).toBeNull()
+  })
+})
+
 describe('подсказки Mihomo', () => {
   it('ключи группы предлагаются и не повторяют уже введённые', () => {
     const got = labels('proxy-groups:\n  - name: A\n    type: select\n    ‸\n')

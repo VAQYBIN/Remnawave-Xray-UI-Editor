@@ -157,6 +157,14 @@ function containerOf(md: MihomoDoc, parts: PathParts, column: number): PathParts
  * нулевым отступом. Список — надёжный якорь ещё и потому, что элемента в
  * тексте может не быть вовсе.
  *
+ * Инвариант, на котором стоит поиск: вдоль ОДНОЙ цепочки префиксов колонки
+ * дефисов строго возрастают с глубиной — вложенный блочный список обязан быть
+ * отбит вправо относительно дефиса родителя, а список, начинающийся в той же
+ * колонке, это уже не вложение, а следующий брат того же списка. Значит
+ * совпадение колонки отбирает не более одного кандидата, а списки из соседних
+ * ветвей документа отсекает сам префикс пути. Это следствие правил отступов
+ * YAML, а не измерение, — потому и закреплено тестом на вложенный список.
+ *
  * null — списка с такой колонкой над курсором нет; тогда про место ничего не
  * известно, и вызывающий молчит.
  */
@@ -167,6 +175,28 @@ function seqAtColumn(md: MihomoDoc, parts: PathParts, column: number): PathParts
     if (range !== null && columnAt(md.text, range.from) === column) return parts.slice(0, depth)
   }
   return null
+}
+
+/**
+ * Курсор внутри flow-коллекции (`proxies: [DIRECT]`, `dns: {enable: true}`).
+ * Словарь описывает пары «ключ: значение» блочного стиля; внутри квадратных
+ * скобок уместны имена серверов и групп, которых он не знает, а внутри фигурных
+ * подсказка вставила бы значение туда, где ядро ждёт список. Молчим.
+ *
+ * Путь берётся ТОЛЬКО от курсора, а не от подставного якоря выше: после
+ * закрытой скобки (`proxies: [DIRECT]` и курсор на следующей строке) курсор уже
+ * не в коллекции, и подсказки корня там законны.
+ */
+function inFlow(md: MihomoDoc, atCursor: PathParts): boolean {
+  const flow = (node: unknown): boolean =>
+    (isSeq(node) || isMap(node)) && (node as { flow?: boolean }).flow === true
+  let node: unknown = md.doc.contents
+  if (flow(node)) return true
+  for (const part of atCursor) {
+    node = child(node, part)
+    if (flow(node)) return true
+  }
+  return false
 }
 
 /** Последний непробельный символ до позиции; -1 — выше курсора пусто */
@@ -211,7 +241,10 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
   // накрывает ни один узел: разбор о ненаписанное ещё не спотыкается, но и
   // диапазона там нет. Тогда отталкиваемся от последнего непробельного символа
   // выше, а лишние сегменты снимет containerOf.
-  let parts = pathAt(md, pos)
+  const atCursor = pathAt(md, pos)
+  if (inFlow(md, atCursor)) return null
+
+  let parts = atCursor
   if (parts.length === 0) {
     const probe = lastNonSpaceBefore(text, pos)
     if (probe >= 0) parts = pathAt(md, probe)

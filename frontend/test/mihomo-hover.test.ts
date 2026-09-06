@@ -87,6 +87,15 @@ describe('наведение на YAML-вкладке', () => {
     expect(hoverAt(flat, inside(flat, 'name: сервер'))).toBeNull()
   })
 
+  it('во flow-коллекции наведения нет', () => {
+    const flow = 'proxies: [DIRECT]\nproxy-groups: [{name: A}]\ndns: {enhanced-mode: fake-ip}\n'
+    for (const needle of ['proxies', 'DIRECT', 'proxy-groups', 'name: A', 'enhanced-mode']) {
+      expect(hoverAt(flow, inside(flow, needle))).toBeNull()
+    }
+    // тот же ключ блочным стилем описан
+    expect(hoverAt('dns:\n  enhanced-mode: fake-ip\n', 8)?.field.doc).toContain('Режим работы DNS')
+  })
+
   it('разметка тултипа несёт ключ, описание и значения', () => {
     const found = hoverAt(DOC, inside(DOC, 'enhanced-mode'))
     const dom = renderHoverTooltip(found!.key, found!.field)
