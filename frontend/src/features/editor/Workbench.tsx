@@ -159,7 +159,7 @@ export function Workbench({
       back={back}
       title={title}
       subtitle={subtitle}
-      tabs={{ graph: 'Топология', text: 'JSON' }}
+      tabs={{ graph: 'Топология' }}
       validLabel="Конфиг валиден"
       actions={topbarActions}
       save={save}

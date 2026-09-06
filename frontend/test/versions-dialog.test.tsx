@@ -83,6 +83,7 @@ function renderDialog(
   props: Partial<{
     kind: 'profiles' | 'templates'
     format: 'json' | 'yaml'
+    currentText: string
     onRestore: (t: string) => void
     onClose: () => void
   }> = {},
@@ -95,10 +96,12 @@ function renderDialog(
       <VersionsDialog
         open
         kind={props.kind ?? 'profiles'}
-        format={props.format ?? 'json'}
+        // Проп подаётся ТОЛЬКО когда его просили: иначе умолчание `json`, от
+        // которого зависит весь путь Xray, не исполнялось бы ни одним тестом
+        {...(props.format === undefined ? {} : { format: props.format })}
         docUuid={docUuid}
         docName="Germany"
-        currentText={'{\n  "inbounds": []\n}'}
+        currentText={props.currentText ?? '{\n  "inbounds": []\n}'}
         onRestore={onRestore}
         onClose={onClose}
       />
@@ -108,6 +111,28 @@ function renderDialog(
 }
 
 afterEach(() => vi.unstubAllGlobals())
+
+/**
+ * Перехват выгрузки целиком: тип Blob и имя файла — единственное, что человек
+ * получает на диск. Подпись кнопки о них не говорит НИЧЕГО: «Скачать YAML» над
+ * вызовом downloadJson выглядит правильно и отдаёт .json с типом
+ * application/json. Поэтому утверждаем то и другое, а не надпись.
+ */
+function spyDownload() {
+  const blobs: Blob[] = []
+  const names: string[] = []
+  URL.createObjectURL = ((blob: Blob) => {
+    blobs.push(blob)
+    return 'blob:x'
+  }) as unknown as typeof URL.createObjectURL
+  URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    names.push(this.download)
+  })
+  return { blobs, names, restore: () => click.mockRestore() }
+}
 
 describe('VersionsDialog', () => {
   it('вкладка бэкапов открыта первой и показывает записи', async () => {
@@ -147,19 +172,18 @@ describe('VersionsDialog', () => {
     expect(await screen.findAllByRole('button', { name: 'Сравнить' })).toHaveLength(2)
   })
 
-  it('вкладка «Файл»: скачивание отдаёт текущий текст', async () => {
+  it('вкладка «Файл»: скачивание отдаёт текущий текст файлом .json', async () => {
     stubFetch()
-    const createObjectURL = vi.fn(() => 'blob:x')
     // Присваиваем методы напрямую: stubGlobal('URL', …) снёс бы конструктор new URL()
-    URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL
-    URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const dl = spyDownload()
     const user = userEvent.setup()
     renderDialog()
     await user.click(screen.getByRole('button', { name: 'Файл' }))
     await user.click(screen.getByRole('button', { name: /Скачать JSON/ }))
-    expect(createObjectURL).toHaveBeenCalledTimes(1)
-    click.mockRestore()
+    expect(dl.blobs).toHaveLength(1)
+    expect(dl.blobs[0]!.type).toBe('application/json')
+    expect(dl.names[0]).toMatch(/\.json$/)
+    dl.restore()
   })
 
   it('вкладка «Файл»: корректный файл уходит в черновик', async () => {
@@ -220,18 +244,54 @@ describe('VersionsDialog', () => {
     expect(onRestore).not.toHaveBeenCalled()
   })
 
-  it('format=yaml: файл выгружается YAML-ом, а загрузка принимает сам документ', async () => {
+  it('format=yaml: на диск уходит YAML — и по типу, и по расширению', async () => {
+    stubFetch(backups, mihomoFileData)
+    const dl = spyDownload()
+    const user = userEvent.setup()
+    renderDialog({ kind: 'templates', format: 'yaml', currentText: MIHOMO_YAML })
+    await user.click(screen.getByRole('button', { name: 'Файл' }))
+    // Подпись кнопки — то, что человек видит ДО выгрузки; тип и расширение —
+    // то, что он получает. Утверждаем и то, и другое: подпись при вызове
+    // downloadJson осталась бы правильной, а файл ушёл бы чужим
+    expect(screen.getByRole('button', { name: /Скачать YAML/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Скачать JSON/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Скачать YAML/ }))
+    expect(dl.blobs).toHaveLength(1)
+    expect(dl.blobs[0]!.type).toBe('application/yaml')
+    expect(await dl.blobs[0]!.text()).toBe(MIHOMO_YAML)
+    expect(dl.names[0]).toMatch(/\.yaml$/)
+    dl.restore()
+  })
+
+  it('format=yaml: загрузка принимает сам документ', async () => {
     stubFetch(backups, mihomoFileData)
     const user = userEvent.setup()
     const { onRestore } = renderDialog({ kind: 'templates', format: 'yaml' })
     await user.click(screen.getByRole('button', { name: 'Файл' }))
-    // Имя кнопки — единственное, что видит человек до того, как файл окажется
-    // у него на диске под чужим расширением
-    expect(screen.getByRole('button', { name: /Скачать YAML/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Скачать JSON/ })).not.toBeInTheDocument()
     const file = new File([MIHOMO_YAML], 'tpl.yaml', { type: 'application/yaml' })
     await user.upload(screen.getByLabelText('Файл конфига'), file)
     await waitFor(() => expect(onRestore).toHaveBeenCalledWith(MIHOMO_YAML))
+  })
+
+  /**
+   * Умолчание `format = 'json'` — то, на чём стоит весь путь Xray, и подаётся
+   * оно ровно нигде: и хелпер выше, и EditorShell всегда передают проп явно.
+   * Переворот умолчания на 'yaml' иначе прошёл бы незамеченным.
+   */
+  it('без пропа format диалог ведёт себя как json-документ', async () => {
+    stubFetch(backups, templateFileData)
+    const user = userEvent.setup()
+    const { onRestore } = renderDialog({ kind: 'templates' })
+    const buttons = await screen.findAllByRole('button', { name: 'В черновик' })
+    await user.click(buttons[0]!)
+    // Содержимое взято из templateJson и напечатано JSON'ом
+    await waitFor(() =>
+      expect(onRestore).toHaveBeenCalledWith(
+        JSON.stringify(templateFileData.template.templateJson, null, 2),
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Файл' }))
+    expect(screen.getByRole('button', { name: /Скачать JSON/ })).toBeInTheDocument()
   })
 
   it('вкладка «Файл»: битый файл показывает ошибку и не трогает черновик', async () => {

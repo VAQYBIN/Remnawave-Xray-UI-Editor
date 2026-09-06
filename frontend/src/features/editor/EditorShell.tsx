@@ -25,13 +25,18 @@ export interface EditorShellProps {
   title: string
   /** Строка под заголовком: «обновлён N минут назад» либо тип шаблона */
   subtitle?: string
-  /** Подписи сегментов: текстовая вкладка у Xray «JSON», у Mihomo «YAML» */
-  tabs: { graph: string; text: string }
   /**
-   * Формат СОДЕРЖИМОГО документа — не то же, что подпись вкладки выше. От него
-   * зависит диалог версий: из какого поля бэкапа брать текст, чем выгружать в
-   * файл и что принимать при загрузке. Умолчание `json` оставляет редактор Xray
-   * ровно таким, каким он был.
+   * Подпись сегмента графа. Подписи текстовой вкладки здесь НЕТ намеренно: она
+   * выводится из `docFormat` ниже. Отдельным пропом это была бы вторая истина о
+   * формате документа, и пара могла бы разъехаться молча — «YAML» на вкладке
+   * при json-поведении диалога версий.
+   */
+  tabs: { graph: string }
+  /**
+   * Формат СОДЕРЖИМОГО документа. От него зависит подпись текстовой вкладки и
+   * весь диалог версий: из какого поля бэкапа брать текст, чем выгружать в файл
+   * и что принимать при загрузке. Умолчание `json` оставляет редактор Xray ровно
+   * таким, каким он был.
    */
   docFormat?: 'json' | 'yaml'
   /**
@@ -72,6 +77,9 @@ export function EditorShell({
 }: EditorShellProps) {
   const navigate = useNavigate()
   const panelToken = usePanelToken()
+  // Единственная истина о формате документа — docFormat: подпись вкладки из него
+  // выводится, а не приходит рядом с ним вторым пропом
+  const textTab = docFormat === 'yaml' ? 'YAML' : 'JSON'
   // Версии и сброс черновика — целиком дело оболочки: странице о них знать нечего
   const [versionsOpen, setVersionsOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
@@ -118,7 +126,7 @@ export function EditorShell({
             {tabs.graph}
           </Button>
           <Button aria-pressed={draft.tab === 'text'} onClick={draft.openTextTab}>
-            {tabs.text}
+            {textTab}
           </Button>
         </div>
 

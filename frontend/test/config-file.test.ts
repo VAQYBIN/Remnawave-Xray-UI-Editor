@@ -168,4 +168,22 @@ describe('parseImportedYaml', () => {
   it('JSON без обёртки бэкапа — валидный YAML, отдаётся как есть', () => {
     expect(parseImportedYaml('{"mode":"rule"}')).toEqual({ text: '{"mode":"rule"}' })
   })
+
+  // Отказ по форме, а не по синтаксису: JSON — валидный YAML, и отвергать файл
+  // за то, что он разобрался как JSON, значило бы отвергать законный документ
+  // Mihomo в JSON-стиле. Проверяем обе стороны этой границы
+  it('конфиг Xray отвергается, а не уезжает молча в черновик Mihomo', () => {
+    const xray = '{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}'
+    const wrapped = '{"profile":{"config":{"outbounds":[]}}}'
+    const apiShape = '{"config":{"outbounds":[]}}'
+    for (const raw of [xray, wrapped, apiShape]) {
+      const result = parseImportedYaml(raw)
+      expect('error' in result && result.error).toMatch(/конфиг Xray/)
+    }
+  })
+
+  it('документ Mihomo в JSON-стиле принимается как есть', () => {
+    const raw = '{"proxy-groups":[{"name":"A","type":"select"}],"rules":["MATCH,A"]}'
+    expect(parseImportedYaml(raw)).toEqual({ text: raw })
+  })
 })

@@ -45,7 +45,7 @@ function renderShell(draft: EditorShellDraft, over: Partial<EditorShellProps> = 
           kind="templates"
           back={{ to: '/templates', label: '← Шаблоны' }}
           title="Документ"
-          tabs={{ graph: 'Топология', text: 'YAML' }}
+          tabs={{ graph: 'Топология' }}
           validLabel="Конфиг валиден"
           canvas={<div>канвас</div>}
           textView={<div>текст документа</div>}
@@ -58,10 +58,21 @@ function renderShell(draft: EditorShellDraft, over: Partial<EditorShellProps> = 
 }
 
 describe('EditorShell', () => {
-  it('подписи вкладок приходят пропсом', () => {
+  // Подпись графа приходит пропом, подпись ТЕКСТОВОЙ вкладки — выводится из
+  // формата документа: второй проп рядом с docFormat был бы второй истиной о
+  // формате, и «YAML» на вкладке могло бы соседствовать с json-поведением
+  // диалога версий
+  it('подпись графа приходит пропсом, а текстовой вкладки — из формата документа', () => {
     renderShell(shellDraft())
     expect(screen.getByRole('button', { name: 'Топология' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'JSON' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'YAML' })).toBeNull()
+  })
+
+  it('docFormat=yaml переименовывает текстовую вкладку', () => {
+    renderShell(shellDraft(), { docFormat: 'yaml' })
     expect(screen.getByRole('button', { name: 'YAML' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'JSON' })).toBeNull()
   })
 
   it('на вкладке графа показывает канвас, на текстовой — текстовый слот', () => {

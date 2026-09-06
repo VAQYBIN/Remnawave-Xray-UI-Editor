@@ -101,13 +101,30 @@ export function downloadYaml(text: string, fileName: string): void {
 }
 
 /**
+ * Похоже ли разобранное значение на конфиг Xray. Проверка по ФОРМЕ, а не по
+ * синтаксису: JSON — валидный YAML, и отказывать по одному тому, что файл
+ * разобрался как JSON, значило бы отвергать законный документ Mihomo,
+ * записанный в JSON-стиле. Признаки узкие и все три из чужого формата: обёртки,
+ * которые уже разворачивает `unwrapConfig`, и корень Xray-конфига. Ни одного из
+ * них у шаблона Mihomo быть не может — там `proxy-groups`, `rules`, `proxies`.
+ */
+function looksLikeXray(value: unknown): boolean {
+  if (!isObject(value)) return false
+  const profile = value['profile']
+  if (isObject(profile) && isObject(profile['config'])) return true
+  if (isObject(value['config'])) return true
+  return 'inbounds' in value && 'outbounds' in value
+}
+
+/**
  * Разбор загруженного файла для документа, содержимое которого — YAML-ТЕКСТ.
- * Три случая:
- *   1. бэкап панели (`{savedAt, template:{encodedTemplateYaml}}`) — раскодировать;
- *   2. бэкап шаблона, у которого содержимое лежит мимо `encodedTemplateYaml`
+ * Четыре случая:
+ *   1. распознаваемый конфиг Xray (`looksLikeXray`) — отказ: чужой формат;
+ *   2. бэкап панели (`{savedAt, template:{encodedTemplateYaml}}`) — раскодировать;
+ *   3. бэкап шаблона, у которого содержимое лежит мимо `encodedTemplateYaml`
  *      (XRAY_JSON и прочие JSON-типы) — отказ: это документ другого вида;
- *   3. всё остальное — сам документ, как есть.
- * Третий случай именно «как есть», а не «разобрать и напечатать»: источник
+ *   4. всё остальное — сам документ, как есть.
+ * Последний случай именно «как есть», а не «разобрать и напечатать»: источник
  * истины у Mihomo — текст, и круг через модель стёр бы якоря и маркеры.
  */
 export function parseImportedYaml(raw: string): { text: string } | { error: string } {
@@ -118,6 +135,12 @@ export function parseImportedYaml(raw: string): { text: string } | { error: stri
     // JSON — подмножество YAML, поэтому сюда попадает подавляющее большинство
     // настоящих шаблонов: они не разбираются как JSON и уходят в черновик текстом
     return { text: raw }
+  }
+  if (looksLikeXray(value)) {
+    return {
+      error:
+        'Похоже на конфиг Xray, а не на шаблон Mihomo: в файле обёртка профиля либо корень с inbounds и outbounds.',
+    }
   }
   const template = isObject(value) ? value['template'] : undefined
   if (isObject(template) && 'templateType' in template) {
