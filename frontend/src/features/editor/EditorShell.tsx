@@ -27,6 +27,12 @@ export interface EditorShellProps {
   subtitle?: string
   /** Подписи сегментов: текстовая вкладка у Xray «JSON», у Mihomo «YAML» */
   tabs: { graph: string; text: string }
+  /**
+   * Что сказано в статус-баре, когда проблем нет. Обязателен без умолчания:
+   * «Конфиг валиден» верно для Xray, но шаблон подписки Mihomo конфигом не
+   * является — умолчание спрятало бы это решение от следующей сборки.
+   */
+  validLabel: string
   /** Кнопки топбара перед «Версии»: и документо-специфичные, и страничные */
   actions?: ReactNode
   /** Кнопка сохранения целиком: условия и диалоги у профиля и шаблона разные */
@@ -48,6 +54,7 @@ export function EditorShell({
   title,
   subtitle,
   tabs,
+  validLabel,
   actions,
   save,
   statusExtra,
@@ -124,7 +131,7 @@ export function EditorShell({
       <footer className="wb-statusbar">
         <div className="wb-status-head">
           {draft.issues.length === 0 ? (
-            <span className="muted">Конфиг валиден</span>
+            <span className="muted">{validLabel}</span>
           ) : (
             <button
               type="button"
@@ -150,6 +157,7 @@ export function EditorShell({
               issues={draft.issues}
               onSelect={draft.selectIssue}
               canSelect={draft.canSelectIssue}
+              emptyLabel={validLabel}
             />
           </div>
         )}

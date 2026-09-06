@@ -4,14 +4,21 @@ export function IssueList({
   issues,
   onSelect,
   canSelect,
+  emptyLabel = 'Конфиг валиден',
 }: {
   issues: ValidationIssue[]
   onSelect?: (issue: ValidationIssue) => void
   /** Куда переходить, решает вызывающий: на топологии узел есть не у всякой проблемы */
   canSelect?: (issue: ValidationIssue) => boolean
+  /**
+   * Что сказать, когда проблем нет. Слово «конфиг» верно для Xray, но не для
+   * шаблона подписки Mihomo — подпись задаёт вызывающий. Умолчание оставлено
+   * ради вызывающих, которым нечего сказать иначе.
+   */
+  emptyLabel?: string
 }) {
   if (issues.length === 0) {
-    return <p className="muted">Конфиг валиден</p>
+    return <p className="muted">{emptyLabel}</p>
   }
   return (
     <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>

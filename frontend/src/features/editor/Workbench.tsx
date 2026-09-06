@@ -5,7 +5,7 @@
 // черновика, — живёт в `EditorShell` и о конфиге не знает.
 // Страница добавляет только своё: заголовок, кнопки топбара, сохранение и рецепты.
 
-import { type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Button, EmptyState } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
 import { SearchBox } from '../topology/SearchBox'
@@ -160,6 +160,7 @@ export function Workbench({
       title={title}
       subtitle={subtitle}
       tabs={{ graph: 'Топология', text: 'JSON' }}
+      validLabel="Конфиг валиден"
       actions={topbarActions}
       save={save}
       statusExtra={statusExtra}

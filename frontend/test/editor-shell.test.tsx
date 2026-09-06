@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
-import { EditorShell } from '../src/features/editor/EditorShell'
+import { EditorShell, type EditorShellProps } from '../src/features/editor/EditorShell'
 import type { EditorShellDraft } from '../src/features/editor/useDocumentDraft'
 
 function shellDraft(over: Partial<EditorShellDraft> = {}): EditorShellDraft {
@@ -35,7 +35,7 @@ function shellDraft(over: Partial<EditorShellDraft> = {}): EditorShellDraft {
   }
 }
 
-function renderShell(draft: EditorShellDraft) {
+function renderShell(draft: EditorShellDraft, over: Partial<EditorShellProps> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
@@ -46,9 +46,11 @@ function renderShell(draft: EditorShellDraft) {
           back={{ to: '/templates', label: '← Шаблоны' }}
           title="Документ"
           tabs={{ graph: 'Топология', text: 'YAML' }}
+          validLabel="Конфиг валиден"
           canvas={<div>канвас</div>}
           textView={<div>текст документа</div>}
           save={<button type="button">Сохранить в панель</button>}
+          {...over}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -65,14 +67,43 @@ describe('EditorShell', () => {
   it('на вкладке графа показывает канвас, на текстовой — текстовый слот', () => {
     const { rerender } = renderShell(shellDraft())
     expect(screen.getByText('канвас')).toBeInTheDocument()
+    // Отрицательные утверждения обязательны: без них тест пройдёт и у оболочки,
+    // которая рендерит оба слота сразу, то есть не проверит саму разводку
+    expect(screen.queryByText('текст документа')).toBeNull()
     rerender(<div />)
     renderShell(shellDraft({ tab: 'text' }))
     expect(screen.getByText('текст документа')).toBeInTheDocument()
+    expect(screen.queryByText('канвас')).toBeNull()
   })
 
-  it('без проблем статус-бар говорит, что документ валиден', () => {
-    renderShell(shellDraft())
-    expect(screen.getByText('Конфиг валиден')).toBeInTheDocument()
+  it('слоты попадают каждый в своё место разметки', () => {
+    const { container } = renderShell(shellDraft(), {
+      subtitle: 'подзаголовок-маркер',
+      actions: <button type="button">кнопка-маркер</button>,
+      statusExtra: <span>статус-маркер</span>,
+      children: <span>диалог-маркер</span>,
+    })
+    const topbar = container.querySelector('.wb-topbar') as HTMLElement
+    const title = container.querySelector('.wb-title') as HTMLElement
+    const statusbar = container.querySelector('.wb-statusbar') as HTMLElement
+    const stage = container.querySelector('.wb-stage') as HTMLElement
+
+    expect(within(title).getByText('подзаголовок-маркер')).toBeInTheDocument()
+    expect(within(topbar).getByRole('button', { name: 'кнопка-маркер' })).toBeInTheDocument()
+    expect(within(statusbar).getByText('статус-маркер')).toBeInTheDocument()
+    // children — поток диалогов: ни в топбаре, ни в статус-баре, ни на сцене
+    const dialogSlot = screen.getByText('диалог-маркер')
+    expect(topbar.contains(dialogSlot)).toBe(false)
+    expect(statusbar.contains(dialogSlot)).toBe(false)
+    expect(stage.contains(dialogSlot)).toBe(false)
+    expect(container.querySelector('.workbench')?.contains(dialogSlot)).toBe(true)
+  })
+
+  it('подпись «проблем нет» приходит пропсом', () => {
+    renderShell(shellDraft(), { validLabel: 'Документ в порядке' })
+    expect(screen.getByText('Документ в порядке')).toBeInTheDocument()
+    // Расхождение подписей и доказывает, что строка не зашита в хроме
+    expect(screen.queryByText('Конфиг валиден')).toBeNull()
   })
 
   it('счётчики проблем раскрываются в список', async () => {
