@@ -232,9 +232,9 @@ proxy-providers:
     interval: 86400
 
 rules:
+  - DOMAIN-SUFFIX,example.com,Резерв
   - DOMAIN-SUFFIX,ya.ru,Основная
-  - GEOIP,RU,DIRECT
-  - MATCH,Основная
+  - MATCH,Резерв
 `
 
 /** Содержимое шаблона из каталога — намеренно ДРУГОЙ документ: по имени группы

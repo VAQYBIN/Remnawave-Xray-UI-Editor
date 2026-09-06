@@ -96,6 +96,31 @@ test('проверка ядром показывает отчёт с огово�
   await expect(page.getByText(/фиктивн/i)).toBeVisible()
 })
 
+test('трассировка называет ПЕРВОЕ совпавшее правило, а не любое подходящее', async ({ page }) => {
+  await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
+  await page.getByLabel('Адрес').fill('ya.ru')
+
+  // В фикстуре три правила: #1 (example.com) не подходит, #2 (ya.ru) подходит,
+  // #3 (MATCH) подошёл бы тоже — и цель у него ДРУГАЯ. Проверяем именно
+  // победителя, а не факт появления панели: разбор, назвавший #3, дал бы такую
+  // же панель с таким же видом и увёл бы трафик в другую группу
+  const panel = page.locator('.trace-panel')
+  await expect(page.getByText(/Победило правило #2/)).toBeVisible({ timeout: 5000 })
+  await expect(page.getByText(/Победило правило #[13]/)).toHaveCount(0)
+  await expect(panel.locator('.trace-winner')).toContainText('Основная')
+  await expect(panel.locator('.trace-winner')).not.toContainText('Резерв')
+  await expect(panel.locator('.trace-rule[data-winner="true"] .trace-rule-no')).toHaveText('#2')
+  // Ниже победителя список не выполняется — правила #3 в разборе нет вовсе
+  await expect(panel.locator('.trace-rule')).toHaveCount(2)
+
+  // Карточка на холсте помечена маршрутом — и ровно одна: проигравшее правило
+  // называется проигравшим, а недостигнутое молчит
+  await expect(page.locator('.react-flow__node[data-id="rule:1"]')).toContainText('маршрут')
+  await expect(page.locator('.react-flow__node[data-id="rule:0"]')).toContainText('не совпало')
+  await expect(page.locator('.react-flow__node[data-id="rule:0"]')).not.toContainText('маршрут')
+  await expect(page.locator('.react-flow__node[data-id="rule:2"]')).not.toContainText('маршрут')
+})
+
 test('импорт из каталога подставляет содержимое в редактор, а не в панель', async ({ page }) => {
   const patches: string[] = []
   await page.route('**/api/templates/*', async (route) => {
