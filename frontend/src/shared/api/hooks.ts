@@ -2,11 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type {
   BackupEntry,
+  CatalogEntry,
   GeoCategory,
   GeoCategoryPage,
   GeoKind,
   GeoMatchAnswer,
   GeoStatus,
+  MihomoTestResult,
   PanelTokenStatus,
   Profile,
   ProfileInboundDetail,
@@ -299,6 +301,54 @@ export function useXrayTest() {
         method: 'POST',
         body: JSON.stringify(input),
       }),
+  })
+}
+
+/**
+ * Проверка шаблона Mihomo ядром. Мутация, а не запрос: она запускает процесс на
+ * сервере, и делать это фоном по монтированию нельзя.
+ */
+export function useMihomoTest() {
+  return useMutation({
+    mutationFn: (input: { encodedTemplateYaml: string }) =>
+      apiFetch<MihomoTestResult>('/api/tools/mihomo-test', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+  })
+}
+
+/**
+ * Индекс каталога готовых шаблонов. `enabled` — потому что диалог импорта
+ * смонтирован вместе со страницей: без гейта каждый открытый редактор ходил бы
+ * на GitHub. Бэкенд кэширует индекс на час — держим тот же срок и здесь.
+ */
+export function useCatalog(enabled = true) {
+  return useQuery({
+    queryKey: ['catalog'],
+    queryFn: () =>
+      apiFetch<{ templates: CatalogEntry[] }>('/api/catalog/templates').then((r) => r.templates),
+    enabled,
+    staleTime: 60 * 60_000,
+    retry: false,
+  })
+}
+
+/**
+ * Содержимое шаблона каталога. Ссылка идёт ровно та, что пришла в индексе:
+ * собранный на клиенте адрес бэкенд отвергает — принимать чужой url значило бы
+ * открыть SSRF через наш сервер.
+ */
+export function useCatalogTemplate(url: string | null) {
+  return useQuery({
+    queryKey: ['catalog', 'template', url],
+    queryFn: () =>
+      apiFetch<{ content: string }>(
+        `/api/catalog/template?url=${encodeURIComponent(url!)}`,
+      ).then((r) => r.content),
+    enabled: url !== null,
+    staleTime: 60 * 60_000,
+    retry: false,
   })
 }
 

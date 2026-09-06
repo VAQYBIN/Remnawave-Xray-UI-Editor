@@ -16,6 +16,7 @@ import {
 } from '../../shared/api'
 import type { GraphContext } from '../../entities/graph/types'
 import { Button, Dialog } from '../../shared/ui'
+import { ImportTemplateDialog } from './ImportTemplateDialog'
 import { MihomoEditorPage } from './MihomoEditorPage'
 import { SaveDialog } from '../editor/SaveDialog'
 import { Workbench } from '../editor/Workbench'
@@ -66,6 +67,10 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
   const save = useSaveTemplate(template.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
   const [conflict, setConflict] = useState<ConflictState | null>(null)
+  // Каталог отдаёт шаблоны всех типов, и Xray-редактору он нужен ровно так же,
+  // как Mihomo. Состояние здесь местное: useConfigDraft общий с профилем, а у
+  // профиля импортировать из каталога подписок нечего
+  const [importOpen, setImportOpen] = useState(false)
 
   function doSave(expectedHash: string) {
     save.mutate(
@@ -115,6 +120,11 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
       title={template.name}
       subtitle={`шаблон ${template.templateType}`}
       allowInject
+      actions={
+        <Button variant="ghost" onClick={() => setImportOpen(true)}>
+          Импорт
+        </Button>
+      }
       statusExtra={
         saveError ? (
           <span className="field-error">{saveError}</span>
@@ -132,6 +142,21 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
         </Button>
       }
     >
+      <ImportTemplateDialog
+        open={importOpen}
+        docType="XRAY_JSON"
+        dirty={draft.dirty}
+        onImport={(content) => {
+          // Импорт — правка черновика, а не запись в панель: пользователь видит
+          // шаблон в редакторе, может отменить его через Ctrl+Z и сам решает,
+          // сохранять ли. Выбор снимаем: документ заменён целиком, а id узлов
+          // считаются по тегам и позициям правил старого
+          draft.writeDraft(content, { history: true })
+          draft.setSelectedNode(null)
+        }}
+        onClose={() => setImportOpen(false)}
+      />
+
       <SaveDialog
         open={saveOpen}
         onClose={() => setSaveOpen(false)}

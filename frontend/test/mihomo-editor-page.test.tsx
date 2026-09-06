@@ -22,6 +22,9 @@ const HASH = 'h'.repeat(64)
 /** Хэш версии панели: приходит в теле 409 и обязан уйти в «Перезаписать» */
 const PANEL_HASH = 'x'.repeat(64)
 
+/** Что «скачали» из каталога: документ заведомо другой, чем YAML выше */
+const IMPORTED = ['mode: rule', 'rules:', '  - MATCH,DIRECT', ''].join('\n')
+
 /**
  * Документ ровно с одной ОШИБКОЙ и без единого предупреждения: имя группы
  * повторяется. Пустые группы дали бы вдобавок «панель ничего не положит», и
@@ -152,18 +155,85 @@ describe('страница редактора Mihomo', () => {
   })
 
   /**
-   * Кнопки из брифа стоят на своих местах, но диалогов за ними ещё нет (задачи
-   * 13 и 14). Пока их нет, кнопка обязана быть запертой: молчаливый клик хуже
-   * отсутствующей кнопки. Тест снимут те же задачи, что напишут диалоги.
+   * Обе кнопки были заперты, пока диалогов за ними не было (задачи 13 и 14).
+   * Теперь диалоги есть, и проверка «кнопка не disabled» сама по себе ничего не
+   * стоила бы: ниже — что каждая открывает СВОЙ диалог и что в него уходит.
    */
-  it('«Проверить ядром» и «Импорт» заперты до своих задач', async () => {
+  it('«Проверить ядром» и «Импорт» больше не заперты', async () => {
     renderPage()
     await screen.findByRole('heading', { name: 'Мой Mihomo' })
-    expect(screen.getByRole('button', { name: 'Проверить ядром' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Импорт' })).toBeDisabled()
-    // Кнопки, которые работают уже сейчас, заперты не должны быть
+    expect(screen.getByRole('button', { name: 'Проверить ядром' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Импорт' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Секции документа' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Geo-базы' })).toBeEnabled()
+  })
+
+  // Ядру уходит ТЕКСТ черновика: печатать документ модели обратно нельзя, а
+  // проверять что-то, кроме того, что уедет в панель, бессмысленно
+  it('«Проверить ядром» отдаёт ядру текст черновика и показывает вердикт', async () => {
+    mockApi({
+      'GET /api/templates/u-1': { status: 200, body: { template: template(), hash: HASH } },
+      'POST /api/tools/mihomo-test': {
+        status: 200,
+        body: { available: true, ok: true, errors: [] },
+      },
+    })
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    useDraftStore.getState().setDraft('template:u-1', `${YAML}mode: rule\n`, HASH)
+    await userEvent.click(screen.getByRole('button', { name: 'Проверить ядром' }))
+    expect(await screen.findByText(/Ядро приняло шаблон/)).toBeInTheDocument()
+    const call = calls.find((c) => c.url.includes('/api/tools/mihomo-test'))
+    expect(JSON.parse(String(call?.init?.body)).encodedTemplateYaml).toBe(
+      encodeYaml(`${YAML}mode: rule\n`),
+    )
+  }, 30_000)
+
+  // Импорт правит ЧЕРНОВИК: в панель ничего не уходит, решение сохранять
+  // остаётся за пользователем
+  it('«Импорт» подставляет шаблон каталога в черновик, а не в панель', async () => {
+    mockApi({
+      'GET /api/templates/u-1': { status: 200, body: { template: template(), hash: HASH } },
+      'GET /api/catalog/templates': {
+        status: 200,
+        body: {
+          templates: [
+            {
+              name: 'mihomo-default',
+              type: 'MIHOMO',
+              author: 'remnawave',
+              url: 'https://raw.githubusercontent.com/remnawave/templates/main/a.yaml',
+            },
+          ],
+        },
+      },
+      'GET /api/catalog/template': { status: 200, body: { content: IMPORTED } },
+    })
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    // Правило выбрано заранее: документ заменяется целиком, а правила
+    // адресуются ПОЗИЦИЕЙ — rule:0 есть и в новом документе, и без снятия
+    // выбора инспектор молча показал бы чужое правило под прежним номером
+    fireEvent.click(screen.getByText('MATCH'))
+    expect(await screen.findByText('rule:0')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Импорт' }))
+    await userEvent.click(await screen.findByText('mihomo-default'))
+    // Ждём содержимое: до его загрузки кнопка импорта заперта
+    await screen.findByText(/MATCH,DIRECT/)
+    await userEvent.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts['template:u-1']?.text).toBe(IMPORTED),
+    )
+    expect(patchBodies()).toHaveLength(0)
+    expect(screen.queryByText('rule:0')).not.toBeInTheDocument()
+  }, 30_000)
+
+  // Каталог живёт на GitHub и ходят к нему через наш бэкенд: пока диалог не
+  // открыли, запроса быть не должно
+  it('закрытый диалог импорта каталог не грузит', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    expect(calls.some((c) => c.url.includes('/api/catalog'))).toBe(false)
   })
 
   it('правка через инспектор делает документ черновиком', async () => {

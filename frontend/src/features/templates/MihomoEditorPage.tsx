@@ -22,6 +22,8 @@ import { SaveDialog } from '../editor/SaveDialog'
 import { useMihomoDraft } from '../editor/useMihomoDraft'
 import { YamlView } from '../editor/YamlView'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
+import { MihomoCheckDialog } from '../diagnostics/MihomoCheckDialog'
+import { ImportTemplateDialog } from './ImportTemplateDialog'
 import { MihomoInspector } from '../topology/MihomoInspector'
 import { MihomoTopology } from '../topology/MihomoTopology'
 
@@ -179,23 +181,10 @@ function MihomoEditor({
           >
             Секции документа
           </Button>
-          {/* Заперты до задач 13 и 14: диалоги за ними ещё не написаны, а
-              кнопка, которая молча ничего не делает, хуже отсутствующей.
-              Обработчики оставлены — состояние для них в черновике уже есть */}
-          <Button
-            variant="ghost"
-            disabled
-            title="Проверка ядром mihomo появится следующей задачей"
-            onClick={() => draft.setCheckOpen(true)}
-          >
+          <Button variant="ghost" onClick={() => draft.setCheckOpen(true)}>
             Проверить ядром
           </Button>
-          <Button
-            variant="ghost"
-            disabled
-            title="Импорт готового шаблона появится следующей задачей"
-            onClick={() => draft.setImportOpen(true)}
-          >
+          <Button variant="ghost" onClick={() => draft.setImportOpen(true)}>
             Импорт
           </Button>
           <Button variant="ghost" onClick={() => draft.setGeoOpen(true)}>
@@ -275,6 +264,30 @@ function MihomoEditor({
           onClose={() => draft.setSectionsOpen(false)}
         />
       )}
+
+      {/* Проверяется ТЕКСТ черновика, а не модель: печатать документ обратно
+          нельзя, да и ядру нужен ровно тот документ, что уедет в панель */}
+      <MihomoCheckDialog
+        open={draft.checkOpen}
+        text={draft.text}
+        onClose={() => draft.setCheckOpen(false)}
+      />
+
+      <ImportTemplateDialog
+        open={draft.importOpen}
+        docType="MIHOMO"
+        dirty={draft.dirty}
+        onImport={(content) => {
+          // Импорт — правка черновика, а не запись в панель: пользователь видит
+          // шаблон в редакторе, может отменить его через Ctrl+Z и сам решает,
+          // сохранять ли. Выбор снимаем: документ заменён целиком, а узлы
+          // адресуются позицией правила и именем группы — старый указывал бы
+          // уже не туда
+          draft.writeDraft(content, { history: true })
+          draft.setSelectedNode(null)
+        }}
+        onClose={() => draft.setImportOpen(false)}
+      />
 
       {/* Без «В правило»: приписать geo-ключ к правилу Mihomo умеет текст, а не
           этот диалог — его кнопка ведёт в мутации графа Xray */}
