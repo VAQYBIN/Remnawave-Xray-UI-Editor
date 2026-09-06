@@ -51,26 +51,30 @@ export function resyncEdges(prev: Edge[], next: Edge[]): Edge[] {
 }
 
 /**
- * Локальные изменения рёбер, КРОМЕ удаления. Рёбра — картинка документа, и
- * убрать их с холста имеет право только сам документ: React Flow спрашивает
- * разрешения через `onEdgesDelete`, а топология отвечает правкой либо ОТКАЗОМ с
- * причиной (список у Mihomo — `MihomoRefusal`; у Xray отказ выражен тем, что
- * мутация вернула тот же конфиг).
+ * Изменения, которые канвас применяет к своей копии САМ, — всё, кроме удаления.
+ * Узлы и рёбра здесь картинка документа, и убрать их с холста имеет право только
+ * сам документ: React Flow спрашивает разрешения (`onEdgesDelete`), а топология
+ * отвечает правкой либо ОТКАЗОМ (у Mihomo — причиной из `MihomoRefusal`, у Xray
+ * — тем, что мутация вернула тот же конфиг).
  *
  * Раньше `remove` применялся локально сразу же. Когда правка отказывала,
- * документ не менялся, `graphEdges` оставался ТОЙ ЖЕ ссылкой, ресинк-эффект не
- * срабатывал — и ребро висело убранным до следующей пересборки графа: холст
- * показывал документ, которого нет. Дефект общий для обоих графов; заметнее он
- * стал, когда топология Mihomo начала отказывать сразу на нескольких рёбрах.
+ * документ не менялся, проп с графом оставался ТОЙ ЖЕ ссылкой, ресинк-эффект не
+ * запускался — и ребро висело убранным до следующей пересборки: холст показывал
+ * документ, которого нет. Дефект был общий для обоих графов.
  *
- * Теперь удаление идёт только через документ. Выполнилась правка — ребро
+ * Теперь удаление идёт только через документ. Выполнилась правка — элемент
  * исчезнет на следующем рендере (граф пересобран, ресинк отработал); отказала —
- * останется на месте, как и в документе. Кадр задержки не виден, а пропавшее
- * ни с того ни с сего ребро — видно.
+ * останется на месте, как и в документе. Кадр задержки не виден, а пропавший ни
+ * с того ни с сего элемент — виден.
+ *
+ * Узлы фильтруются по той же причине, хотя обе топологии и так помечают их
+ * `deletable: false` и через интерфейс узел не удаляется. Инвариант обязан
+ * держать сам канвас, а не каждый вызывающий по памяти: пропусти кто-нибудь
+ * флаг — и узел исчезнет с холста, не тронув документ, а его рёбра (которые
+ * фильтр как раз сохранит) останутся указывать в пустоту.
  */
-export function applyLocalEdgeChanges(changes: EdgeChange[], edges: Edge[]): Edge[] {
-  const local = changes.filter((c) => c.type !== 'remove')
-  return local.length === changes.length ? applyEdgeChanges(changes, edges) : applyEdgeChanges(local, edges)
+function withoutRemovals<T extends { type: string }>(changes: T[]): T[] {
+  return changes.filter((c) => c.type !== 'remove')
 }
 
 /** Ширина инспектора; держится в паре с --inspector-w в tokens.css */
@@ -225,7 +229,7 @@ export function GraphCanvas({
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      setNodes((nds) => applyNodeChanges(changes, nds))
+      setNodes((nds) => applyNodeChanges(withoutRemovals(changes), nds))
       for (const change of changes) {
         if (change.type === 'position' && change.position && !change.dragging) {
           setPosition(docKey, change.id, change.position)
@@ -236,7 +240,7 @@ export function GraphCanvas({
   )
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => setEdges((eds) => applyLocalEdgeChanges(changes, eds)),
+    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(withoutRemovals(changes), eds)),
     [],
   )
 

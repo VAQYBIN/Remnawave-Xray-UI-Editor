@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ReactFlowProvider, useEdges, useReactFlow, type Edge } from '@xyflow/react'
+import { ReactFlowProvider, useEdges, useNodes, useReactFlow, type Edge, type Node } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GraphCanvas } from '../src/features/topology/GraphCanvas'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
@@ -132,14 +132,18 @@ describe('колонки одного вида на разных координ�
 // закрывает оба графа: и Xray, и Mihomo рисуются этим же компонентом.
 describe('удаление ребра проходит через документ', () => {
   function probe() {
-    const state: { edges: Edge[]; remove: (() => Promise<unknown>) | null } = {
-      edges: [],
-      remove: null,
-    }
+    const state: {
+      edges: Edge[]
+      nodes: Node[]
+      remove: (() => Promise<unknown>) | null
+      removeNode: (() => Promise<unknown>) | null
+    } = { edges: [], nodes: [], remove: null, removeNode: null }
     function Probe() {
       state.edges = useEdges()
+      state.nodes = useNodes()
       const { deleteElements } = useReactFlow()
       state.remove = () => deleteElements({ edges: [{ id: 'e1' }] })
+      state.removeNode = () => deleteElements({ nodes: [{ id: 'a' }] })
       return null
     }
     return { state, Probe }
@@ -213,5 +217,24 @@ describe('удаление ребра проходит через докумен
       </ReactFlowProvider>,
     )
     expect(state.edges).toEqual([])
+  })
+
+  it('узел с холста тоже убирает только документ — и его рёбра не повисают', async () => {
+    // Сегодня обе топологии помечают узлы `deletable: false`, и через интерфейс
+    // узел не удаляется: этот тест закрывает не достижимый сценарий, а
+    // ИНВАРИАНТ. Держать его обязан сам канвас, а не каждый вызывающий по
+    // памяти — фикстура здесь намеренно БЕЗ `deletable: false`, то есть ровно
+    // такая, какой станет топология, если кто-то забудет флаг.
+    //
+    // Цена забывчивости выросла после фильтра рёбер: раньше узел уходил вместе
+    // со своими рёбрами, теперь ребро выживает и висело бы, указывая в пустоту.
+    const { state, Probe } = probe()
+    renderCanvas({ nodes: NODES, edges: [EDGE], children: <Probe /> })
+
+    await act(async () => {
+      await state.removeNode!()
+    })
+    expect(state.nodes.map((n) => n.id)).toEqual(['a', 'b'])
+    expect(state.edges.map((e) => e.id)).toEqual(['e1'])
   })
 })
