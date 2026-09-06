@@ -309,12 +309,73 @@ describe('инспектор узла Mihomo', () => {
     expect(draft.moveSelected).toHaveBeenCalledWith(1)
   })
 
+  /** Карточка узла подстановки на своём документе: основание задаётся ключами */
+  function hostsCard(doc: string, nodeId = 'hosts:A') {
+    render(<MihomoInspector draft={draftStub()} md={parseMihomo(doc)} nodeId={nodeId} />)
+  }
+
+  const MARKED = [
+    'proxy-groups:',
+    '  - name: A',
+    '    type: select',
+    '    filter: "(?i)nl"',
+    '    proxies: # LEAVE THIS LINE!',
+    '      - DIRECT',
+    '',
+  ].join('\n')
+
   // Условная формулировка обязательна: подставит панель хосты или нет и какие
   // именно — редактор не знает, а утвердительное «сюда попадут» было бы враньём
   it('узел подстановки говорит о хостах условно и не обещает кабель', () => {
-    inspector('hosts:A')
+    hostsCard(MARKED)
     expect(screen.getByText(/Если панель подставит хосты/)).toBeInTheDocument()
     expect(screen.getByText(/filter: \(\?i\)nl/)).toBeInTheDocument()
+  })
+
+  /**
+   * Узел подстановки рисуется по ЧЕТЫРЁМ основаниям, и маркер — лишь одно из
+   * них. У `include-all` в группе нет ни маркера, ни самого ключа `proxies`:
+   * безусловное «маркер стоит в списке proxies группы» отправляло бы читателя
+   * искать в тексте строку, которой там нет, — причём `include-all` он мог
+   * включить прямо в форме этой же группы.
+   */
+  it('основание подстановки называется по документу, а не всегда маркером', () => {
+    hostsCard('proxy-groups:\n  - name: A\n    type: select\n    include-all: true\n')
+    expect(screen.getByText(/include-all/)).toBeInTheDocument()
+    expect(screen.queryByText(/Маркер подстановки/)).not.toBeInTheDocument()
+  })
+
+  /**
+   * Группу могут назвать `root`, и тогда id её узла подстановки совпадает с id
+   * корневого — на холсте побеждает узел ГРУППЫ (см. buildMihomoGraph). Карточка
+   * обязана различать эти два случая: иначе она говорит «в КОРНЕВОМ списке
+   * proxies» и тут же печатает фильтр группы.
+   */
+  it('группа с именем root описана как группа, а не как корневой список', () => {
+    hostsCard(
+      [
+        'proxies: # LEAVE THIS LINE!',
+        'proxy-groups:',
+        '  - name: root',
+        '    type: select',
+        '    filter: "(?i)nl"',
+        '    proxies: # LEAVE THIS LINE!',
+        '      - DIRECT',
+        '',
+      ].join('\n'),
+      'hosts:root',
+    )
+    expect(screen.getByText(/списке proxies группы «root»/)).toBeInTheDocument()
+    expect(screen.queryByText(/корневом списке proxies/)).not.toBeInTheDocument()
+    expect(screen.getByText(/filter: \(\?i\)nl/)).toBeInTheDocument()
+  })
+
+  // Корневой маркер без одноимённой группы — по-прежнему корневой список, и
+  // фильтру взяться неоткуда
+  it('корневая подстановка описана как корневой список', () => {
+    hostsCard('proxies: # LEAVE THIS LINE!\n', 'hosts:root')
+    expect(screen.getByText(/корневом списке proxies/)).toBeInTheDocument()
+    expect(screen.queryByText(/filter:/)).not.toBeInTheDocument()
   })
 
   // Кнопка обязана вести К МЕСТУ подсписка, а не просто переключать вкладку:

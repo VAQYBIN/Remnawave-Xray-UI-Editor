@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MihomoTracePanel } from '../src/features/diagnostics/MihomoTracePanel'
-import type { MihomoTraceResult } from '../src/entities/mihomo/trace'
+import { traceMihomo, type MihomoTraceResult } from '../src/entities/mihomo/trace'
+import { parseMihomo } from '../src/entities/mihomo'
 
 /** Победитель — ВТОРОЕ правило: первое обязано остаться проигравшим */
 const result: MihomoTraceResult = {
@@ -45,6 +46,26 @@ describe('MihomoTracePanel', () => {
     expect(list[1]).toHaveTextContent('#2')
     expect(list[1]).toHaveTextContent('совпало')
     expect(list[1]).toHaveAttribute('data-winner')
+  })
+
+  /**
+   * Панель держала ветку «Правил в документе нет — трассировать нечего», а
+   * дойти до неё было нельзя: `traceMihomo` оставляет `winner` пустым РОВНО
+   * при остановке прохода. Документ без правил приходит сюда дефолтным
+   * маршрутом — это и проверяем настоящим разбором, а не собранным вручную
+   * результатом: только он доказывает, что снесённая ветка была мёртвой.
+   */
+  it('документ без правил показывает дефолтный маршрут, а не «трассировать нечего»', () => {
+    const empty = traceMihomo(parseMihomo('mode: rule\n'), { address: 'a.com', port: 443, network: 'tcp' }, {
+      loaded: false,
+      answers: {},
+      missing: [],
+    })
+    expect(empty.winner).toEqual({ ruleIndex: null, target: 'DIRECT' })
+    render(<MihomoTracePanel result={empty} onClose={noop} onSelectRule={noop} />)
+    const summary = summaryOf()
+    expect(summary.getByText(/Ни одно правило не совпало/)).toBeInTheDocument()
+    expect(summary.getByText('DIRECT')).toBeInTheDocument()
   })
 
   it('остановка объясняется и победителем не притворяется', () => {

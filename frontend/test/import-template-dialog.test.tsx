@@ -176,6 +176,26 @@ describe('импорт шаблона из каталога', () => {
     expect(onImport).toHaveBeenCalledWith(CONTENT)
   })
 
+  /**
+   * Пустой список приходит двумя путями, и совет у них разный. Под фильтром
+   * типа «переключите на все типы» — рабочий выход; на «всех типах» переключать
+   * уже некуда, и тот же совет отправлял бы пользователя туда, где он стоит.
+   */
+  it('пустой список под фильтром типа советует переключиться на «все типы»', async () => {
+    mockCatalog({ list: { status: 200, body: { templates: [] } } })
+    renderDialog()
+    expect(await screen.findByText(/переключите фильтр на «все типы»/)).toBeInTheDocument()
+  })
+
+  it('пустой список на «всех типах» не советует переключать фильтр', async () => {
+    mockCatalog({ list: { status: 200, body: { templates: [] } } })
+    renderDialog()
+    await screen.findByText('Ничего не нашлось')
+    await selectOption('Тип', 'Все типы')
+    expect(screen.getByText(/Каталог не вернул ни одной записи/)).toBeInTheDocument()
+    expect(screen.queryByText(/переключите фильтр/)).not.toBeInTheDocument()
+  })
+
   it('недоступность GitHub показывает русский текст, а не пустой список', async () => {
     mockCatalog({ list: { status: 502, body: { message: 'Каталог шаблонов недоступен: GitHub ответил 503' } } })
     renderDialog()

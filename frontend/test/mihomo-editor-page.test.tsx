@@ -168,6 +168,39 @@ describe('страница редактора Mihomo', () => {
     expect(screen.getByRole('button', { name: 'Geo-базы' })).toBeEnabled()
   })
 
+  /**
+   * Кнопка «Секции документа» и её диалог связаны ТОЛЬКО этой проверкой.
+   * Собственный тест диалога подаёт ему `open` напрямую и разрыв проводки не
+   * ловит: мутация, при которой кнопка открывает диалог geo-баз, а
+   * `MihomoSectionsDialog` становится недостижим, проходила весь набор. А это
+   * единственный путь к правке dns/tun/sniffer/profile/rule-providers.
+   */
+  it('«Секции документа» открывает форму секций, а не другой диалог', async () => {
+    mockApi({
+      'GET /api/templates/u-1': {
+        status: 200,
+        body: {
+          template: template({ encodedTemplateYaml: encodeYaml(`port: 7890\n${YAML}`) }),
+          hash: HASH,
+        },
+      },
+    })
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    // Диалоги смонтированы вместе со страницей и в разметке лежат всегда —
+    // спрашиваем не про присутствие, а про открытость ИМЕННО этого <dialog>
+    const sections = () =>
+      document.querySelector('dialog[aria-label="Секции документа"]') as HTMLDialogElement | null
+    expect(sections()?.open).toBe(false)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Секции документа' }))
+    await waitFor(() => expect(sections()?.open).toBe(true))
+    // Поле корневой секции — то, ради чего диалог и открывают
+    expect(within(sections()!).getByLabelText('port')).toHaveValue('7890')
+    // И это именно секции: у диалога geo-баз таких разделов нет
+    expect(within(sections()!).getByRole('button', { name: 'DNS' })).toBeInTheDocument()
+  }, 30_000)
+
   // Ядру уходит ТЕКСТ черновика: печатать документ модели обратно нельзя, а
   // проверять что-то, кроме того, что уедет в панель, бессмысленно
   it('«Проверить ядром» отдаёт ядру текст черновика и показывает вердикт', async () => {

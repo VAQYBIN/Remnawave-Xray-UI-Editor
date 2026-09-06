@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { MihomoRuleForm } from '../src/features/inspector/MihomoRuleForm'
@@ -117,13 +117,21 @@ describe('форма правила Mihomo', () => {
   // у правила «MATCH,b)c,d» лишняя скобка увела уровень вложенности в минус, и
   // добавленный модификатор при перечитывании прилипнет к цели. Раньше такие
   // пути передавали в commit пустое поле и отказывали МОЛЧА.
+  // «Рядом с ним» — не фигура речи, а то, ради чего заведён `RuleField`:
+  // объяснение обязано стоять В БЛОКЕ своего поля. Проверка одного лишь наличия
+  // текста на форме этого не стерегла бы — она зеленела бы и на версии, где все
+  // объяснения съехали под «Тип».
   it('отказ на переключателе модификатора объясняется рядом с ним', async () => {
     const md = parseMihomo('rules:\n  - MATCH,b)c,d\n')
     const draft = { replaceRule: vi.fn() } as unknown as MihomoDraft
     render(<MihomoRuleForm md={md} index={0} draft={draft} />)
     await userEvent.click(screen.getByLabelText('src'))
     expect(draft.replaceRule).not.toHaveBeenCalled()
-    expect(screen.getByText(/не собирается обратно/)).toBeInTheDocument()
+    const block = screen.getByLabelText('src').closest('.field')
+    expect(block).not.toBeNull()
+    expect(within(block as HTMLElement).getByText(/не собирается обратно/)).toBeInTheDocument()
+    // И только там: на форме объяснение ровно одно, а не по копии в каждом блоке
+    expect(screen.getAllByText(/не собирается обратно/)).toHaveLength(1)
   })
 
   // Текст отказа обязан обещать ровно то, что проверка делает: перевод строки

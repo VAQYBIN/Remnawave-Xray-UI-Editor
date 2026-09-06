@@ -13,6 +13,44 @@ const STATE_LABEL: Record<MatchState, string> = {
   unknown: 'проверить нечем',
 }
 
+/**
+ * Итог трассы. Состояний ровно три, и это ВЕСЬ их список: остановка прохода,
+ * дефолтный маршрут (`ruleIndex === null`) и победившее правило.
+ *
+ * Четвёртого — «правил в документе нет» — не бывает: `traceMihomo` оставляет
+ * `winner` пустым РОВНО при остановке, а во всех остальных случаях, включая
+ * документ вовсе без правил, ставит дефолтный `DIRECT`. Такая ветка здесь
+ * стояла и была недостижима: мёртвый текст, читавшийся как поддержанный
+ * сценарий (находка ревью). Осталась только проверка ради сужения типа —
+ * связь `winner`/`stopped` типом не выражена, — и она ничего не обещает.
+ */
+function Verdict({ winner, stopped }: Pick<MihomoTraceResult, 'winner' | 'stopped'>) {
+  // Ответа нет и придумывать его нельзя: правило выше могло совпасть, и тогда
+  // всё, что ниже, не выполняется вовсе
+  if (stopped !== undefined) {
+    return (
+      <span className="field-warning">
+        {`Проход остановлен на правиле #${stopped.index + 1}: ${stopped.reason}. Куда уйдёт трафик, редактор сказать не может.`}
+      </span>
+    )
+  }
+  if (winner === undefined) return null
+  if (winner.ruleIndex === null) {
+    return (
+      <>
+        <span className="muted">Ни одно правило не совпало — трафик уходит напрямую</span>
+        <span className="metric metric-accent">{winner.target}</span>
+      </>
+    )
+  }
+  return (
+    <>
+      <span>{`Победило правило #${winner.ruleIndex + 1} →`}</span>
+      <span className="metric metric-accent">{winner.target}</span>
+    </>
+  )
+}
+
 export function MihomoTracePanel({
   result,
   onClose,
@@ -40,25 +78,7 @@ export function MihomoTracePanel({
       </div>
 
       <div className="trace-winner" aria-label="Итог трассировки">
-        {stopped !== undefined ? (
-          // Ответа нет и придумывать его нельзя: правило выше могло совпасть, и
-          // тогда всё, что ниже, не выполняется вовсе
-          <span className="field-warning">
-            {`Проход остановлен на правиле #${stopped.index + 1}: ${stopped.reason}. Куда уйдёт трафик, редактор сказать не может.`}
-          </span>
-        ) : winner === undefined ? (
-          <span className="muted">Правил в документе нет — трассировать нечего</span>
-        ) : winner.ruleIndex === null ? (
-          <>
-            <span className="muted">Ни одно правило не совпало — трафик уходит напрямую</span>
-            <span className="metric metric-accent">{winner.target}</span>
-          </>
-        ) : (
-          <>
-            <span>{`Победило правило #${winner.ruleIndex + 1} →`}</span>
-            <span className="metric metric-accent">{winner.target}</span>
-          </>
-        )}
+        <Verdict winner={winner} stopped={stopped} />
       </div>
 
       {result.caveats.length > 0 && (

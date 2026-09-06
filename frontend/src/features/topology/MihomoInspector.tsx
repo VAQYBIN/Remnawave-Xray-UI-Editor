@@ -6,10 +6,13 @@
 import {
   fieldsOf,
   groupsOf,
+  hasRootMarker,
   locateMihomo,
+  panelInjectsHosts,
   providersOf,
   rulesOf,
   type MihomoDoc,
+  type MihomoGroup,
 } from '../../entities/mihomo'
 import { Button } from '../../shared/ui'
 import { MihomoFieldsForm } from '../inspector/MihomoFieldsForm'
@@ -76,31 +79,75 @@ function ProviderCard({ md, name, draft }: { md: MihomoDoc; name: string; draft:
 }
 
 /**
+ * Чем именно группа заслужила узел подстановки. Оснований четыре, и маркер
+ * среди них ЛИШЬ ОДНО: `include-all` и ключи выборки заводят узел без всякого
+ * маркера, а `include-all` — ещё и без ключа `proxies` в группе. Безусловное
+ * «маркер стоит в списке proxies группы» отправляло бы пользователя искать в
+ * тексте строку, которой там нет (находка ревью, финальный раунд).
+ *
+ * Порядок веток — от того, что видно в тексте, к тому, что выведено из ключей;
+ * он не обязан совпадать с порядком проверок в `panelInjectsHosts` (тот решает
+ * «да/нет», а не «почему»). Ветка `else` достижима только при одном из ключей
+ * выборки: остальные основания разобраны выше, а без всех четырёх узла бы не
+ * было вовсе.
+ */
+function hostsBasis(group: MihomoGroup): string {
+  if (group.hasMarker) return `Маркер подстановки стоит в списке proxies группы «${group.name}».`
+  if (group.includeAll) {
+    return `У группы «${group.name}» стоит include-all — она забирает всё, что есть в документе, и маркер в её списке proxies для этого не нужен.`
+  }
+  const key =
+    group.remnawave.selectRandomProxy === true ? 'select-random-proxy' : 'shuffle-proxies-order'
+  return `У группы «${group.name}» стоит ключ remnawave.${key} — маркера в её списке proxies для подстановки не требуется.`
+}
+
+/**
  * Узел подстановки. Всё здесь условно («если панель подставит…»): состав хостов
  * и их имена задаёт панель по примечаниям хоста, редактор их не знает и знать
  * не может — отсюда и закрытые гнёзда у узла.
+ *
+ * Владелец узла — ГРУППА либо корневой `proxies`, и имена их сталкиваются:
+ * группу могут назвать `root`. На холсте в этом случае побеждает узел группы
+ * (см. `buildMihomoGraph`), поэтому карточка спрашивает про группу ПЕРВОЙ и тем
+ * же предикатом, что и граф. Иначе у группы с именем `root` карточка говорила
+ * бы про корневой список и тут же печатала фильтр этой группы.
  */
 function HostsCard({ md, owner }: { md: MihomoDoc; owner: string }) {
   const group = groupsOf(md).find((g) => g.name === owner)
+  if (group === undefined || !panelInjectsHosts(group)) {
+    return owner === 'root' && hasRootMarker(md) ? (
+      <>
+        <p>
+          Маркер подстановки стоит в корневом списке proxies. Если панель подставит хосты, они
+          окажутся здесь, и на них смогут ссылаться группы.
+        </p>
+        <p className="muted">
+          Из узла не выходит кабель: имена подставленных хостов известны только панели, и сослаться
+          на них из документа заранее нельзя.
+        </p>
+      </>
+    ) : (
+      <p className="muted">Подстановки «{owner}» в документе больше нет.</p>
+    )
+  }
   return (
     <>
       <p>
-        {owner === 'root'
-          ? 'Маркер подстановки стоит в корневом списке proxies. Если панель подставит хосты, они окажутся здесь, и на них смогут ссылаться группы.'
-          : `Маркер подстановки стоит в списке proxies группы «${owner}». Если панель подставит хосты, сюда попадут те из них, что подойдут под фильтр группы.`}
+        {hostsBasis(group)}{' '}
+        {group.filter !== undefined || group.excludeFilter !== undefined
+          ? 'Если панель подставит хосты, сюда попадут те из них, что пройдут фильтр группы.'
+          : 'Если панель подставит хосты, они окажутся здесь.'}
       </p>
-      {group?.filter !== undefined && (
-        <p className="muted mono">filter: {group.filter}</p>
-      )}
-      {group?.excludeFilter !== undefined && (
+      {group.filter !== undefined && <p className="muted mono">filter: {group.filter}</p>}
+      {group.excludeFilter !== undefined && (
         <p className="muted mono">exclude-filter: {group.excludeFilter}</p>
       )}
       {/* Условно, как и весь остальной текст карточки: подставит панель хосты
           или нет — редактор не знает, он видит только ключи документа */}
-      {group?.remnawave.selectRandomProxy === true && (
+      {group.remnawave.selectRandomProxy === true && (
         <p className="muted">Если хосты будут подставлены, сюда попадёт один случайный.</p>
       )}
-      {group?.remnawave.shuffleProxiesOrder === true && (
+      {group.remnawave.shuffleProxiesOrder === true && (
         <p className="muted">Если хосты будут подставлены, порядок будет случайным.</p>
       )}
       <p className="muted">
