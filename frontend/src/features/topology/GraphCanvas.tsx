@@ -219,10 +219,11 @@ export function GraphCanvas({
 
   // Считаем по узлам из пропса, а не по локальному состоянию: на первом рендере
   // оно ещё не догнало документ через useEffect, и подписи мигнули бы.
-  // Колонку с узлами роднит `type` — им узел и так объявляет себя React Flow,
-  // дублировать его в data канвасу незачем.
+  // Колонку с узлом роднит `data.kind` — семантический вид узла, а не `type`:
+  // тот всего лишь ключ компонента-рендерера, и у графа Mihomo эти два имени
+  // намеренно разные (`type: 'mihomoGroup'` при `kind: 'mihomo-group'`).
   const filledColumns = useMemo(() => {
-    const kinds = new Set(graphNodes.map((n) => n.type))
+    const kinds = new Set(graphNodes.map((n) => n.data.kind))
     return columns.filter((c) => kinds.has(c.kind))
   }, [graphNodes, columns])
 

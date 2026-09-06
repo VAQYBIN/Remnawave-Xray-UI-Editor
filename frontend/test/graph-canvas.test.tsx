@@ -13,7 +13,9 @@ function renderCanvas(over: Partial<Parameters<typeof GraphCanvas>[0]> = {}) {
     <ReactFlowProvider>
       <GraphCanvas
         docKey="template:u-1"
-        nodes={[{ id: 'a', type: 'box', position: { x: 0, y: 0 }, data: { label: 'узел A' } }]}
+        nodes={[
+          { id: 'a', type: 'box', position: { x: 0, y: 0 }, data: { kind: 'box', label: 'узел A' } },
+        ]}
         edges={[]}
         nodeTypes={NODE_TYPES}
         edgeTypes={{}}
