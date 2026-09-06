@@ -61,7 +61,9 @@ describe('разрыв', () => {
 
   it('разрыв ребра правила невозможен — у правила всегда есть цель', () => {
     const md = parseMihomo(base)
-    expect(disconnectMihomo(md, 'e:rule:1->group:VPN').edits).toEqual([])
+    const res = disconnectMihomo(md, 'e:rule:1->group:VPN')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('invalid-pair')
   })
 })
 
@@ -75,16 +77,18 @@ const flowBase =
 describe('список в одну строку', () => {
   it('разрыв на flow-списке: правок нет, документ не изменился', () => {
     const md = parseMihomo(flowBase)
-    const edits = disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT').edits
-    expect(edits).toEqual([])
-    expect(applyEdits(flowBase, edits)).toBe(flowBase)
+    const res = disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('flow-list')
+    expect(applyEdits(flowBase, res.edits)).toBe(flowBase)
   })
 
   it('соединение на flow-списке: правок нет, документ не изменился', () => {
     const md = parseMihomo(flowBase)
-    const edits = connectMihomo(md, 'group:VPN', 'builtin:REJECT').edits
-    expect(edits).toEqual([])
-    expect(applyEdits(flowBase, edits)).toBe(flowBase)
+    const res = connectMihomo(md, 'group:VPN', 'builtin:REJECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('flow-list')
+    expect(applyEdits(flowBase, res.edits)).toBe(flowBase)
   })
 })
 
@@ -205,9 +209,10 @@ describe('находка (раунд 5): перевод строки в имен
 
   it('соединение с такой группой отказывает — правок нет, документ не меняется', () => {
     const md = parseMihomo(withNewlineName)
-    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`).edits
-    expect(edits).toEqual([])
-    expect(applyEdits(withNewlineName, edits)).toBe(withNewlineName)
+    const res = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`)
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('unprintable-name')
+    expect(applyEdits(withNewlineName, res.edits)).toBe(withNewlineName)
   })
 
   it('то же самое для ветки с пустым списком proxies', () => {
@@ -215,9 +220,10 @@ describe('находка (раунд 5): перевод строки в имен
       'proxy-groups:\n  - name: VPN\n    type: select\n    proxies:\n  - name: "a\\nb"\n    include-all: true\n' +
       'rules:\n  - MATCH,VPN\n'
     const md = parseMihomo(emptyBlock)
-    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`).edits
-    expect(edits).toEqual([])
-    expect(applyEdits(emptyBlock, edits)).toBe(emptyBlock)
+    const res = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`)
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('unprintable-name')
+    expect(applyEdits(emptyBlock, res.edits)).toBe(emptyBlock)
   })
 })
 
@@ -241,9 +247,10 @@ describe('SUB-RULE не коммутируется как обычное пра�
 
   it('connectMihomo не даёт правок при соединении с узла правила SUB-RULE', () => {
     const md = parseMihomo(subRuleBase)
-    const edits = connectMihomo(md, 'rule:0', 'group:VPN').edits
-    expect(edits).toEqual([])
-    expect(applyEdits(subRuleBase, edits)).toBe(subRuleBase)
+    const res = connectMihomo(md, 'rule:0', 'group:VPN')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('sub-rule-source')
+    expect(applyEdits(subRuleBase, res.edits)).toBe(subRuleBase)
   })
 
   it('connectMihomo по-прежнему коммутирует обычное правило', () => {
@@ -313,5 +320,16 @@ describe('коммутация объясняет отказ', () => {
       ['proxy-groups:', '  - name: A', '    proxies:', '      - DIRECT', ''].join('\n'),
     )
     expect(disconnectMihomo(md, 'e:group:A->builtin:REJECT').refusal).toBe('not-found')
+  })
+
+  // Зеркало группового случая (раунд 5, `withNewlineName`): перевод строки в
+  // ИМЕНИ ЦЕЛИ правила заставляет `setRuleTarget` печатать всю строку правила
+  // как блочный скаляр — вставить его на место одной строки нельзя, ветка
+  // отказа обязана быть достижимой и различимой от остальных причин.
+  it('соединение правила с целью, чьё имя содержит перевод строки, отказывает как unprintable-rule', () => {
+    const md = parseMihomo(['rules:', '  - DOMAIN,a.com,DIRECT', ''].join('\n'))
+    const res = connectMihomo(md, 'rule:0', `group:${'a\nb'}`)
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('unprintable-rule')
   })
 })
