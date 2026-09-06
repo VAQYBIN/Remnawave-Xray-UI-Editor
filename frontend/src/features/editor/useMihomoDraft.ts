@@ -1,7 +1,7 @@
 // Черновик шаблона Mihomo: ядро плюс операции правки ТЕКСТА. Единица правки —
 // TextEdit[], а не новая модель: документ никогда не печатается заново.
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   addGroup,
   addRule,
@@ -21,18 +21,36 @@ import {
 } from '../../entities/mihomo'
 import { groupsOf } from '../../entities/mihomo/groups'
 import {
+  geoKeysOfMihomo,
+  traceMihomo,
+  type MihomoTraceResult,
+} from '../../entities/mihomo/trace'
+import {
   connectMihomo,
   disconnectMihomo,
   type MihomoRefusal,
 } from '../../entities/graph/mihomo/mutations'
-import type { PathParts } from '../../entities/xray'
+import type { GeoAnswers, PathParts } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
+import { useGeoMatch } from '../../shared/api'
+import { useDebounced } from '../../shared/lib/useDebounced'
 import { useDocumentDraft, type DocumentDraft } from './useDocumentDraft'
 import { mihomoAdapter } from './mihomoAdapter'
 
 // Контекст графа у шаблона пуст: сквадов здесь нет. Константа, а не литерал в
 // вызове — иначе новый объект на каждый рендер сбрасывал бы мемоизацию.
 const NO_CONTEXT: GraphContext = {}
+
+// Пока ответ базы не пришёл (или базы нет), трассировщик честно считает
+// GEOSITE/GEOIP неизвестными и останавливает на них проход.
+const NO_GEO: GeoAnswers = { loaded: false, answers: {}, missing: [] }
+
+/**
+ * Пауза, после которой строка трассировки считается введённой, — та же, что у
+ * Xray (`useConfigDraft`): каждый символ адреса иначе дергал бы бэкенд, а
+ * вердикты мигали бы на полуслове.
+ */
+const TRACE_DEBOUNCE_MS = 600
 
 export interface MihomoDraftOptions {
   docKey: string
@@ -61,6 +79,8 @@ export interface MihomoDraft extends DocumentDraft<MihomoDoc> {
   removeSelected: () => void
   connect: (source: string, target: string) => void
   disconnect: (edgeId: string) => void
+  /** Разбор трассы; undefined — цель не задана либо документ не разбирается */
+  trace: MihomoTraceResult | undefined
   refusal: MihomoRefusal | null
   dismissRefusal: () => void
   checkOpen: boolean
@@ -89,6 +109,20 @@ export function useMihomoDraft({
   const [importOpen, setImportOpen] = useState(false)
   const [sectionsOpen, setSectionsOpen] = useState(false)
   const md = core.model
+
+  // Считаем и спрашиваем базу, когда ввод затих: иначе каждый символ адреса
+  // пересчитывал бы вердикты и дергал бэкенд
+  const settledTarget = useDebounced(core.traceTarget, TRACE_DEBOUNCE_MS)
+  // Спрашиваем базу только по тем ключам, что реально есть в правилах
+  const geoKeys = useMemo(() => (md ? geoKeysOfMihomo(md) : []), [md])
+  const geoQuery = useGeoMatch(
+    settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
+  )
+  const trace = useMemo(
+    () =>
+      md && settledTarget ? traceMihomo(md, settledTarget, geoQuery.data ?? NO_GEO) : undefined,
+    [md, settledTarget, geoQuery.data],
+  )
 
   /**
    * Наложить правки. Пустой список — не ошибка: операция отказала, и причину,
@@ -177,6 +211,7 @@ export function useMihomoDraft({
       setRefusal(res.refusal ?? null)
       apply(res.edits)
     },
+    trace,
     refusal,
     dismissRefusal: () => setRefusal(null),
     checkOpen,

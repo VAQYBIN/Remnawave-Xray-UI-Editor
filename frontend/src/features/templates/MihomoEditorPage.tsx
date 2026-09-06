@@ -23,6 +23,8 @@ import { useMihomoDraft } from '../editor/useMihomoDraft'
 import { YamlView } from '../editor/YamlView'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
 import { MihomoCheckDialog } from '../diagnostics/MihomoCheckDialog'
+import { MihomoTracePanel } from '../diagnostics/MihomoTracePanel'
+import { TraceBar } from '../diagnostics/TraceBar'
 import { ImportTemplateDialog } from './ImportTemplateDialog'
 import { MihomoInspector } from '../topology/MihomoInspector'
 import { MihomoTopology } from '../topology/MihomoTopology'
@@ -145,8 +147,31 @@ function MihomoEditor({
     ) : (
       <>
         <div className="wb-canvas">
-          <MihomoTopology draft={draft} md={md} />
+          <MihomoTopology
+            draft={draft}
+            md={md}
+            dockExtra={
+              <Button aria-pressed={draft.traceOpen} onClick={draft.toggleTrace}>
+                Куда пойдёт трафик
+              </Button>
+            }
+            dockRow={
+              draft.traceOpen ? (
+                // Строка ввода общая с Xray: она работает с TraceTarget и о виде
+                // документа ничего не знает
+                <TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} />
+              ) : undefined
+            }
+          />
         </div>
+        {draft.trace && (
+          <MihomoTracePanel
+            result={draft.trace}
+            onClose={() => draft.setTraceTarget(null)}
+            onSelectRule={(index) => draft.setSelectedNode(`rule:${index}`)}
+            onOpenGeo={() => draft.setGeoOpen(true)}
+          />
+        )}
         {draft.selectedNode && (
           <MihomoInspector
             key={draft.selectedNode}

@@ -1,5 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMihomoDraft } from '../src/features/editor/useMihomoDraft'
 import { mihomoAdapter } from '../src/features/editor/mihomoAdapter'
 import { parseMihomo } from '../src/entities/mihomo'
@@ -18,9 +20,21 @@ const DOC = [
   '',
 ].join('\n')
 
+/**
+ * Черновик спрашивает geo-базу по ключам правил (трассировка), а значит живёт
+ * внутри react-query. Запрос никуда не уходит, пока не задана цель трассировки,
+ * но КЛИЕНТ хуку нужен всегда — отсюда обёртка.
+ */
+const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+}
+
 function draft(text = DOC) {
-  return renderHook(() =>
-    useMihomoDraft({ docKey: 'tpl-1', panelText: text, baseVersion: 'h1' }),
+  return renderHook(
+    () => useMihomoDraft({ docKey: 'tpl-1', panelText: text, baseVersion: 'h1' }),
+    { wrapper },
   )
 }
 
@@ -192,5 +206,43 @@ describe('черновик Mihomo', () => {
     expect(result.current.text).not.toContain('name: A')
     expect(result.current.text).toContain('name: B')
     expect(parseMihomo(result.current.text).doc.errors).toEqual([])
+  })
+})
+
+describe('трассировка в черновике Mihomo', () => {
+  beforeEach(() => {
+    useDraftStore.setState({ drafts: {} })
+    useHistoryStore.setState({ stacks: {} })
+    vi.useFakeTimers()
+  })
+  afterEach(() => vi.useRealTimers())
+
+  const target = (address: string) => ({ address, port: 443, network: 'tcp' as const })
+
+  it('разбор появляется только после паузы и считается по цели', () => {
+    const { result } = draft()
+    expect(result.current.trace).toBeUndefined()
+    act(() => result.current.setTraceTarget(target('a.com')))
+    // Ввод ещё не затих: дергать бэкенд и пересчитывать вердикты рано
+    expect(result.current.trace).toBeUndefined()
+    act(() => vi.advanceTimersByTime(600))
+    expect(result.current.trace?.winner).toEqual({ ruleIndex: 0, target: 'A' })
+  })
+
+  it('другая цель даёт другого победителя, а не тот же самый', () => {
+    const { result } = draft()
+    act(() => result.current.setTraceTarget(target('b.com')))
+    act(() => vi.advanceTimersByTime(600))
+    // DOMAIN,a.com не подходит — ловит MATCH вторым правилом
+    expect(result.current.trace?.winner).toEqual({ ruleIndex: 1, target: 'A' })
+  })
+
+  it('снятая цель убирает разбор сразу, без ожидания паузы', () => {
+    const { result } = draft()
+    act(() => result.current.setTraceTarget(target('a.com')))
+    act(() => vi.advanceTimersByTime(600))
+    expect(result.current.trace).toBeDefined()
+    act(() => result.current.setTraceTarget(null))
+    expect(result.current.trace).toBeUndefined()
   })
 })

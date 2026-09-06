@@ -15,6 +15,8 @@ export interface MihomoRuleNodeData extends Record<string, unknown> {
    */
   target?: string
   modifiers: string[]
+  /** Вердикт трассировки; 'winner' — правило, которое победило */
+  traceState?: 'yes' | 'no' | 'unknown' | 'winner'
   issueCount?: IssueCount
 }
 export interface MihomoGroupNodeData extends Record<string, unknown> {

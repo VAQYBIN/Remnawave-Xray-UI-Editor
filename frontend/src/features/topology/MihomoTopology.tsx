@@ -2,12 +2,13 @@
 // отказов. Всё, что не зависит от вида документа (позиции, фокус, патчбей,
 // док, подписи колонок), живёт в GraphCanvas.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { Connection, Edge } from '@xyflow/react'
 import { buildMihomoGraph, layoutMihomo } from '../../entities/graph/mihomo/buildGraph'
 import { isValidMihomoConnection, refusalText } from '../../entities/graph/mihomo/mutations'
 import type { FlowNode } from '../../entities/graph/types'
 import { groupsOf, type MihomoDoc } from '../../entities/mihomo'
+import type { MihomoTraceResult } from '../../entities/mihomo/trace'
 import type { MihomoDraft } from '../editor/useMihomoDraft'
 import { Button, Dialog } from '../../shared/ui'
 import { edgeTypes } from './edges'
@@ -88,7 +89,35 @@ export function nextGroupName(md: MihomoDoc): string {
   }
 }
 
-export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDoc }) {
+/**
+ * Состояние правила для бейджа на карточке: победитель отделён от обычного
+ * совпадения, как у Xray. Правила, до которых проход не дошёл, вердикта не
+ * имеют — и бейджа не получают: у них не «нет данных», их просто не проверяли.
+ * Экспортируется ради теста: внутри компонента её не проверить.
+ */
+export function mihomoTraceStateOf(
+  result: MihomoTraceResult | undefined,
+  ruleIndex: number,
+): 'yes' | 'no' | 'unknown' | 'winner' | undefined {
+  if (!result) return undefined
+  const verdict = result.verdicts.find((v) => v.index === ruleIndex)
+  if (!verdict) return undefined
+  return result.winner?.ruleIndex === ruleIndex ? 'winner' : verdict.state
+}
+
+export function MihomoTopology({
+  draft,
+  md,
+  dockExtra,
+  dockRow,
+}: {
+  draft: MihomoDraft
+  md: MihomoDoc
+  /** Дополнительные контролы в первой строке дока (тумблеры инструментов) */
+  dockExtra?: ReactNode
+  /** Раскрытый инструмент — вторая строка дока, чтобы он не растил его вширь */
+  dockRow?: ReactNode
+}) {
   const saved = usePositionsStore((s) => s.positions[draft.storageKey])
 
   const graph = useMemo(() => {
@@ -99,6 +128,12 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
   const computed = useMemo(() => {
     const nodes = graph.nodes.map((n) => {
       const issueCount = draft.nodeIssues[n.id]
+      // Вид узла берём из `data.kind`, а не из `node.type`: в графе Mihomo это
+      // намеренно разные имена, и по `type` вердикт молча не проставился бы
+      const traceState =
+        n.data.kind === 'mihomo-rule'
+          ? mihomoTraceStateOf(draft.trace, n.data.index as number)
+          : undefined
       return {
         ...n,
         deletable: false,
@@ -108,7 +143,14 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
         selected: n.id === draft.selectedNode,
         // Ссылку на data сохраняем, когда доклеивать нечего: React Flow
         // сравнивает объекты по ссылке
-        data: issueCount === undefined ? n.data : { ...n.data, issueCount },
+        data:
+          issueCount === undefined && traceState === undefined
+            ? n.data
+            : {
+                ...n.data,
+                ...(issueCount === undefined ? {} : { issueCount }),
+                ...(traceState === undefined ? {} : { traceState }),
+              },
       }
     })
     const edges = graph.edges.map((e) => ({
@@ -121,7 +163,7 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
       },
     }))
     return { nodes, edges }
-  }, [graph, saved, draft.selectedNode, draft.nodeIssues])
+  }, [graph, saved, draft.selectedNode, draft.nodeIssues, draft.trace])
 
   // Считается по узлам, а не по документу, и меняется только вместе с графом.
   // Инлайн в JSX давал бы новый массив на каждый рендер — `useMemo` внутри
@@ -198,6 +240,8 @@ export function MihomoTopology({ draft, md }: { draft: MihomoDraft; md: MihomoDo
           <Button onClick={() => draft.addGroupNamed(nextGroupName(md))}>+ Группа</Button>
         </>
       }
+      dockExtra={dockExtra}
+      dockRow={dockRow}
     >
       <Dialog
         open={draft.refusal !== null}

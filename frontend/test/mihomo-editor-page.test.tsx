@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router'
@@ -484,6 +484,24 @@ describe('страница редактора Mihomo', () => {
     expect(await screen.findByText(/не является base64/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '← Шаблоны' })).toBeInTheDocument()
   })
+
+  /**
+   * Трассировка живёт в доке графа: кнопка раскрывает строку цели, а разбор
+   * появляется, когда ввод затих. Ждём его настоящим временем (пауза 600 мс):
+   * подменять таймеры посреди react-query дороже, чем подождать один раз.
+   */
+  it('«Куда пойдёт трафик» раскрывает строку цели и показывает разбор', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    // До нажатия инструмента в доке нет: строка ввода не занимает место зря
+    expect(screen.queryByLabelText('Адрес')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Куда пойдёт трафик' }))
+    fireEvent.change(screen.getByLabelText('Адрес'), { target: { value: 'a.com' } })
+    const summary = await screen.findByLabelText('Итог трассировки', {}, { timeout: 3000 })
+    // В шаблоне одно правило — MATCH,Основная: победить обязано оно
+    expect(within(summary).getByText(/правило #1/i)).toBeInTheDocument()
+    expect(within(summary).getByText('Основная')).toBeInTheDocument()
+  }, 10_000)
 
   it('шаблон другого YAML-типа по-прежнему ведёт в панель', async () => {
     mockApi({

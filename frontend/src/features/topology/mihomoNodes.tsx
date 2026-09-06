@@ -54,6 +54,18 @@ function Metric({ children, accent }: { children: string; accent?: boolean }) {
   return <span className={accent ? 'metric metric-accent' : 'metric'}>{children}</span>
 }
 
+/**
+ * Подписи вердикта трассировки. 'unknown' у Mihomo значит не «данных нет
+ * где-то», а «на этом правиле проход остановлен» — отсюда своя формулировка, а
+ * не заимствованная у Xray «нет данных».
+ */
+const TRACE_LABEL: Record<string, string> = {
+  winner: 'маршрут',
+  yes: 'совпало',
+  no: 'не совпало',
+  unknown: 'проверить нечем',
+}
+
 function MihomoRuleNode({ data, selected }: { data: MihomoRuleNodeData; selected?: boolean }) {
   return (
     <div className={frame('rule', selected)} style={enter('rule')}>
@@ -61,6 +73,11 @@ function MihomoRuleNode({ data, selected }: { data: MihomoRuleNodeData; selected
         <span className="fnode-kind">{data.type}</span>
         <IssueBadge count={data.issueCount} />
       </div>
+      {data.traceState && (
+        <span className={`trace-badge trace-badge-${data.traceState}`}>
+          {TRACE_LABEL[data.traceState]}
+        </span>
+      )}
       {data.payload && <div className="fnode-title">{data.payload}</div>}
       <div className="metrics">
         {data.target && <Metric accent>{`→ ${data.target}`}</Metric>}

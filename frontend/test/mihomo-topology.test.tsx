@@ -319,3 +319,65 @@ describe('допустимость соединения знает тип пра
     expect(canConnect(nodes, { source: 'rule:0', target: 'group:Основная' })).toBe(true)
   })
 })
+
+describe('вердикт трассировки на карточке правила', () => {
+  const trace = {
+    verdicts: [
+      { index: 0, state: 'no' as const, target: 'Основная' },
+      { index: 1, state: 'yes' as const, target: 'block' },
+    ],
+    winner: { ruleIndex: 1, target: 'block' },
+    caveats: [],
+  }
+
+  it('победитель отделён от обычного совпадения', () => {
+    renderTopology({ trace })
+    // «маршрут» — только у победителя, проигравший подписан своим состоянием
+    expect(screen.getByText('маршрут')).toBeInTheDocument()
+    expect(screen.getByText('не совпало')).toBeInTheDocument()
+    // Победителя не подписали как рядовое совпадение
+    expect(screen.queryByText('совпало')).not.toBeInTheDocument()
+  })
+
+  it('правило, до которого проход не дошёл, бейджа не получает', () => {
+    // Разбор оборвался на первом правиле: у второго вердикта нет вовсе
+    const stopped = {
+      verdicts: [{ index: 0, state: 'unknown' as const, reason: 'набор правил лежит по ссылке' }],
+      stopped: { index: 0, reason: 'набор правил лежит по ссылке' },
+      caveats: [],
+    }
+    const { container } = renderTopology({ trace: stopped })
+    expect(screen.getByText('проверить нечем')).toBeInTheDocument()
+    expect(container.querySelectorAll('.trace-badge')).toHaveLength(1)
+  })
+
+  it('без трассировки бейджей нет ни на одной карточке', () => {
+    const { container } = renderTopology()
+    expect(container.querySelectorAll('.trace-badge')).toHaveLength(0)
+  })
+
+  it('mihomoTraceStateOf отличает победителя, вердикт и отсутствие вердикта', async () => {
+    const { mihomoTraceStateOf } = await import('../src/features/topology/MihomoTopology')
+    expect(mihomoTraceStateOf(trace, 1)).toBe('winner')
+    expect(mihomoTraceStateOf(trace, 0)).toBe('no')
+    expect(mihomoTraceStateOf(trace, 2)).toBeUndefined()
+    expect(mihomoTraceStateOf(undefined, 0)).toBeUndefined()
+  })
+})
+
+describe('док топологии Mihomo', () => {
+  it('принимает контролы инструментов и вторую строку', () => {
+    render(
+      <ReactFlowProvider>
+        <MihomoTopology
+          draft={draftStub()}
+          md={parseMihomo(DOC)}
+          dockExtra={<button type="button">Куда пойдёт трафик</button>}
+          dockRow={<span>строка ввода цели</span>}
+        />
+      </ReactFlowProvider>,
+    )
+    expect(screen.getByRole('button', { name: 'Куда пойдёт трафик' })).toBeInTheDocument()
+    expect(screen.getByText('строка ввода цели')).toBeInTheDocument()
+  })
+})
