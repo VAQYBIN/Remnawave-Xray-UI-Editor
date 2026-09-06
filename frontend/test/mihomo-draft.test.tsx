@@ -104,22 +104,31 @@ describe('черновик Mihomo', () => {
   // основным набором: без них проброс мог бы разойтись с `entities/mihomo`
   // молча, а потребитель (формы инспектора) появится только в следующих задачах.
 
-  it('originOf пропускает наружу все четыре происхождения, включая alias', () => {
+  it('originOf пропускает наружу все четыре происхождения: own, merged, alias, absent', () => {
+    // Одна фикстура на весь союз: `name` — своё поле, `type` приходит слиянием
+    // `<<: *base`, `remnawave` — ссылка на якорь, `filter` отсутствует.
+    // Сужение союза в пробросе (например, `merged` → `own`) обязано покраснеть
+    // здесь, иначе форма сочла бы значение из якоря своим и предложила правку,
+    // которую писатель всё равно отклоняет.
     const text = [
       'x-anchors:',
+      '  base: &base',
+      '    type: select',
       '  rw: &rw',
       '    include-proxies: false',
       'proxy-groups:',
       '  - name: A',
-      '    type: select',
+      '    <<: *base',
       '    remnawave: *rw',
       '',
     ].join('\n')
     const { result } = draft(text)
     expect(result.current.originOf(['proxy-groups', 0], 'name')).toBe('own')
+    expect(result.current.originOf(['proxy-groups', 0], 'type')).toBe('merged')
     expect(result.current.originOf(['proxy-groups', 0], 'remnawave.include-proxies')).toBe('alias')
     expect(result.current.originOf(['proxy-groups', 0], 'filter')).toBe('absent')
-    // Правка по alias-пути отказывает — черновик остаётся нетронутым
+    // Правки по merged- и alias-путям отказывают — черновик остаётся нетронутым
+    act(() => result.current.setField(['proxy-groups', 0], 'type', 'fallback'))
     act(() => result.current.setField(['proxy-groups', 0], 'remnawave.include-proxies', true))
     expect(result.current.text).toBe(text)
   })
@@ -139,5 +148,46 @@ describe('черновик Mihomo', () => {
     expect(result.current.text).toContain('DOMAIN-SUFFIX,b.com,A')
     expect(result.current.text).not.toContain('DOMAIN,a.com,A')
     expect(result.current.text).toContain('  - MATCH,A')
+  })
+
+  it('разрыв связи убирает участника и причины не оставляет', () => {
+    const { result } = draft()
+    act(() => result.current.disconnect('e:group:A->builtin:DIRECT'))
+    expect(result.current.text).not.toContain('- DIRECT')
+    expect(result.current.text).toContain('  - MATCH,A')
+    expect(result.current.refusal).toBeNull()
+  })
+
+  it('отказ разрыва поднимает причину и документ не трогает', () => {
+    // У правила цель обязательна — разрывать нечего; фикстура та же, что и у
+    // успешного разрыва выше, так что различает ветви именно ребро, а не документ
+    const { result } = draft()
+    act(() => result.current.disconnect('e:rule:0->group:A'))
+    expect(result.current.refusal).toBe('invalid-pair')
+    expect(result.current.text).toBe(DOC)
+  })
+
+  it('удаление выбранной группы убирает её и снимает выбор', () => {
+    const text = [
+      'proxy-groups:',
+      '  - name: A',
+      '    type: select',
+      '    proxies:',
+      '      - DIRECT',
+      '  - name: B',
+      '    type: select',
+      '    proxies:',
+      '      - DIRECT',
+      'rules:',
+      '  - MATCH,B',
+      '',
+    ].join('\n')
+    const { result } = draft(text)
+    act(() => result.current.setSelectedNode('group:A'))
+    act(() => result.current.removeSelected())
+    expect(result.current.selectedNode).toBeNull()
+    expect(result.current.text).not.toContain('name: A')
+    expect(result.current.text).toContain('name: B')
+    expect(parseMihomo(result.current.text).doc.errors).toEqual([])
   })
 })
