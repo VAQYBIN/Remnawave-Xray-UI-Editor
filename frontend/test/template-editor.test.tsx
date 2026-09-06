@@ -216,10 +216,12 @@ describe('редактор шаблона', () => {
     expect(screen.getByRole('button', { name: 'Куда пойдёт трафик' })).toBeInTheDocument()
   })
 
+  // MIHOMO с приходом своего редактора из этой ветки ушёл: здесь остались типы,
+  // содержимое которых редактор не разбирает вовсе
   it('YAML-шаблон не открывается, а объясняет почему и даёт вернуться', async () => {
-    mockPanel('MIHOMO')
+    mockPanel('CLASH')
     renderEditor()
-    expect(await screen.findByText(/только шаблоны XRAY_JSON/)).toBeInTheDocument()
+    expect(await screen.findByText(/умеет шаблоны XRAY_JSON и MIHOMO/)).toBeInTheDocument()
     // Тупик без выхода: сюда попадают по прямой ссылке, «назад» браузера увёл бы
     // из приложения — кнопка обязана быть и вести в список
     expect(screen.getByRole('button', { name: '← Шаблоны' })).toBeInTheDocument()

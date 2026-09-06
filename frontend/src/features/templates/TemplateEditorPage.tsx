@@ -16,6 +16,7 @@ import {
 } from '../../shared/api'
 import type { GraphContext } from '../../entities/graph/types'
 import { Button, Dialog } from '../../shared/ui'
+import { MihomoEditorPage } from './MihomoEditorPage'
 import { SaveDialog } from '../editor/SaveDialog'
 import { Workbench } from '../editor/Workbench'
 import { useConfigDraft } from '../editor/useConfigDraft'
@@ -206,13 +207,21 @@ export function TemplateEditorPage() {
     )
   }
   const { template, hash } = query.data
-  // YAML-типы держат содержимое в encodedTemplateYaml, а templateJson у них null:
-  // открыть их этим редактором нельзя, и молчать об этом — худшее из решений
+  // Тип известен только после загрузки, поэтому маршрут у обоих редакторов один
+  // (/templates/:uuid), а разводит их страница — там, где уже стояла проверка
+  // типа. Отдельный адрес пришлось бы угадывать в списке шаблонов.
+  // key — по той же причине, что и у TemplateEditor ниже.
+  if (template.templateType === 'MIHOMO') {
+    return <MihomoEditorPage key={template.uuid} template={template} hash={hash} />
+  }
+  // Остальные YAML-типы держат содержимое в encodedTemplateYaml, а разбирать
+  // его редактор умеет только по правилам Mihomo; XRAY_BASE64 и SINGBOX — свои
+  // форматы. Открыть их нельзя, и молчать об этом — худшее из решений
   if (template.templateType !== 'XRAY_JSON') {
     return (
       <main style={{ padding: 24 }}>
         <p>
-          Редактор пока умеет только шаблоны XRAY_JSON, а «{template.name}» —{' '}
+          Редактор умеет шаблоны XRAY_JSON и MIHOMO, а «{template.name}» —{' '}
           {template.templateType}. Откройте его в панели Remnawave.
         </p>
         {back}

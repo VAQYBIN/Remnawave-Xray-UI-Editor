@@ -2,10 +2,25 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useCreateTemplate } from '../../shared/api'
 import { Button, Dialog, TextInput } from '../../shared/ui'
+import { SelectField, type Option } from '../inspector/fields'
 import { NAME_RE } from '../../shared/lib/nameRules'
+
+/**
+ * Типы, которые умеет редактор. Остальные четыре панель тоже заводит, но
+ * править их здесь нечем — предлагать их в диалоге значило бы создавать
+ * шаблон, который тут же отправит пользователя в панель.
+ */
+const TYPES: Option[] = [
+  { value: 'XRAY_JSON', label: 'Xray (JSON)' },
+  { value: 'MIHOMO', label: 'Mihomo (YAML)' },
+]
 
 export function CreateTemplateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')
+  // Тип менять после создания панель не даёт, поэтому выбор делается здесь.
+  // Умолчание — XRAY_JSON: с него редактор начинался, и большинство шаблонов
+  // панели именно такие
+  const [templateType, setTemplateType] = useState<'XRAY_JSON' | 'MIHOMO'>('XRAY_JSON')
   const create = useCreateTemplate()
   const navigate = useNavigate()
   const valid = NAME_RE.test(name)
@@ -30,6 +45,13 @@ export function CreateTemplateDialog({ open, onClose }: { open: boolean; onClose
         )}
         {create.isError && <span className="field-error">{(create.error as Error).message}</span>}
       </div>
+      <SelectField
+        label="Тип шаблона"
+        hint="Тип задаётся при создании: панель менять его не даёт."
+        value={templateType}
+        options={TYPES}
+        onChange={(v) => setTemplateType(v === 'MIHOMO' ? 'MIHOMO' : 'XRAY_JSON')}
+      />
       <div className="row">
         <span className="spacer" />
         <Button variant="ghost" onClick={onClose}>Отмена</Button>
@@ -38,7 +60,7 @@ export function CreateTemplateDialog({ open, onClose }: { open: boolean; onClose
           disabled={!valid || create.isPending}
           onClick={() =>
             create.mutate(
-              { name },
+              { name, templateType },
               {
                 onSuccess: (template) => {
                   onClose()

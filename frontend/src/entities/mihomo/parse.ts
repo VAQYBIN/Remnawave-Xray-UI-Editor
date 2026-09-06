@@ -17,12 +17,22 @@ export interface MihomoDoc {
   issues: ValidationIssue[]
 }
 
+/**
+ * Начало сообщения об ошибке РАЗБОРА — единственный признак, по которому
+ * читающая сторона отличает её от смысловых проверок validate.ts. Сохранение
+ * шаблона Mihomo блокируется только на ней: документ, который не разбирается,
+ * панель примет, а подписка сломается. Отдельного поля в `ValidationIssue`
+ * ради этого не заводим, но и сравнивать текст на месте нельзя — связь между
+ * двумя файлами держалась бы на совпадении строки.
+ */
+export const YAML_SYNTAX_PREFIX = 'Синтаксис YAML'
+
 export function parseMihomo(text: string): MihomoDoc {
   const doc = parseDocument(text, { keepSourceTokens: true })
   const issues: ValidationIssue[] = doc.errors.map((e) => ({
     parts: [],
     path: '',
-    message: `Синтаксис YAML: ${e.message}`,
+    message: `${YAML_SYNTAX_PREFIX}: ${e.message}`,
     level: 'error' as const,
   }))
   return { text, doc, issues }

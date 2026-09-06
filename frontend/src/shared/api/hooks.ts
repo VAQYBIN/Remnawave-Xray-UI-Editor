@@ -181,7 +181,10 @@ export function useTemplate(uuid: string) {
 export function useCreateTemplate() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { name: string }) =>
+    // Тип уходит в панель вместе с именем: каркас пустого шаблона зависит от
+    // него (роут подставляет свой для XRAY_JSON и свой для MIHOMO), и выбрать
+    // его позже нельзя — тип шаблона панель менять не даёт
+    mutationFn: (input: { name: string; templateType: 'XRAY_JSON' | 'MIHOMO' }) =>
       apiFetch<{ template: SubscriptionTemplate }>('/api/templates', {
         method: 'POST',
         body: JSON.stringify(input),
@@ -202,7 +205,16 @@ export function useDeleteTemplate() {
 export function useSaveTemplate(uuid: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { templateJson: unknown; name?: string; expectedHash: string }) =>
+    // Содержимое приходит ровно одним полем: JSON-типы правятся через
+    // templateJson, YAML-типы — через encodedTemplateYaml. Бэкенд отвечает 400
+    // на поле, не подходящее типу шаблона, и слать оба — значит спрятать эту
+    // защиту от себя же: чужое поле уехало бы в панель молча.
+    mutationFn: (input: {
+      templateJson?: unknown
+      encodedTemplateYaml?: string
+      name?: string
+      expectedHash: string
+    }) =>
       apiFetch<{ template: SubscriptionTemplate; hash: string }>(`/api/templates/${uuid}`, {
         method: 'PATCH',
         body: JSON.stringify(input),
