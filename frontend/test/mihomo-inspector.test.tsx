@@ -6,7 +6,7 @@ import { MihomoInspector } from '../src/features/topology/MihomoInspector'
 import { fieldsOf, parseMihomo } from '../src/entities/mihomo'
 import { buildMihomoGraph } from '../src/entities/graph/mihomo/buildGraph'
 import type { MihomoDraft } from '../src/features/editor/useMihomoDraft'
-import { selectOption } from './helpers'
+import { optionLabels, selectOption, selectedValue } from './helpers'
 
 const DOC = [
   'x-anchors:',
@@ -95,6 +95,33 @@ describe('форма секции Mihomo', () => {
     await userEvent.type(input, 'x')
     await userEvent.clear(input)
     expect(draft.removeField).toHaveBeenCalledWith(['proxy-groups', 0], 'icon')
+    // Вторая половина названия: форма, зовущая ОБЕ правки, оставила бы проверку
+    // выше зелёной, а в документе завела бы `icon: ''` — не то же, что нет ключа
+    expect(draft.setField).not.toHaveBeenCalledWith(['proxy-groups', 0], 'icon', '')
+  })
+
+  // Незнакомое словарю значение чужого шаблона обязано остаться в списке: без
+  // этого первый же заход в форму молча заменил бы его первым вариантом enum'а.
+  it('незнакомое значение остаётся в списке вариантов', async () => {
+    const md = parseMihomo(['proxy-groups:', '  - name: A', '    type: smart', ''].join('\n'))
+    render(
+      <MihomoFieldsForm md={md} parts={['proxy-groups', 0]} fields={fieldsOf('proxy-group')} draft={draftStub()} />,
+    )
+    expect(await optionLabels('type')).toContain('smart')
+    expect(selectedValue('type')).toBe('smart')
+  })
+
+  // Список читает документ только при монтировании и живёт под стабильным
+  // ключом: без синхронизации после undo или восстановления версии он показывал
+  // бы прежнее содержимое, пока пользователь не переключит узел.
+  it('список подхватывает изменение документа извне', () => {
+    const before = parseMihomo(['proxy-groups:', '  - name: A', '    proxies:', '      - DIRECT', ''].join('\n'))
+    const after = parseMihomo(['proxy-groups:', '  - name: A', '    proxies:', '      - REJECT', ''].join('\n'))
+    const props = { parts: ['proxy-groups', 0] as (string | number)[], fields: fieldsOf('proxy-group'), draft: draftStub() }
+    const { rerender } = render(<MihomoFieldsForm md={before} {...props} />)
+    expect(screen.getByLabelText('proxies')).toHaveValue('DIRECT')
+    rerender(<MihomoFieldsForm md={after} {...props} />)
+    expect(screen.getByLabelText('proxies')).toHaveValue('REJECT')
   })
 
   it('переключатель булева поля пишет true', async () => {
@@ -140,6 +167,50 @@ describe('форма секции Mihomo', () => {
     await userEvent.clear(screen.getByLabelText('proxies'))
     expect(draft.setListAt).toHaveBeenCalledWith(['proxy-groups', 0], 'proxies', [])
     expect(draft.removeField).not.toHaveBeenCalled()
+  })
+})
+
+// Ключ свой, а его ЗНАЧЕНИЕ — ссылка на якорь. Правка по диапазону токена `*n`
+// стёрла бы авторскую ссылку литералом, ничего об этом не сказав, — тот же класс
+// «порча вместо отказа», что и правка слитого значения.
+describe('поля, значение которых — ссылка на якорь', () => {
+  const ALIASED = [
+    'x-anchors:',
+    '  n: &n 300',
+    '  base: &base',
+    '    - DIRECT',
+    'proxy-groups:',
+    '  - name: A',
+    '    type: select',
+    '    interval: *n',
+    '    proxies: *base',
+    '',
+  ].join('\n')
+
+  function renderAliased() {
+    const md = parseMihomo(ALIASED)
+    const draft = draftStub()
+    render(
+      <MihomoFieldsForm md={md} parts={['proxy-groups', 0]} fields={fieldsOf('proxy-group')} draft={draft} />,
+    )
+    return draft
+  }
+
+  it('скаляр через ссылку заперт и показывает значение из якоря', () => {
+    renderAliased()
+    const field = screen.getByLabelText('interval')
+    expect(field).toHaveAttribute('readonly')
+    // Читать значение по-прежнему можно — пользователь должен видеть, что там
+    expect(field).toHaveValue('300')
+    expect(within(rowOf('interval')).getByText(/приходит через ссылку на якорь/)).toBeInTheDocument()
+  })
+
+  it('список через ссылку объяснён якорем, а не отсутствием места для вставки', () => {
+    renderAliased()
+    const field = screen.getByLabelText('proxies')
+    expect(field).toHaveAttribute('readonly')
+    expect(within(rowOf('proxies')).getByText(/приходит через ссылку на якорь/)).toBeInTheDocument()
+    expect(within(rowOf('proxies')).queryByText(/некуда вписать/)).not.toBeInTheDocument()
   })
 })
 
@@ -270,6 +341,26 @@ describe('инспектор узла Mihomo', () => {
     render(<MihomoInspector draft={draftStub({ revealAt: vi.fn() })} md={md} nodeId={node!.id} />)
     expect(screen.getByText('- MATCH,REJECT')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Открыть в YAML' })).toBeInTheDocument()
+  })
+
+  // Источник один: кнопки «Выше»/«Ниже»/«Удалить» действуют на ВЫБРАННЫЙ узел,
+  // поэтому и показывать инспектор обязан его же. Разойдись эти два источника —
+  // кнопка удалила бы не то, что на экране, и увидеть это было бы неоткуда.
+  it('показывает выбранный узел, а не то, что просят пропом', async () => {
+    const draft = inspector('group:A', { selectedNode: 'rule:0' })
+    expect(screen.getByText('rule:0')).toBeInTheDocument()
+    expect(screen.queryByText('group:A')).not.toBeInTheDocument()
+    // И действие тоже про правило: у группы кнопок перестановки нет вовсе
+    await userEvent.click(screen.getByRole('button', { name: 'Переместить правило ниже' }))
+    expect(draft.moveSelected).toHaveBeenCalledWith(1)
+  })
+
+  it('способ подстановки хостов описан условно', () => {
+    const md = parseMihomo(
+      ['proxy-groups:', '  - name: A', '    remnawave:', '      select-random-proxy: true', ''].join('\n'),
+    )
+    render(<MihomoInspector draft={draftStub()} md={md} nodeId="hosts:A" />)
+    expect(screen.getByText(/Если хосты будут подставлены, сюда попадёт один случайный/)).toBeInTheDocument()
   })
 
   it('встроенная цель объясняется карточкой', () => {

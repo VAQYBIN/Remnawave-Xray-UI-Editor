@@ -95,11 +95,13 @@ function HostsCard({ md, owner }: { md: MihomoDoc; owner: string }) {
       {group?.excludeFilter !== undefined && (
         <p className="muted mono">exclude-filter: {group.excludeFilter}</p>
       )}
+      {/* Условно, как и весь остальной текст карточки: подставит панель хосты
+          или нет — редактор не знает, он видит только ключи документа */}
       {group?.remnawave.selectRandomProxy === true && (
-        <p className="muted">Панель положит сюда один случайный хост.</p>
+        <p className="muted">Если хосты будут подставлены, сюда попадёт один случайный.</p>
       )}
       {group?.remnawave.shuffleProxiesOrder === true && (
-        <p className="muted">Панель положит хосты в случайном порядке.</p>
+        <p className="muted">Если хосты будут подставлены, порядок будет случайным.</p>
       )}
       <p className="muted">
         Из узла не выходит кабель: имена подставленных хостов известны только панели, и сослаться на
@@ -152,14 +154,21 @@ function SubRuleCard({ md, name, draft }: { md: MihomoDoc; name: string; draft: 
 interface Props {
   draft: MihomoDraft
   md: MihomoDoc
+  /** Узел, который просят показать; используется, только пока выбора нет */
   nodeId: string
   /** Закрытие инспектора; по умолчанию просто снимается выбор узла */
   onClose?: () => void
 }
 
 export function MihomoInspector({ draft, md, nodeId, onClose }: Props) {
-  const kind = kindOf(nodeId)
-  const name = nodeId.slice(nodeId.indexOf(':') + 1)
+  // Источник ОДИН — выбранный в черновике узел. Кнопки «Выше»/«Ниже»/«Удалить»
+  // действуют на выбор (`moveSelected`/`removeSelected` адресуют его, а не
+  // переданный проп), и разойдись эти два источника, кнопка удалила бы не то,
+  // что на экране. Проп остаётся входом «покажи вот этот узел» и работает,
+  // пока выбора нет вовсе, — на этом и стоят прямые рендеры в тестах.
+  const shownId = draft.selectedNode ?? nodeId
+  const kind = kindOf(shownId)
+  const name = shownId.slice(shownId.indexOf(':') + 1)
   const ruleIndex = kind === 'rule' ? Number(name) : -1
   const ruleCount = rulesOf(md).length
 
@@ -177,7 +186,7 @@ export function MihomoInspector({ draft, md, nodeId, onClose }: Props) {
             ✕
           </Button>
         </div>
-        <span className="mono">{nodeId}</span>
+        <span className="mono">{shownId}</span>
 
         {kind === 'rule' && (
           <div className="row">

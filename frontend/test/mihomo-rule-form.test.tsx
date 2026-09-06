@@ -79,6 +79,40 @@ describe('форма правила Mihomo', () => {
     expect(draft.replaceRule).toHaveBeenCalledWith(0, 'DOMAIN-SUFFIX,a.com,A')
   })
 
+  // Запятая разделяет поля правила, и выразить её внутри поля нечем: строка
+  // «DOMAIN-SUFFIX,a.com,b,A,no-resolve» перечиталась бы со значением «a.com» и
+  // целью «b». Пишем на каждое нажатие, поэтому искажение осталось бы в
+  // документе, а не в поле — отказ вместо порчи.
+  it('запятая в значении не пишется и объясняется', async () => {
+    const draft = renderRule(0)
+    await userEvent.type(screen.getByLabelText('Значение'), ',b')
+    expect(draft.replaceRule).not.toHaveBeenCalled()
+    expect(screen.getByText(/не собирается/)).toBeInTheDocument()
+  })
+
+  it('запятая в цели не пишется', async () => {
+    const draft = renderRule(0)
+    await userEvent.type(screen.getByLabelText('Цель'), ',B')
+    expect(draft.replaceRule).not.toHaveBeenCalled()
+  })
+
+  // Проверка обратимости, а не запрет запятой: у логических типов запятая
+  // ВНУТРИ скобок законна, и правка такого правила обязана проходить.
+  it('запятая внутри скобок у SUB-RULE не мешает правке', async () => {
+    const draft = renderRule(1)
+    await userEvent.type(screen.getByLabelText('Значение'), 'x')
+    expect(draft.replaceRule).toHaveBeenCalledWith(1, 'SUB-RULE,(NETWORK,udp)x,block')
+  })
+
+  // Имя, которого в документе нет (например, подставленный панелью хост), обязано
+  // остаться в списке: иначе выбор молча заменил бы его первым вариантом.
+  it('незнакомая цель остаётся в списке известных', async () => {
+    const md = parseMihomo('proxy-groups:\n  - name: A\nrules:\n  - MATCH,ru-1\n')
+    render(<MihomoRuleForm md={md} index={0} draft={{ replaceRule: vi.fn() } as unknown as MihomoDraft} />)
+    await userEvent.click(screen.getByLabelText('своё имя'))
+    expect(await optionLabels('Цель')).toContain('ru-1')
+  })
+
   // Переход MATCH → тип со значением: без пустого значения строка собралась бы
   // из двух полей («DOMAIN,A»), разбор вернул бы null, и правка молча не
   // применилась бы.

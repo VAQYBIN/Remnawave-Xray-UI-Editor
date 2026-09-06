@@ -10,6 +10,7 @@ import {
   RULE_TYPES,
   formatRule,
   groupsOf,
+  parseRule,
   providersOf,
   rulesOf,
   subRuleNames,
@@ -19,6 +20,29 @@ import {
 import { Checkbox, TextInput, type SelectOption } from '../../shared/ui'
 import type { MihomoDraft } from '../editor/useMihomoDraft'
 import { Field, SelectField } from './fields'
+
+/**
+ * Собирается ли правило обратно из своих полей. Строка правила разделяет поля
+ * запятыми ВЕРХНЕГО уровня и не даёт способа выразить такую запятую внутри
+ * поля: `DOMAIN` со значением «a,b» перечитается как значение «a» и цель «b» —
+ * поля молча съедут, а правка при этом уже уйдёт в документ (форма пишет на
+ * каждое нажатие). Поэтому проверяем не одну запятую, а обратимость целиком:
+ * тот же приём ловит и перевод строки, и лишнюю скобку, а разрешает законные
+ * запятые ВНУТРИ скобок (`SUB-RULE,(NETWORK,udp),block`).
+ */
+function roundTrips(rule: MihomoRule): boolean {
+  const back = parseRule(formatRule(rule))
+  return (
+    back !== null &&
+    back.type === rule.type &&
+    (back.payload ?? '') === (rule.payload ?? '') &&
+    back.target === rule.target &&
+    back.modifiers.join('\u0000') === rule.modifiers.join('\u0000')
+  )
+}
+
+const REJECTED =
+  'Правило с таким значением не собирается: запятая и перевод строки разделяют его поля, внутри поля их не выразить. Правка не записана.'
 
 function optionsOf(names: readonly string[], current: string): SelectOption[] {
   const options = names.map((n) => ({ value: n, label: n }))
@@ -41,12 +65,15 @@ function TextRow({
   label,
   value,
   hint,
+  error,
   onCommit,
 }: {
   controlId: string
   label: string
   value: string
   hint?: string
+  /** Почему набранное не записано; поле остаётся с ним, чтобы было что править */
+  error?: string | null
   onCommit: (next: string) => void
 }) {
   const [text, setText] = useState(value)
@@ -60,11 +87,13 @@ function TextRow({
       <TextInput
         id={controlId}
         value={text}
+        aria-invalid={error ? true : undefined}
         onChange={(e) => {
           setText(e.target.value)
           onCommit(e.target.value)
         }}
       />
+      {error ? <span className="field-error">{error}</span> : null}
     </Field>
   )
 }
@@ -87,9 +116,20 @@ function RuleFields({
   // за снятой галочкой. Умолчание не зависит от текущего значения: одно и то же
   // правило иначе выглядело бы по-разному в двух документах.
   const [customTarget, setCustomTarget] = useState(true)
+  // Что именно набрали такого, чего строка правила не выражает. Держим вместе с
+  // полем: объяснение обязано стоять там, где его читают, а не одно на форму.
+  const [rejected, setRejected] = useState<'payload' | 'target' | null>(null)
 
   const isSubRule = rule.type === 'SUB-RULE'
-  const commit = (next: MihomoRule) => draft.replaceRule(index, formatRule(next))
+  // Отказ вместо порчи: невыразимое строкой значение НЕ пишется, а объясняется
+  const commit = (next: MihomoRule, field: 'payload' | 'target' | null = null) => {
+    if (!roundTrips(next)) {
+      setRejected(field)
+      return
+    }
+    setRejected(null)
+    draft.replaceRule(index, formatRule(next))
+  }
 
   const known = isSubRule
     ? subRuleNames(md)
@@ -109,7 +149,7 @@ function RuleFields({
       }
       value={rule.target}
       options={optionsOf(known, rule.target)}
-      onChange={(target) => commit({ ...rule, target })}
+      onChange={(target) => commit({ ...rule, target }, 'target')}
     />
   )
 
@@ -138,7 +178,8 @@ function RuleFields({
           label="Значение"
           hint="С чем сравнивается соединение: домен, подсеть, порт, имя набора правил."
           value={rule.payload ?? ''}
-          onCommit={(payload) => commit({ ...rule, payload })}
+          error={rejected === 'payload' ? REJECTED : null}
+          onCommit={(payload) => commit({ ...rule, payload }, 'payload')}
         />
       )}
 
@@ -152,7 +193,8 @@ function RuleFields({
               label="Цель"
               hint="Имя группы, провайдера, встроенная цель или имя хоста, если его подставит панель."
               value={rule.target}
-              onCommit={(target) => commit({ ...rule, target })}
+              error={rejected === 'target' ? REJECTED : null}
+              onCommit={(target) => commit({ ...rule, target }, 'target')}
             />
           ) : (
             targetSelect

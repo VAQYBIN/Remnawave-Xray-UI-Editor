@@ -16,7 +16,7 @@ import {
 import type { PathParts } from '../../entities/xray'
 import { CollapsibleSection, TextInput, type SelectOption } from '../../shared/ui'
 import type { MihomoDraft } from '../editor/useMihomoDraft'
-import { CheckboxField, Field, SelectField, StringListField } from './fields'
+import { CheckboxField, Field, SelectField } from './fields'
 
 type FieldValue = string | number | boolean | string[] | undefined
 
@@ -83,7 +83,7 @@ function isSet(md: MihomoDoc, parts: PathParts, field: MihomoField): boolean {
 
 /** Варианты словаря плюс текущее значение, если словарь его не знает: выбор в
  *  форме не имеет права молча заменить значение чужого шаблона первым из списка. */
-export function optionsWith(field: MihomoField, value: FieldValue): SelectOption[] {
+function optionsWith(field: MihomoField, value: FieldValue): SelectOption[] {
   const options = (field.enum ?? []).map((e) => ({ value: e.value, label: e.value }))
   const current = typeof value === 'string' ? value : ''
   if (current !== '' && !options.some((o) => o.value === current)) {
@@ -134,6 +134,59 @@ function TextRow({
         onChange={(e) => {
           setText(e.target.value)
           onCommit(e.target.value)
+        }}
+      />
+    </Field>
+  )
+}
+
+/**
+ * Список строк с тем же правилом синхронизации, что у `TextRow`. Готовый
+ * `StringListField` здесь не годится: он читает значение ТОЛЬКО при
+ * монтировании, а строка поля живёт под стабильным ключом — после undo или
+ * восстановления версии список показывал бы устаревшее содержимое.
+ *
+ * Лечить это `key`, как в формах Xray, тоже нельзя: там ключом служат номер и
+ * число карточек, а здесь единственное, что меняется, — само содержимое, и
+ * ключ по нему пересоздавал бы поле на КАЖДОЕ нажатие, теряя каретку. Поэтому
+ * тот же приём, что уже принят для скаляров: локальный буфер, который
+ * перебивается значением документа, когда оно действительно изменилось.
+ */
+function ListRow({
+  controlId,
+  label,
+  hint,
+  value,
+  onCommit,
+}: {
+  controlId: string
+  label: string
+  hint: string
+  value: string[]
+  onCommit: (next: string[]) => void
+}) {
+  const joined = value.join('\n')
+  const [text, setText] = useState(joined)
+  const [seen, setSeen] = useState(joined)
+  if (seen !== joined) {
+    setSeen(joined)
+    setText(joined)
+  }
+  return (
+    <Field label={label} hint={hint} mono controlId={controlId}>
+      <textarea
+        id={controlId}
+        className="textarea"
+        rows={3}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value)
+          onCommit(
+            e.target.value
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean),
+          )
         }}
       />
     </Field>
@@ -216,14 +269,15 @@ function FieldRow({
   }
   if (field.type === 'strings') {
     return (
-      <StringListField
+      <ListRow
+        controlId={controlId}
         label={field.key}
         hint={field.doc}
         value={Array.isArray(value) ? value : []}
         // Опустевший список пишется пустым, а не снимается: удаление ключа
         // унесло бы вместе со строкой комментарий-маркер подстановки, и панель
         // перестала бы подкладывать в это место хосты.
-        onChange={(next) => draft.setListAt(parts, field.key, next ?? [])}
+        onCommit={(next) => draft.setListAt(parts, field.key, next)}
       />
     )
   }
