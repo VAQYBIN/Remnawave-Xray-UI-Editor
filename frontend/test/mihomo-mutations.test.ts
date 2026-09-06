@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { connectMihomo, disconnectMihomo, isValidMihomoConnection } from '../src/entities/graph/mihomo/mutations'
+import {
+  connectMihomo,
+  disconnectMihomo,
+  isValidMihomoConnection,
+  refusalText,
+} from '../src/entities/graph/mihomo/mutations'
 import { applyEdits } from '../src/entities/mihomo/edits'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { rulesOf } from '../src/entities/mihomo/rules'
@@ -31,32 +36,32 @@ describe('допустимость соединений', () => {
 describe('соединение', () => {
   it('перенаправляет правило в группу', () => {
     const md = parseMihomo(base)
-    const out = applyEdits(base, connectMihomo(md, 'rule:0', 'group:Fast'))
+    const out = applyEdits(base, connectMihomo(md, 'rule:0', 'group:Fast').edits)
     expect(rulesOf(parseMihomo(out))[0]!.raw).toBe('DOMAIN,a.com,Fast')
   })
 
   it('добавляет группу в список другой группы', () => {
     const md = parseMihomo(base)
-    const out = applyEdits(base, connectMihomo(md, 'group:VPN', 'group:Fast'))
+    const out = applyEdits(base, connectMihomo(md, 'group:VPN', 'group:Fast').edits)
     expect(groupsOf(parseMihomo(out))[0]!.proxies).toEqual(['DIRECT', 'Fast'])
   })
 
   it('повторное соединение ничего не меняет', () => {
     const md = parseMihomo(base)
-    expect(connectMihomo(md, 'group:VPN', 'builtin:DIRECT')).toEqual([])
+    expect(connectMihomo(md, 'group:VPN', 'builtin:DIRECT').edits).toEqual([])
   })
 })
 
 describe('разрыв', () => {
   it('убирает имя из списка группы', () => {
     const md = parseMihomo(base)
-    const out = applyEdits(base, disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT'))
+    const out = applyEdits(base, disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT').edits)
     expect(groupsOf(parseMihomo(out))[0]!.proxies).toEqual([])
   })
 
   it('разрыв ребра правила невозможен — у правила всегда есть цель', () => {
     const md = parseMihomo(base)
-    expect(disconnectMihomo(md, 'e:rule:1->group:VPN')).toEqual([])
+    expect(disconnectMihomo(md, 'e:rule:1->group:VPN').edits).toEqual([])
   })
 })
 
@@ -70,14 +75,14 @@ const flowBase =
 describe('список в одну строку', () => {
   it('разрыв на flow-списке: правок нет, документ не изменился', () => {
     const md = parseMihomo(flowBase)
-    const edits = disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT')
+    const edits = disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT').edits
     expect(edits).toEqual([])
     expect(applyEdits(flowBase, edits)).toBe(flowBase)
   })
 
   it('соединение на flow-списке: правок нет, документ не изменился', () => {
     const md = parseMihomo(flowBase)
-    const edits = connectMihomo(md, 'group:VPN', 'builtin:REJECT')
+    const edits = connectMihomo(md, 'group:VPN', 'builtin:REJECT').edits
     expect(edits).toEqual([])
     expect(applyEdits(flowBase, edits)).toBe(flowBase)
   })
@@ -92,7 +97,7 @@ describe('пустой блочный список', () => {
     const fixture = mihomoFixture('default')
     const md = parseMihomo(fixture)
     const group = groupsOf(md).find((g) => g.hasMarker)!
-    const edits = connectMihomo(md, `group:${group.name}`, 'builtin:DIRECT')
+    const edits = connectMihomo(md, `group:${group.name}`, 'builtin:DIRECT').edits
     // Чистая вставка (from === to), а не замена — строка ключа с маркером не тронута
     expect(edits).toHaveLength(1)
     expect(edits[0]!.from).toBe(edits[0]!.to)
@@ -114,7 +119,7 @@ describe('пустой блочный список', () => {
       'proxy-groups:\n  - name: VPN\n    type: select\n    proxies:\n  - name: Fast\n    include-all: true\n' +
       'rules:\n  - MATCH,VPN\n'
     const md = parseMihomo(emptyBlock)
-    const out = applyEdits(emptyBlock, connectMihomo(md, 'group:VPN', 'builtin:DIRECT'))
+    const out = applyEdits(emptyBlock, connectMihomo(md, 'group:VPN', 'builtin:DIRECT').edits)
     expect(groupsOf(parseMihomo(out))[0]!.proxies).toEqual(['DIRECT'])
   })
 })
@@ -130,7 +135,7 @@ describe('конец файла без перевода строки', () => {
     const noEol =
       'proxy-groups:\n  - name: Fast\n    include-all: true\n  - name: VPN\n    type: select\n    proxies:'
     const md = parseMihomo(noEol)
-    const out = applyEdits(noEol, connectMihomo(md, 'group:VPN', 'builtin:DIRECT'))
+    const out = applyEdits(noEol, connectMihomo(md, 'group:VPN', 'builtin:DIRECT').edits)
     const parsedOut = parseMihomo(out)
     expect(parsedOut.issues).toEqual([])
     expect(groupsOf(parsedOut).find((g) => g.name === 'VPN')!.proxies).toEqual(['DIRECT'])
@@ -139,7 +144,7 @@ describe('конец файла без перевода строки', () => {
   it('непустой список, последний элемент — последняя строка файла', () => {
     const noEol = 'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT'
     const md = parseMihomo(noEol)
-    const out = applyEdits(noEol, connectMihomo(md, 'group:VPN', 'builtin:REJECT'))
+    const out = applyEdits(noEol, connectMihomo(md, 'group:VPN', 'builtin:REJECT').edits)
     const parsedOut = parseMihomo(out)
     expect(parsedOut.issues).toEqual([])
     expect(groupsOf(parsedOut).find((g) => g.name === 'VPN')!.proxies).toEqual(['DIRECT', 'REJECT'])
@@ -156,7 +161,7 @@ describe('находка 1 (раунд 3): длинное имя не перен
 
   it('добавление в непустой список — вставка остаётся одной строкой', () => {
     const md = parseMihomo(base)
-    const edits = connectMihomo(md, 'group:VPN', `group:${longName}`)
+    const edits = connectMihomo(md, 'group:VPN', `group:${longName}`).edits
     expect(edits).toHaveLength(1)
     // ровно один перевод строки — завершающий; переноса самого значения нет
     expect((edits[0]!.insert.match(/\n/g) ?? []).length).toBe(1)
@@ -171,7 +176,7 @@ describe('находка 1 (раунд 3): длинное имя не перен
       'proxy-groups:\n  - name: VPN\n    type: select\n    proxies:\n  - name: Fast\n    include-all: true\n' +
       'rules:\n  - MATCH,VPN\n'
     const md = parseMihomo(emptyBlock)
-    const edits = connectMihomo(md, 'group:VPN', `group:${longName}`)
+    const edits = connectMihomo(md, 'group:VPN', `group:${longName}`).edits
     expect(edits).toHaveLength(1)
     expect((edits[0]!.insert.match(/\n/g) ?? []).length).toBe(1)
     const out = applyEdits(emptyBlock, edits)
@@ -200,7 +205,7 @@ describe('находка (раунд 5): перевод строки в имен
 
   it('соединение с такой группой отказывает — правок нет, документ не меняется', () => {
     const md = parseMihomo(withNewlineName)
-    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`)
+    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`).edits
     expect(edits).toEqual([])
     expect(applyEdits(withNewlineName, edits)).toBe(withNewlineName)
   })
@@ -210,7 +215,7 @@ describe('находка (раунд 5): перевод строки в имен
       'proxy-groups:\n  - name: VPN\n    type: select\n    proxies:\n  - name: "a\\nb"\n    include-all: true\n' +
       'rules:\n  - MATCH,VPN\n'
     const md = parseMihomo(emptyBlock)
-    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`)
+    const edits = connectMihomo(md, 'group:VPN', `group:${'a\nb'}`).edits
     expect(edits).toEqual([])
     expect(applyEdits(emptyBlock, edits)).toBe(emptyBlock)
   })
@@ -236,14 +241,77 @@ describe('SUB-RULE не коммутируется как обычное пра�
 
   it('connectMihomo не даёт правок при соединении с узла правила SUB-RULE', () => {
     const md = parseMihomo(subRuleBase)
-    const edits = connectMihomo(md, 'rule:0', 'group:VPN')
+    const edits = connectMihomo(md, 'rule:0', 'group:VPN').edits
     expect(edits).toEqual([])
     expect(applyEdits(subRuleBase, edits)).toBe(subRuleBase)
   })
 
   it('connectMihomo по-прежнему коммутирует обычное правило', () => {
     const md = parseMihomo(subRuleBase)
-    const out = applyEdits(subRuleBase, connectMihomo(md, 'rule:1', 'group:VPN'))
+    const out = applyEdits(subRuleBase, connectMihomo(md, 'rule:1', 'group:VPN').edits)
     expect(rulesOf(parseMihomo(out))[1]!.raw).toBe('DOMAIN,b.com,VPN')
+  })
+})
+
+describe('коммутация объясняет отказ', () => {
+  it('список в одну строку: правка сломала бы YAML', () => {
+    const md = parseMihomo(['proxy-groups:', '  - name: A', '    proxies: [DIRECT]', ''].join('\n'))
+    const res = connectMihomo(md, 'group:A', 'builtin:REJECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('flow-list')
+    expect(refusalText(res.refusal!)).toMatch(/одну строку/)
+  })
+
+  it('список участников пришёл через слияние: правка задела бы все места якоря', () => {
+    const md = parseMihomo(
+      [
+        'x-anchors:',
+        '  base: &base',
+        '    proxies:',
+        '      - DIRECT',
+        'proxy-groups:',
+        '  - name: A',
+        '    <<: *base',
+        '',
+      ].join('\n'),
+    )
+    const res = connectMihomo(md, 'group:A', 'builtin:REJECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('merged-list')
+    expect(refusalText(res.refusal!)).toMatch(/якор/)
+  })
+
+  it('ключа proxies нет вовсе — структуру группы не выдумываем', () => {
+    const md = parseMihomo(['proxy-groups:', '  - name: A', '    type: select', ''].join('\n'))
+    const res = connectMihomo(md, 'group:A', 'builtin:REJECT')
+    expect(res.refusal).toBe('no-proxies-key')
+  })
+
+  it('имя уже в списке — соединять нечего', () => {
+    const md = parseMihomo(
+      ['proxy-groups:', '  - name: A', '    proxies:', '      - DIRECT', ''].join('\n'),
+    )
+    expect(connectMihomo(md, 'group:A', 'builtin:DIRECT').refusal).toBe('already-connected')
+  })
+
+  it('из узла подстановки кабель не тянется', () => {
+    const md = parseMihomo('proxy-groups:\n  - name: A\n')
+    expect(connectMihomo(md, 'hosts:root', 'group:A').refusal).toBe('invalid-pair')
+  })
+
+  it('успешная коммутация причины не несёт', () => {
+    const md = parseMihomo(
+      ['proxy-groups:', '  - name: A', '    proxies:', '      - DIRECT', ''].join('\n'),
+    )
+    const res = connectMihomo(md, 'group:A', 'builtin:REJECT')
+    expect(res.edits).toHaveLength(1)
+    expect(res.refusal).toBeUndefined()
+  })
+
+  it('разрыв ребра, которого нет в списке', () => {
+    const md = parseMihomo(
+      ['proxy-groups:', '  - name: A', '    proxies:', '      - DIRECT', ''].join('\n'),
+    )
+    expect(disconnectMihomo(md, 'e:group:A->builtin:REJECT').refusal).toBe('not-found')
   })
 })

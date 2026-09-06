@@ -158,8 +158,13 @@ function ownPair(map: unknown, key: string): Pair | undefined {
   return map.items.find((p) => (p.key as { value?: unknown } | null)?.value === key)
 }
 
-/** Коллекция во flow-стиле (`[a, b]`/`{a: b}`) — решение А: такие места сплайсом не правим */
-function isFlowNode(node: unknown): boolean {
+/**
+ * Коллекция во flow-стиле (`[a, b]`/`{a: b}`) — решение А: такие места сплайсом не
+ * правим. Экспортирована: `entities/graph/mihomo/mutations.ts` (коммутация кабелем)
+ * различает по ней «ключа нет» и «список во flow-стиле» отдельными причинами отказа
+ * (`MihomoRefusal`), а не одним и тем же пустым результатом.
+ */
+export function isFlowNode(node: unknown): boolean {
   return (isMap(node) || isSeq(node)) && (node as { flow?: boolean }).flow === true
 }
 
@@ -319,52 +324,63 @@ const EXCLUDED_REFERENCE_KEYS = new Set([
  * неполным. Список ИСКЛЮЧЕНИЙ — другое дело: это не про полноту, а про то, что
  * значение этих ключей в принципе не может быть ссылкой на группу.
  *
- * `insideFlow` сообщает колбэку, что скаляр лежит внутри коллекции во
+ * `mode.insideFlow` сообщает колбэку, что скаляр лежит внутри коллекции во
  * flow-стиле (решение А) — в том числе если flow-стиль стоит у коллекции,
  * ГДЕ ФИЗИЧЕСКИ ОБЪЯВЛЕН якорь: правка внутри такой коллекции не безопаснее,
  * чем правка внутри `rules: [A, B]`, потому что там нет «строк», к которым
  * привязана арифметика правок.
  *
- * `dnsOnly` — тем же способом, что `insideFlow`, взводится один раз при входе
- * в поддерево ключа `dns` и остаётся взведённым до конца поддерева. Находка
- * ревью, раунд 4: под `dns` (`nameserver`, `nameserver-policy` и подобные)
- * ссылка на группу — это ТОЛЬКО суффикс `#<имя>` в DNS-строке вида
+ * `mode.dnsOnly` — тем же способом, что `insideFlow`, взводится один раз при
+ * входе в поддерево ключа `dns` и остаётся взведённым до конца поддерева.
+ * Находка ревью, раунд 4: под `dns` (`nameserver`, `nameserver-policy` и
+ * подобные) ссылка на группу — это ТОЛЬКО суффикс `#<имя>` в DNS-строке вида
  * `https://.../dns-query#🌍 VPN` (задокументированное поведение mihomo), а
  * голый скаляр, равный имени группы целиком, — совпадение, а не ссылка: там
  * в принципе ожидаются адреса/IP/ключевые слова, а не имена групп. Вне `dns`
  * голое совпадение остаётся ссылкой (участник группы, `dialer-proxy`, `proxy`
  * у провайдера и так далее) — поэтому это именно РЕЖИМ обхода, а не ещё один
  * исключённый ключ.
+ *
+ * Оба флага взведённого режима переданы одним объектом `WalkMode`, а не двумя
+ * соседними булевыми параметрами: перестановка `insideFlow` и `dnsOnly`
+ * местами раньше не давала ни ошибки типов, ни красного теста, а на этой
+ * функции держится корректность переименования.
  */
+interface WalkMode {
+  insideFlow: boolean
+  dnsOnly: boolean
+}
+
 function walkScalars(
   node: unknown,
-  insideFlow: boolean,
-  dnsOnly: boolean,
+  mode: WalkMode,
   skip: Set<unknown>,
-  onScalar: (node: unknown, value: string, insideFlow: boolean, dnsOnly: boolean) => void,
+  onScalar: (node: unknown, value: string, mode: WalkMode) => void,
 ): void {
   if (node === undefined || node === null || skip.has(node)) return
   if (isAlias(node)) return // текст — у объявления, не здесь; см. комментарий выше
   if (isScalar(node)) {
     const value = (node as { value?: unknown }).value
-    if (typeof value === 'string') onScalar(node, value, insideFlow, dnsOnly)
+    if (typeof value === 'string') onScalar(node, value, mode)
     return
   }
   if (isSeq(node)) {
-    const flow = insideFlow || isFlowNode(node)
-    for (const item of node.items) walkScalars(item, flow, dnsOnly, skip, onScalar)
+    const insideFlow = mode.insideFlow || isFlowNode(node)
+    for (const item of node.items) walkScalars(item, { ...mode, insideFlow }, skip, onScalar)
     return
   }
   if (isMap(node)) {
-    const flow = insideFlow || isFlowNode(node)
+    const insideFlow = mode.insideFlow || isFlowNode(node)
     for (const pair of node.items) {
       const key = (pair.key as { value?: unknown } | null)?.value
       if (typeof key === 'string' && EXCLUDED_REFERENCE_KEYS.has(key)) continue
-      const dns = dnsOnly || key === 'dns'
-      walkScalars(pair.value, flow, dns, skip, onScalar)
+      const dnsOnly = mode.dnsOnly || key === 'dns'
+      walkScalars(pair.value, { insideFlow, dnsOnly }, skip, onScalar)
     }
   }
 }
+
+const WALK_ROOT: WalkMode = { insideFlow: false, dnsOnly: false }
 
 /**
  * Значение скаляра ссылается на группу `from` — целиком (кроме `dnsOnly`,
@@ -382,8 +398,8 @@ function referenceReplacement(value: string, from: string, to: string, dnsOnly: 
 /** Есть ли в поддереве хоть один скаляр, всё ещё ссылающийся на `name` (часть Б — постусловие) */
 function hasDanglingReference(node: unknown, name: string): boolean {
   let found = false
-  walkScalars(node, false, false, new Set(), (_node, value, _insideFlow, dnsOnly) => {
-    if (referenceReplacement(value, name, name, dnsOnly) !== null) found = true
+  walkScalars(node, WALK_ROOT, new Set(), (_node, value, mode) => {
+    if (referenceReplacement(value, name, name, mode.dnsOnly) !== null) found = true
   })
   return found
 }
@@ -410,7 +426,7 @@ function hasDanglingReference(node: unknown, name: string): boolean {
  */
 function hasDanglingRuleTarget(node: unknown, from: string): boolean {
   let found = false
-  walkScalars(node, false, false, new Set(), (_node, value) => {
+  walkScalars(node, WALK_ROOT, new Set(), (_node, value) => {
     const rule = parseRule(value)
     if (rule !== null && rule.type !== 'SUB-RULE' && rule.target === from) found = true
   })
@@ -536,10 +552,10 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
   // одним обходом всего документа. Совпадение внутри flow-коллекции (решение А,
   // распространено и на место объявления якоря) правку не получает — вместо
   // этого блокирует всю операцию, чтобы не оставить половинчатое переименование.
-  walkScalars(md.doc.contents, false, false, skip, (node, value, insideFlow, dnsOnly) => {
-    const replacement = referenceReplacement(value, from, to, dnsOnly)
+  walkScalars(md.doc.contents, WALK_ROOT, skip, (node, value, mode) => {
+    const replacement = referenceReplacement(value, from, to, mode.dnsOnly)
     if (replacement === null) return
-    if (insideFlow) {
+    if (mode.insideFlow) {
       blocked = true
       return
     }

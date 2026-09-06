@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildMihomoGraph, groupDepths } from '../src/entities/graph/mihomo/buildGraph'
+import { buildMihomoGraph, groupDepths, layoutMihomo } from '../src/entities/graph/mihomo/buildGraph'
 import { groupsOf } from '../src/entities/mihomo/groups'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { mihomoFixture } from './helpers'
@@ -88,5 +88,36 @@ describe('граф Mihomo', () => {
     const { nodes } = buildMihomoGraph(md)
     const rule = nodes.find((n) => n.id === 'rule:0')
     expect((rule?.data as { target?: string }).target).toBe('ru')
+  })
+})
+
+describe('раскладка по вертикали', () => {
+  it('узлы одной колонки не лежат друг на друге', () => {
+    const md = parseMihomo(mihomoFixture('simple'))
+    const graph = buildMihomoGraph(md)
+    const laid = layoutMihomo(graph.nodes)
+    const byColumn = new Map<number, number[]>()
+    for (const node of laid) {
+      const column = byColumn.get(node.position.x) ?? []
+      column.push(node.position.y)
+      byColumn.set(node.position.x, column)
+    }
+    for (const [, ys] of byColumn) {
+      expect(new Set(ys).size).toBe(ys.length)
+    }
+  })
+
+  it('порядок узлов внутри колонки сохраняется', () => {
+    const nodes = [
+      { id: 'a', type: 'x', position: { x: 0, y: 0 }, data: { kind: 'k' } },
+      { id: 'b', type: 'x', position: { x: 0, y: 0 }, data: { kind: 'k' } },
+      { id: 'c', type: 'x', position: { x: 430, y: 0 }, data: { kind: 'k' } },
+    ]
+    const laid = layoutMihomo(nodes as never)
+    expect(laid.map((n) => [n.position.x, n.position.y])).toEqual([
+      [0, 0],
+      [0, 130],
+      [430, 0],
+    ])
   })
 })

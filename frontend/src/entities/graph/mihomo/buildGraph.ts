@@ -205,3 +205,22 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
 
   return { nodes, edges }
 }
+
+/**
+ * Раскладка по вертикали. `buildMihomoGraph` расставляет узлы по колонкам (x),
+ * а y оставляет нулевым: в какой колонке узел окажется, известно только после
+ * обхода всех групп. Здесь колонки разбираются по порядку добавления и узлы в
+ * каждой раскладываются столбиком.
+ *
+ * Порядок внутри колонки — это порядок появления узла в графе, то есть порядок
+ * объявления сущности в документе. Сортировать по имени нельзя: пользователь
+ * ищет группу там, где она стоит в его файле.
+ */
+export function layoutMihomo(nodes: FlowNode[]): FlowNode[] {
+  const rows = new Map<number, number>()
+  return nodes.map((node) => {
+    const row = rows.get(node.position.x) ?? 0
+    rows.set(node.position.x, row + 1)
+    return { ...node, position: { x: node.position.x, y: row * MIHOMO_ROW_H } }
+  })
+}

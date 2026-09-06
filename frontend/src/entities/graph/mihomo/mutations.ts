@@ -3,7 +3,7 @@
 
 import { isMap, isSeq } from 'yaml'
 import { groupsOf } from '../../mihomo/groups'
-import { detectIndentStep, scalar, setRuleTarget, type TextEdit } from '../../mihomo/edits'
+import { detectIndentStep, fieldOrigin, isFlowNode, scalar, setRuleTarget, type TextEdit } from '../../mihomo/edits'
 import { rangeOf, sectionNode, type MihomoDoc } from '../../mihomo/parse'
 import { rulesOf } from '../../mihomo/rules'
 
@@ -45,6 +45,44 @@ function nameOf(id: string): string {
   return split(id)?.rest ?? ''
 }
 
+/**
+ * Почему коммутация не выполнилась. Пустой список правок сам по себе ничего не
+ * объясняет, а кабель, отскакивающий молча, читается как поломка редактора —
+ * поэтому причина обязательна и переводится на русский в одном месте.
+ */
+export type MihomoRefusal =
+  | 'invalid-pair'
+  | 'already-connected'
+  | 'sub-rule-source'
+  | 'flow-list'
+  | 'merged-list'
+  | 'no-proxies-key'
+  | 'unprintable-name'
+  | 'unprintable-rule'
+  | 'not-found'
+
+export interface MihomoEditResult {
+  edits: TextEdit[]
+  /** undefined — правка построена; иначе список пуст, и здесь причина */
+  refusal?: MihomoRefusal
+}
+
+const REFUSAL_TEXT: Record<MihomoRefusal, string> = {
+  'invalid-pair': 'Такие узлы не соединяются: из узла подстановки кабель не выходит, а правило не может быть целью.',
+  'already-connected': 'Эти узлы уже соединены — добавлять нечего.',
+  'sub-rule-source': 'У правила SUB-RULE третье поле — имя подсписка из sub-rules, а не группы. Выберите подсписок в форме правила.',
+  'flow-list': 'Список записан в одну строку (`[A, B]`). Такую строку правка сплайсом порвала бы — перепишите список в столбик, и кабель заработает.',
+  'merged-list': 'Список участников пришёл через якорь (`<<: *anchor`) — правка задела бы все места, где этот якорь используется. Правьте его в тексте, у объявления якоря.',
+  'no-proxies-key': 'У группы нет ключа `proxies` — структуру группы редактор не выдумывает. Добавьте ключ в тексте, дальше кабель сработает.',
+  'unprintable-name': 'В имени узла есть перевод строки — вставить его одной строкой YAML нельзя.',
+  'unprintable-rule': 'Строка правила не печатается в одну строку — правьте её в тексте.',
+  'not-found': 'Узла или связи нет в документе.',
+}
+
+export function refusalText(refusal: MihomoRefusal): string {
+  return REFUSAL_TEXT[refusal]
+}
+
 /** Пара `proxies` группы по её индексу в `proxy-groups` — общая точка для connect/disconnect */
 function proxiesPair(md: MihomoDoc, groupIndex: number) {
   const section = sectionNode(md, 'proxy-groups')
@@ -67,8 +105,8 @@ function afterLine(text: string, searchFrom: number): { at: number; prefix: stri
   return lineEnd === -1 ? { at: text.length, prefix: '\n' } : { at: lineEnd + 1, prefix: '' }
 }
 
-export function connectMihomo(md: MihomoDoc, source: string, target: string): TextEdit[] {
-  if (!isValidMihomoConnection(source, target)) return []
+export function connectMihomo(md: MihomoDoc, source: string, target: string): MihomoEditResult {
+  if (!isValidMihomoConnection(source, target)) return { edits: [], refusal: 'invalid-pair' }
   const from = split(source)!
   const name = nameOf(target)
   // Обе точки вставки ниже печатают имя через общий `scalar()` из
@@ -82,71 +120,80 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Te
   if (from.kind === 'rule') {
     const index = Number(from.rest)
     const entry = rulesOf(md).find((r) => r.index === index)
-    // Отказ и здесь, и в isValidMihomoConnection: тип правила известен только
-    // тут, где документ на руках, но проверка допустимости обязана уметь то же
-    if (!isValidMihomoConnection(source, target, entry?.rule?.type)) return []
-    if (entry?.rule?.target === name) return []
-    return setRuleTarget(md, index, name)
+    if (entry?.rule == null) return { edits: [], refusal: 'not-found' }
+    // Тип правила известен только здесь, где документ на руках
+    if (entry.rule.type === 'SUB-RULE') return { edits: [], refusal: 'sub-rule-source' }
+    if (entry.rule.target === name) return { edits: [], refusal: 'already-connected' }
+    if (isFlowNode(sectionNode(md, 'rules'))) return { edits: [], refusal: 'flow-list' }
+    const edits = setRuleTarget(md, index, name)
+    // setRuleTarget печатает СТРОКУ ЦЕЛИКОМ: отказать могло и из-за перевода
+    // строки в цели, и из-за него же в значении правила — различить нечем, и
+    // выдумывать различие вредно: пользователю нужно одно и то же действие
+    return edits.length > 0 ? { edits } : { edits: [], refusal: 'unprintable-rule' }
   }
 
   const group = groupsOf(md).find((g) => g.name === from.rest)
-  if (group === undefined || group.proxies.includes(name)) return []
+  if (group === undefined) return { edits: [], refusal: 'not-found' }
+  if (group.proxies.includes(name)) return { edits: [], refusal: 'already-connected' }
 
+  // «Ключа нет» и «ключ пришёл через слияние» — разные тупики с разным выходом,
+  // и разводит их только fieldOrigin: сам proxiesPair видит лишь собственные ключи
+  const origin = fieldOrigin(md, group.index, 'proxies')
+  if (origin === 'merged') return { edits: [], refusal: 'merged-list' }
   const pair = proxiesPair(md, group.index)
-  if (pair === undefined) return [] // ключа proxies нет вовсе — структуру группы не выдумываем
+  if (pair === undefined) return { edits: [], refusal: 'no-proxies-key' }
   const list = pair.value
   // Список в одну строку (`[DIRECT, Fast]`) физическая строка держит и ключ, и все
   // элементы разом — дописать элемент сплайсом по диапазону нельзя, не сломав YAML
-  if (isSeq(list) && list.flow === true) return []
+  if (isSeq(list) && list.flow === true) return { edits: [], refusal: 'flow-list' }
+
+  const printedName = scalar(name)
+  if (printedName === null) return { edits: [], refusal: 'unprintable-name' }
 
   if (isSeq(list) && list.items.length > 0) {
-    const printedName = scalar(name)
-    if (printedName === null) return [] // перевод строки в имени — отказ, а не порча (раунд 5)
     const last = list.items[list.items.length - 1]
     const range = rangeOf(last)
-    if (range === null) return []
+    if (range === null) return { edits: [], refusal: 'not-found' }
     const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
     const indent = md.text.slice(lineStart, range.from).replace(/-\s*$/, '')
     const { at, prefix } = afterLine(md.text, range.to)
-    return [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }]
+    return { edits: [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }] }
   }
 
   // Элементов нет — список либо пуст, либо ключ вообще без значения (частый случай:
   // `proxies: # LEAVE THIS LINE!` — панель нальёт сюда хостов сама). Якоря-элемента
   // нет, поэтому отступ считаем от строки ключа, а не от несуществующей записи —
   // и вставляем ПОСЛЕ всей строки ключа, чтобы не задеть комментарий-маркер на ней.
-  const printedName = scalar(name)
-  if (printedName === null) return [] // перевод строки в имени — отказ, а не порча (раунд 5)
   const keyRange = rangeOf(pair.key as unknown)
-  if (keyRange === null) return []
+  if (keyRange === null) return { edits: [], refusal: 'not-found' }
   const keyLineStart = md.text.lastIndexOf('\n', keyRange.from - 1) + 1
   const keyIndent = md.text.slice(keyLineStart, keyRange.from)
   const indent = keyIndent + ' '.repeat(detectIndentStep(md.text))
   const { at, prefix } = afterLine(md.text, keyRange.from)
-  return [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }]
+  return { edits: [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }] }
 }
 
-export function disconnectMihomo(md: MihomoDoc, edge: string): TextEdit[] {
+export function disconnectMihomo(md: MihomoDoc, edge: string): MihomoEditResult {
   const match = /^e:(.+)->(.+)$/.exec(edge)
-  if (match === null) return []
+  if (match === null) return { edits: [], refusal: 'not-found' }
   const from = split(match[1]!)
   const name = nameOf(match[2]!)
   // У правила цель обязательна: разрывать нечего, вызывающий предложит сменить её
-  if (from === null || from.kind !== 'group') return []
+  if (from === null || from.kind !== 'group') return { edits: [], refusal: 'invalid-pair' }
 
   const group = groupsOf(md).find((g) => g.name === from.rest)
-  if (group === undefined) return []
+  if (group === undefined) return { edits: [], refusal: 'not-found' }
   const pair = proxiesPair(md, group.index)
   const list = pair?.value
-  if (!isSeq(list)) return []
+  if (!isSeq(list)) return { edits: [], refusal: 'not-found' }
   // Список в одну строку — тот же случай, что и в connectMihomo: физическая строка
   // держит ключ и все элементы разом, удаление строки стёрло бы список целиком
-  if (list.flow === true) return []
+  if (list.flow === true) return { edits: [], refusal: 'flow-list' }
 
   const entry = list.items.find((i) => (i as { value?: unknown } | null)?.value === name)
   const range = rangeOf(entry)
-  if (range === null) return []
+  if (range === null) return { edits: [], refusal: 'not-found' }
   const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
   const lineEnd = md.text.indexOf('\n', range.to)
-  return [{ from: lineStart, to: lineEnd === -1 ? md.text.length : lineEnd + 1, insert: '' }]
+  return { edits: [{ from: lineStart, to: lineEnd === -1 ? md.text.length : lineEnd + 1, insert: '' }] }
 }
