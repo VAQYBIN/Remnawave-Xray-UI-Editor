@@ -27,8 +27,9 @@ import { Field, SelectField } from './fields'
  * поля: `DOMAIN` со значением «a,b» перечитается как значение «a» и цель «b» —
  * поля молча съедут, а правка при этом уже уйдёт в документ (форма пишет на
  * каждое нажатие). Поэтому проверяем не одну запятую, а обратимость целиком:
- * тот же приём ловит и перевод строки, и лишнюю скобку, а разрешает законные
- * запятые ВНУТРИ скобок (`SUB-RULE,(NETWORK,udp),block`).
+ * тот же приём ловит и лишнюю скобку (она сдвигает уровень вложенности, и
+ * запятая за ней снова становится разделителем), а законные запятые ВНУТРИ
+ * скобок (`SUB-RULE,(NETWORK,udp),block`) пропускает.
  */
 function roundTrips(rule: MihomoRule): boolean {
   const back = parseRule(formatRule(rule))
@@ -42,7 +43,10 @@ function roundTrips(rule: MihomoRule): boolean {
 }
 
 const REJECTED =
-  'Правило с таким значением не собирается: запятая и перевод строки разделяют его поля, внутри поля их не выразить. Правка не записана.'
+  'Правило с таким значением не собирается обратно: запятая разделяет его поля, и внутри поля её не выразить. Правка не записана.'
+
+/** Поле формы, чей ввод привёл к отказу: объяснение обязано стоять рядом с ним */
+type RuleField = 'type' | 'payload' | 'target' | 'modifiers'
 
 function optionsOf(names: readonly string[], current: string): SelectOption[] {
   const options = names.map((n) => ({ value: n, label: n }))
@@ -118,11 +122,14 @@ function RuleFields({
   const [customTarget, setCustomTarget] = useState(true)
   // Что именно набрали такого, чего строка правила не выражает. Держим вместе с
   // полем: объяснение обязано стоять там, где его читают, а не одно на форму.
-  const [rejected, setRejected] = useState<'payload' | 'target' | null>(null)
+  const [rejected, setRejected] = useState<RuleField | null>(null)
 
   const isSubRule = rule.type === 'SUB-RULE'
-  // Отказ вместо порчи: невыразимое строкой значение НЕ пишется, а объясняется
-  const commit = (next: MihomoRule, field: 'payload' | 'target' | null = null) => {
+  // Отказ вместо порчи: невыразимое строкой значение НЕ пишется, а объясняется.
+  // `field` обязателен и умолчания не имеет: сорваться на необратимости может
+  // ЛЮБАЯ правка (например, смена типа у правила, чей payload с запятой попал в
+  // документ помимо формы), и путь без названного поля отказывал бы молча.
+  const commit = (next: MihomoRule, field: RuleField) => {
     if (!roundTrips(next)) {
       setRejected(field)
       return
@@ -164,13 +171,17 @@ function RuleFields({
         // MATCH обязательно: без него строка вышла бы из двух полей
         // («DOMAIN,A»), разбор вернул бы null, и правка молча не применилась бы.
         onChange={(type) =>
-          commit({
-            ...rule,
-            type,
-            payload: NO_PAYLOAD.has(type) ? undefined : (rule.payload ?? ''),
-          })
+          commit(
+            {
+              ...rule,
+              type,
+              payload: NO_PAYLOAD.has(type) ? undefined : (rule.payload ?? ''),
+            },
+            'type',
+          )
         }
       />
+      {rejected === 'type' ? <span className="field-error">{REJECTED}</span> : null}
 
       {!NO_PAYLOAD.has(rule.type) && (
         <TextRow
@@ -210,6 +221,7 @@ function RuleFields({
 
       <div className="field">
         <span className="field-label">Модификаторы</span>
+        {rejected === 'modifiers' ? <span className="field-error">{REJECTED}</span> : null}
         {RULE_MODIFIERS.map((mod) => (
           <Checkbox
             key={mod}
@@ -217,7 +229,7 @@ function RuleFields({
             checked={rule.modifiers.includes(mod)}
             onChange={(on) => {
               const others = rule.modifiers.filter((m) => m !== mod)
-              commit({ ...rule, modifiers: on ? [...others, mod] : others })
+              commit({ ...rule, modifiers: on ? [...others, mod] : others }, 'modifiers')
             }}
           />
         ))}

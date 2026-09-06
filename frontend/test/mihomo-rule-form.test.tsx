@@ -113,6 +113,28 @@ describe('форма правила Mihomo', () => {
     expect(await optionLabels('Цель')).toContain('ru-1')
   })
 
+  // Любая правка может сорваться на необратимости, не только ввод в поле:
+  // у правила «MATCH,b)c,d» лишняя скобка увела уровень вложенности в минус, и
+  // добавленный модификатор при перечитывании прилипнет к цели. Раньше такие
+  // пути передавали в commit пустое поле и отказывали МОЛЧА.
+  it('отказ на переключателе модификатора объясняется рядом с ним', async () => {
+    const md = parseMihomo('rules:\n  - MATCH,b)c,d\n')
+    const draft = { replaceRule: vi.fn() } as unknown as MihomoDraft
+    render(<MihomoRuleForm md={md} index={0} draft={draft} />)
+    await userEvent.click(screen.getByLabelText('src'))
+    expect(draft.replaceRule).not.toHaveBeenCalled()
+    expect(screen.getByText(/не собирается обратно/)).toBeInTheDocument()
+  })
+
+  // Текст отказа обязан обещать ровно то, что проверка делает: перевод строки
+  // внутри поля `parseRule` переживает обратимо, и ловлей его хвастаться нельзя.
+  it('текст отказа не обещает того, чего проверка не делает', async () => {
+    const draft = renderRule(0)
+    await userEvent.type(screen.getByLabelText('Значение'), ',b')
+    expect(draft.replaceRule).not.toHaveBeenCalled()
+    expect(screen.getByText(/не собирается обратно/).textContent).not.toMatch(/перевод строки/)
+  })
+
   // Переход MATCH → тип со значением: без пустого значения строка собралась бы
   // из двух полей («DOMAIN,A»), разбор вернул бы null, и правка молча не
   // применилась бы.
