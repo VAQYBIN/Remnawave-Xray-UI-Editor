@@ -2,8 +2,9 @@
 // правил остаются строками, потому что незнакомое значение чужого шаблона должно
 // стать диагностикой, а не обрушить разбор всего документа.
 
-import { isAlias, isMap, isScalar, isSeq } from 'yaml'
+import { isMap, isScalar, isSeq } from 'yaml'
 import { markerAfterKey } from './marker'
+import { dealias, mergedNode } from './merge'
 import { rangeOf, sectionNode, type MihomoDoc, type Range } from './parse'
 
 export interface RemnawaveKeys {
@@ -26,46 +27,6 @@ export interface MihomoGroup {
   /** В списке proxies стоит комментарий-маркер подстановки */
   hasMarker: boolean
   range: Range
-}
-
-/** Пара по СОБСТВЕННОМУ ключу отображения — без учёта `<<`. */
-function ownPair(map: unknown, key: string) {
-  if (!isMap(map)) return undefined
-  return map.items.find((p) => (p.key as { value?: unknown } | null)?.value === key)
-}
-
-/**
- * Узел значения ключа `key` в отображении `map` с учётом YAML-слияния `<<`:
- * `map.get()` слияние не разворачивает (см. YAMLMap.get в yaml@2 — читает только
- * items текущего отображения), а на живых шаблонах Mihomo `behavior` набора правил
- * и `type` провайдера сплошь и рядом заданы не собственным ключом, а якорем
- * (`<<: *rp_domain`). Без обхода `<<` такое поле всегда было бы `undefined`, хотя
- * ядро видит значение через слияние.
- *
- * Семантика YAML сохранена: собственный ключ побеждает всегда; если `<<` —
- * список алиасов, более ранний побеждает более поздний (первое совпадение по
- * порядку в цикле); поиск рекурсивный — алиас может сам ссылаться на отображение
- * со своим `<<`. `seen` защищает от зацикленных ссылок.
- */
-function mergedNode(md: MihomoDoc, map: unknown, key: string, seen: Set<unknown> = new Set()): unknown {
-  if (!isMap(map) || seen.has(map)) return undefined
-  seen.add(map)
-  const own = ownPair(map, key)
-  if (own) return own.value
-  const mergePair = ownPair(map, '<<')
-  if (!mergePair) return undefined
-  const targets = isSeq(mergePair.value) ? mergePair.value.items : [mergePair.value]
-  for (const target of targets) {
-    const resolved = isAlias(target) ? target.resolve(md.doc) : target
-    const value = mergedNode(md, resolved, key, seen)
-    if (value !== undefined) return value
-  }
-  return undefined
-}
-
-/** Разворачивает алиас в узел, на который он ссылается (для значений вида `key: *alias`) */
-function dealias(md: MihomoDoc, node: unknown): unknown {
-  return isAlias(node) ? node.resolve(md.doc) : node
 }
 
 function str(md: MihomoDoc, map: unknown, key: string): string | undefined {
