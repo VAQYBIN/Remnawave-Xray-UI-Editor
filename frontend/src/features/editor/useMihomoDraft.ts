@@ -69,12 +69,6 @@ export interface MihomoDraft extends DocumentDraft<MihomoDoc> {
   setImportOpen: (open: boolean) => void
   sectionsOpen: boolean
   setSectionsOpen: (open: boolean) => void
-  /**
-   * Результат трассировки. Заглушка: трассировку шаблона Mihomo наполняет
-   * отдельная задача плана вместе со своим типом результата — поле объявлено
-   * сразу, чтобы потребители хука не переписывались дважды.
-   */
-  trace: undefined
 }
 
 export function useMihomoDraft({
@@ -191,6 +185,5 @@ export function useMihomoDraft({
     setImportOpen,
     sectionsOpen,
     setSectionsOpen,
-    trace: undefined,
   }
 }
