@@ -5,6 +5,7 @@ import {
   isValidMihomoConnection,
   refusalText,
 } from '../src/entities/graph/mihomo/mutations'
+import { buildMihomoGraph } from '../src/entities/graph/mihomo/buildGraph'
 import { applyEdits } from '../src/entities/mihomo/edits'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { rulesOf } from '../src/entities/mihomo/rules'
@@ -22,6 +23,11 @@ const subBase =
   'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT\n' +
   'sub-rules:\n  block:\n    - MATCH,REJECT\n' +
   'rules:\n  - SUB-RULE,(NETWORK,udp),block\n'
+
+// Группа, которая и получает хосты от панели (`include-all`), и держит обычную
+// запись в `proxies`: на одной фикстуре есть и ребро в узел подстановки, и
+// разрываемое ребро группы
+const hostsBase = 'proxy-groups:\n  - name: VPN\n    include-all: true\n    proxies:\n      - DIRECT\n'
 
 describe('допустимость соединений', () => {
   it('правило ведёт в группу, провайдера и встроенное имя', () => {
@@ -92,6 +98,31 @@ describe('разрыв', () => {
     expect(res.edits).toEqual([])
     expect(res.refusal).toBe('rule-target-required')
     expect(refusalText(res.refusal!)).not.toMatch(/подстановк/)
+  })
+
+  it('разрыв связи с узлом подстановки называет маркер, а не пропавший узел', () => {
+    const md = parseMihomo(hostsBase)
+    // Сначала убеждаемся, что такое ребро в графе ВООБЩЕ бывает: иначе тест
+    // проверял бы id, которого никто не создаёт
+    expect(buildMihomoGraph(md).edges.map((e) => e.id)).toContain('e:group:VPN->hosts:VPN')
+
+    const res = disconnectMihomo(md, 'e:group:VPN->hosts:VPN')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('panel-hosts-edge')
+    const text = refusalText(res.refusal!)
+    expect(text).toMatch(/LEAVE THIS LINE/)
+    // Формулировка про хосты обязана быть условной: какие хосты подставит
+    // панель и подставит ли вообще, редактор не знает
+    expect(text).toMatch(/если панель подставит/)
+    // Прежний ответ врал про изменившийся документ — узел никуда не девался
+    expect(text).not.toMatch(/изменил/)
+  })
+
+  it('на той же фикстуре с узлом подстановки обычное ребро группы разрывается', () => {
+    const md = parseMihomo(hostsBase)
+    const res = disconnectMihomo(md, 'e:group:VPN->builtin:DIRECT')
+    expect(res.refusal).toBeUndefined()
+    expect(groupsOf(parseMihomo(applyEdits(hostsBase, res.edits)))[0]!.proxies).toEqual([])
   })
 
   it('на той же фикстуре разрыв ребра ГРУППЫ по-прежнему выполняется', () => {
