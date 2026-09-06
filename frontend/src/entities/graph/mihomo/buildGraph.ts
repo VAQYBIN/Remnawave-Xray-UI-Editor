@@ -5,7 +5,7 @@
 
 import { isScalar, isSeq } from 'yaml'
 import { groupsOf, providersOf, subRuleEntries, type MihomoGroup } from '../../mihomo/groups'
-import { groupGetsHosts, hasRootMarker } from '../../mihomo/inject'
+import { hasRootMarker, panelInjectsHosts } from '../../mihomo/inject'
 import type { MihomoDoc } from '../../mihomo/parse'
 import { resolveTarget } from '../../mihomo/resolve'
 import { parseRule, rulesOf } from '../../mihomo/rules'
@@ -157,13 +157,19 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
         type: group.type,
         manual: group.proxies.length,
         hidden: group.hidden,
-        getsHosts: groupGetsHosts(group),
+        getsHosts: panelInjectsHosts(group),
       },
     })
 
-    // Узел подстановки рисуем, только если панель реально положит сюда хосты
-    // САМА (не через use — провайдер уже даёт свой узел, дублировать нечего).
-    if (groupGetsHosts(group) && group.use.length === 0) {
+    // Узел подстановки рисуем, только если панель реально положит хосты В САМУ
+    // группу. Спрашиваем об этом `panelInjectsHosts` — предикат ровно про
+    // подстановку; `use` он не считает основанием сам, поэтому отдельного
+    // `&& group.use.length === 0` тут больше нет. Та приписка и была дефектом:
+    // она гасила узел у группы, где ЕСТЬ и маркер, и `use`, — маркер стоит,
+    // панель хосты подставит, а на холсте их некуда положить (находка ревью,
+    // финальный раунд). Карточка выше отвечает тем же предикатом: обе части
+    // модели обязаны рассказывать про документ одну историю.
+    if (panelInjectsHosts(group)) {
       const id = `hosts:${group.name}`
       pushNode({
         id,

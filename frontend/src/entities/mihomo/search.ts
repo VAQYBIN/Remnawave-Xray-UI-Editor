@@ -8,13 +8,28 @@ import type { SearchHit } from '../graph/search'
 
 const LIMIT = 20
 
+/**
+ * Первое совпавшее поле — построчная копия `firstMatch` из
+ * `entities/graph/search.ts` (поиск по графу Xray), и копия обязана оставаться
+ * ПОВЕДЕНЧЕСКОЙ копией. Финальное ревью поймало её разъехавшейся сразу дважды:
+ *  - список сравнивался склеенным через пробел (`value.join(' ')`), из-за чего у
+ *    группы с `proxies: [ru, us]` запрос «ru us» давал ЛОЖНОЕ совпадение по
+ *    подстроке шва, которой в документе нет. Сравнение поэлементное;
+ *  - `matchedOn` возвращался голой меткой («имя»), а оригинал — «метка: значение».
+ *    В списке результатов рядом с хитами Xray это выглядело как разные виды
+ *    подсказки, хотя рисует их один `SearchBox`.
+ * Тот же корень, поэтому и починка одна: копия приведена к оригиналу целиком.
+ */
 function firstMatch(
   needle: string,
   fields: { label: string; value: string | string[] | undefined }[],
 ): string | undefined {
   for (const { label, value } of fields) {
-    const text = Array.isArray(value) ? value.join(' ') : (value ?? '')
-    if (text.toLowerCase().includes(needle)) return label
+    const values = Array.isArray(value) ? value : [value]
+    for (const item of values) {
+      if (item === undefined) continue
+      if (item.toLowerCase().includes(needle)) return `${label}: ${item}`
+    }
   }
   return undefined
 }

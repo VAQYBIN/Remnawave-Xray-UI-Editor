@@ -321,3 +321,93 @@ describe('правки полей секций', () => {
     }
   })
 })
+
+// Находки 1 и 2 финального ревью, общий корень: `md.text.indexOf('\n', range.to)`
+// и замена по `[range.from, range.to)` верны ТОЛЬКО для однострочного скаляра.
+// У свёрнутого (`>-`), литерального (`|`) и у блочного списка `range.to` уже
+// указывает на начало СЛЕДУЮЩЕЙ физической строки. Порча при этом молчаливая:
+// у блочного списка `parseMihomo` результата не даёт ни одной ошибки — поэтому
+// каждая проверка ниже требует не только текста, но и чистого разбора.
+const BLOCK = [
+  'proxy-groups:',
+  '  - name: g',
+  '    filter: >-',
+  '      aaa',
+  '      bbb',
+  '    type: select',
+  '    proxies:',
+  '      - DIRECT',
+  '      - REJECT',
+  '    icon: end.png',
+  '',
+].join('\n')
+
+const LITERAL = [
+  'proxy-groups:',
+  '  - name: g',
+  '    filter: |',
+  '      aaa',
+  '    type: select',
+  '',
+].join('\n')
+
+describe('финальное ревью: блочное значение поля не задевает соседей', () => {
+  it('снятие свёрнутого скаляра забирает только его строки', () => {
+    const md = parseMihomo(BLOCK)
+    const next = applyEdits(BLOCK, removeFieldAt(md, ['proxy-groups', 0], 'filter'))
+    expect(next).not.toContain('aaa')
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.filter).toBeUndefined()
+    // Соседнее поле — то самое, которое прежняя арифметика съедала вместе с блоком
+    expect(group.type).toBe('select')
+    expect(group.proxies).toEqual(['DIRECT', 'REJECT'])
+  })
+
+  it('снятие литерального скаляра забирает только его строки', () => {
+    const md = parseMihomo(LITERAL)
+    const next = applyEdits(LITERAL, removeFieldAt(md, ['proxy-groups', 0], 'filter'))
+    expect(parseMihomo(next).issues).toEqual([])
+    expect(groupsOf(parseMihomo(next))[0]!.type).toBe('select')
+  })
+
+  it('снятие блочного списка забирает только его строки', () => {
+    const md = parseMihomo(BLOCK)
+    const next = applyEdits(BLOCK, removeFieldAt(md, ['proxy-groups', 0], 'proxies'))
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.proxies).toEqual([])
+    expect(readFieldAt(parseMihomo(next), ['proxy-groups', 0], 'icon').value).toBe('end.png')
+  })
+
+  it('снятие однострочного поля на той же фикстуре работает как раньше', () => {
+    const md = parseMihomo(BLOCK)
+    const next = applyEdits(BLOCK, removeFieldAt(md, ['proxy-groups', 0], 'type'))
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.type).toBeUndefined()
+    expect(group.filter).toBe('aaa bbb')
+    expect(group.proxies).toEqual(['DIRECT', 'REJECT'])
+  })
+
+  it('замена блочного значения — отказ, а не склейка строк', () => {
+    const md = parseMihomo(BLOCK)
+    // Схема объявляет `filter` строкой, документ держит свёрнутый скаляр —
+    // штатное расхождение схемы с чужим файлом, ради которого модуль и написан
+    expect(setFieldAt(md, ['proxy-groups', 0], 'filter', 'zzz')).toEqual([])
+    // У блочного СПИСКА порча была совсем молчаливой: разбор её не замечал
+    expect(setFieldAt(md, ['proxy-groups', 0], 'proxies', 'zzz')).toEqual([])
+    expect(setFieldAt(parseMihomo(LITERAL), ['proxy-groups', 0], 'filter', 'zzz')).toEqual([])
+  })
+
+  it('замена однострочного значения на той же фикстуре по-прежнему проходит', () => {
+    const md = parseMihomo(BLOCK)
+    const edits = setFieldAt(md, ['proxy-groups', 0], 'type', 'fallback')
+    expect(edits).toHaveLength(1)
+    const next = applyEdits(BLOCK, edits)
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.type).toBe('fallback')
+    expect(group.filter).toBe('aaa bbb')
+  })
+})

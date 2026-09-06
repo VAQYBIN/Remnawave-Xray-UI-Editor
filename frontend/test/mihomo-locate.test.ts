@@ -78,7 +78,7 @@ describe('адресация Mihomo', () => {
     const md = parseMihomo(DOC)
     const hits = searchMihomo(md, 'основ')
     expect(hits.map((h) => h.nodeId)).toContain('group:Основная')
-    expect(hits.find((h) => h.nodeId === 'group:Основная')?.matchedOn).toBe('имя')
+    expect(hits.find((h) => h.nodeId === 'group:Основная')?.matchedOn).toBe('имя: Основная')
     expect(searchMihomo(md, 'main').map((h) => h.nodeId)).toContain('provider:main')
     expect(searchMihomo(md, 'MATCH').map((h) => h.nodeId)).toContain('rule:0')
     expect(searchMihomo(md, '')).toEqual([])
@@ -125,5 +125,32 @@ describe('подсписки правил в резолвере узлов', () 
       md,
     )
     expect(counts['subrule:block']).toEqual({ errors: 0, warnings: 1 })
+  })
+})
+
+// Находка 8 финального ревью: копия `firstMatch` разошлась с оригиналом
+// (`entities/graph/search.ts`) поведением — склеивала список через пробел, из-за
+// чего запрос ловил подстроку шва, которой в документе нет, и возвращала голую
+// метку вместо «метка: значение».
+describe('поиск по шаблону Mihomo повторяет поведение поиска по графу Xray', () => {
+  const MULTI = [
+    'proxy-groups:',
+    '  - name: Основная',
+    '    type: select',
+    '    proxies:',
+    '      - ru',
+    '      - us',
+    '',
+  ].join('\n')
+
+  it('элементы списка сравниваются поштучно, а не склеенной строкой', () => {
+    const md = parseMihomo(MULTI)
+    expect(searchMihomo(md, 'ru us')).toEqual([])
+    expect(searchMihomo(md, 'ru').map((h) => h.matchedOn)).toEqual(['участник: ru'])
+  })
+
+  it('совпадение объясняется парой «метка: значение», как и у графа Xray', () => {
+    const hits = searchMihomo(parseMihomo(MULTI), 'основ')
+    expect(hits.find((h) => h.nodeId === 'group:Основная')?.matchedOn).toBe('имя: Основная')
   })
 })

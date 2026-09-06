@@ -745,3 +745,39 @@ describe('renameGroup при дубликате имени', () => {
     expect(renameGroup(md, 'G', 'G2').length).toBeGreaterThan(0)
   })
 })
+
+// Находка 5 финального ревью: проверка неоднозначности стояла только на ИСХОДНОМ
+// имени, а операция молча создавала ту же неоднозначность на стороне ЦЕЛИ. Порча
+// не молчаливая (диагностики загораются), но НЕОБРАТИМАЯ редактором: после неё
+// `matches.length !== 1` отказывает на любом переименовании обеих групп.
+describe('финальное ревью: переименование в занятое имя', () => {
+  const TWO = [
+    'proxy-groups:',
+    '  - name: A',
+    '    proxies:',
+    '      - DIRECT',
+    '  - name: B',
+    '    proxies:',
+    '      - A',
+    'rules:',
+    '  - MATCH,A',
+    '',
+  ].join('\n')
+
+  it('отказывает, если целевое имя уже занято', () => {
+    const md = parseMihomo(TWO)
+    expect(renameGroup(md, 'A', 'B')).toEqual([])
+    // Симметрия с проверкой источника: две группы под одним именем — то самое
+    // состояние, из-за которого renameGroup отказывает, и заводить его нельзя
+    expect(renameGroup(parseMihomo(TWO), 'B', 'A')).toEqual([])
+  })
+
+  it('на свободное имя та же фикстура переименовывается', () => {
+    const out = edit(TWO, (md) => renameGroup(md, 'A', 'C'))
+    expect(parseMihomo(out).issues).toEqual([])
+    const names = groupsOf(parseMihomo(out)).map((g) => g.name)
+    expect(names).toEqual(['C', 'B'])
+    expect(groupsOf(parseMihomo(out))[1]!.proxies).toEqual(['C'])
+    expect(out).toContain('MATCH,C')
+  })
+})

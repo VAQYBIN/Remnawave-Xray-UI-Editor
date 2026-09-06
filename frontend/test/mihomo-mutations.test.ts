@@ -6,7 +6,7 @@ import {
   refusalText,
 } from '../src/entities/graph/mihomo/mutations'
 import { buildMihomoGraph } from '../src/entities/graph/mihomo/buildGraph'
-import { applyEdits } from '../src/entities/mihomo/edits'
+import { applyEdits, setListAt } from '../src/entities/mihomo/edits'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { rulesOf } from '../src/entities/mihomo/rules'
 import { groupsOf } from '../src/entities/mihomo/groups'
@@ -489,5 +489,90 @@ describe('подсписок не коммутируется кабелем', ()
     expect(isValidMihomoConnection('subrule:block', 'group:VPN')).toBe(false)
     expect(isValidMihomoConnection('rule:0', 'subrule:block')).toBe(false)
     expect(isValidMihomoConnection('group:VPN', 'subrule:block')).toBe(false)
+  })
+})
+
+// Находка 3 финального ревью: `setListAt` и `connectMihomo` пишут в ОДИН и тот
+// же ключ `proxies`, но трактовали документ по-разному. Первый отказывал, если
+// значение — не блочный список и не «пусто», второй такой проверки не имел:
+// `proxies: oops` давал `refusal: undefined`, документ получал мусорный скаляр
+// со списком строкой ниже, и разбор на это не ругался вовсе.
+describe('финальное ревью: connectMihomo проверяет форму значения proxies', () => {
+  const withProxies = (value: string[]) =>
+    ['proxy-groups:', '  - name: A', ...value, ''].join('\n')
+
+  it('скаляр вместо списка — отказ, а не молчаливая порча', () => {
+    const text = withProxies(['    proxies: oops'])
+    const res = connectMihomo(parseMihomo(text), 'group:A', 'builtin:DIRECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('proxies-not-a-list')
+    expect(refusalText(res.refusal!)).toMatch(/не список/)
+  })
+
+  it('вложенное отображение вместо списка — тот же отказ', () => {
+    const text = withProxies(['    proxies:', '      k: v'])
+    const res = connectMihomo(parseMihomo(text), 'group:A', 'builtin:DIRECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('proxies-not-a-list')
+  })
+
+  it('setListAt на тех же документах отказывает так же — трактовка одна', () => {
+    for (const value of [['    proxies: oops'], ['    proxies:', '      k: v']]) {
+      const text = withProxies(value)
+      expect(setListAt(parseMihomo(text), ['proxy-groups', 0], 'proxies', ['DIRECT'])).toEqual([])
+    }
+  })
+
+  it('блочный список и голый ключ по-прежнему принимаются', () => {
+    for (const value of [['    proxies:', '      - REJECT'], ['    proxies:']]) {
+      const text = withProxies(value)
+      const res = connectMihomo(parseMihomo(text), 'group:A', 'builtin:DIRECT')
+      expect(res.refusal).toBeUndefined()
+      const next = applyEdits(text, res.edits)
+      expect(parseMihomo(next).issues).toEqual([])
+      expect(groupsOf(parseMihomo(next))[0]!.proxies).toContain('DIRECT')
+    }
+  })
+})
+
+// Находка 4 финального ревью: тот же корень, что и у removeFieldAt — конец
+// строки искали наивным `indexOf('\n', range.to)`, а у многострочной записи
+// имени `range.to` уже стоит на начале следующей строки, и удаление забирало
+// СЛЕДУЮЩЕГО участника вместе с этим. Разбор результата при этом чист.
+describe('финальное ревью: разрыв не забирает соседнего участника', () => {
+  const MULTILINE = [
+    'proxy-groups:',
+    '  - name: A',
+    '    proxies:',
+    '      - >-',
+    '        aaa',
+    '      - DIRECT',
+    '',
+  ].join('\n')
+
+  it('имя, записанное многострочно, удаляется целиком и в одиночку', () => {
+    const md = parseMihomo(MULTILINE)
+    expect(groupsOf(md)[0]!.proxies).toEqual(['aaa', 'DIRECT'])
+    const res = disconnectMihomo(md, 'e:group:A->builtin:aaa')
+    expect(res.refusal).toBeUndefined()
+    const next = applyEdits(MULTILINE, res.edits)
+    expect(parseMihomo(next).issues).toEqual([])
+    expect(groupsOf(parseMihomo(next))[0]!.proxies).toEqual(['DIRECT'])
+  })
+
+  it('на той же фикстуре разрыв однострочного участника оставляет многострочного', () => {
+    const md = parseMihomo(MULTILINE)
+    const next = applyEdits(MULTILINE, disconnectMihomo(md, 'e:group:A->builtin:DIRECT').edits)
+    expect(parseMihomo(next).issues).toEqual([])
+    expect(groupsOf(parseMihomo(next))[0]!.proxies).toEqual(['aaa'])
+  })
+
+  // Соседняя ветка той же строки: участника с таким именем в списке нет — узел
+  // на холсте есть, а записи под ребро нет, и `rangeOf(undefined)` даёт null
+  it('имени нет в списке — честный not-found, а не удаление чужой строки', () => {
+    const md = parseMihomo(MULTILINE)
+    const res = disconnectMihomo(md, 'e:group:A->builtin:REJECT')
+    expect(res.edits).toEqual([])
+    expect(res.refusal).toBe('not-found')
   })
 })

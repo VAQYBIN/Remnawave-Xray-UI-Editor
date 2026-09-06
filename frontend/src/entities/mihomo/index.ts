@@ -22,5 +22,6 @@ export * from './search'
 export {
   hasRootMarker,
   groupGetsHosts,
+  panelInjectsHosts,
   conflictingKeys,
 } from './inject'
