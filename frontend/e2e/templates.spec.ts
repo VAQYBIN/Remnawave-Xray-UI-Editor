@@ -11,10 +11,12 @@ test('список шаблонов открывается переключат�
   await page.goto('/')
   await page.getByRole('link', { name: 'Шаблоны' }).click()
   await expect(page.getByRole('link', { name: 'Xray Default' })).toBeVisible()
+  // MIHOMO редактор открывает сам — ссылка обязана быть
+  await expect(page.getByRole('link', { name: 'Mihomo' })).toBeVisible()
   // Неподдерживаемый тип виден, но не кликается — панель редактирует его сама.
-  // heading, а не getByText: карточка ещё содержит чип с тем же словом «MIHOMO»
-  await expect(page.getByRole('heading', { name: 'Mihomo' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Mihomo' })).toHaveCount(0)
+  // heading, а не getByText: карточка ещё содержит чип с тем же словом «CLASH»
+  await expect(page.getByRole('heading', { name: 'Clash' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Clash' })).toHaveCount(0)
 })
 
 test('группа подстановки нарисована на холсте и правится формой', async ({ page }) => {

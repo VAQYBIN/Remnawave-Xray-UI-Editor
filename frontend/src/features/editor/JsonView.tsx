@@ -3,14 +3,9 @@ import CodeMirror, { EditorView } from '@uiw/react-codemirror'
 import { json } from '@codemirror/lang-json'
 import { linter, lintGutter } from '@codemirror/lint'
 import { validateXrayConfig, type PathParts } from '../../entities/xray'
+import { editorTheme } from './editorTheme'
 import { xrayIntellisense } from './intellisense'
 import { diagnosticsFor, locateRange } from './jsonLocate'
-
-const editorTheme = EditorView.theme({
-  '&': { backgroundColor: 'var(--void)', fontSize: '13px', height: '100%' },
-  '.cm-content': { fontFamily: 'var(--font-mono)' },
-  '.cm-gutters': { backgroundColor: 'var(--void)', borderRight: '1px solid var(--rail)' },
-})
 
 function xrayLinter() {
   return linter((view) =>

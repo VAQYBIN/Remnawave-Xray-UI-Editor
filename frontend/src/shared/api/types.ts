@@ -165,7 +165,39 @@ export interface WarpAccount {
   peer: { publicKey: string; endpoint: string }
 }
 
-export type TemplateType = 'XRAY_JSON' | 'XRAY_BASE64' | 'MIHOMO' | 'STASH' | 'CLASH' | 'SINGBOX'
+/** Ответ `POST /api/tools/mihomo-test` — зеркало MihomoTestResult бэкенда */
+export interface MihomoTestResult {
+  /** false — бинаря нет: инструмент недоступен, а шаблон тут ни при чём */
+  available: boolean
+  ok: boolean
+  errors: string[]
+}
+
+/**
+ * Запись каталога готовых шаблонов. `type` — строка, а не TemplateType:
+ * каталог опережает контракт панели (в нём уже лежит SINGBOX_LEGACY), и
+ * сужение типа уронило бы весь список на одном незнакомом значении.
+ * `url` берётся из индекса и уходит обратно как есть — произвольную ссылку
+ * бэкенд отвергает (защита от SSRF).
+ */
+export interface CatalogEntry {
+  name: string
+  type: string
+  author: string
+  url: string
+}
+
+/** Те же типы списком: тип из каталога приходит строкой, и опознать его нечем */
+export const TEMPLATE_TYPES = [
+  'XRAY_JSON',
+  'XRAY_BASE64',
+  'MIHOMO',
+  'STASH',
+  'CLASH',
+  'SINGBOX',
+] as const
+
+export type TemplateType = (typeof TEMPLATE_TYPES)[number]
 
 /**
  * Шаблон подписки. Полей createdAt/updatedAt здесь НЕТ — защита при сохранении

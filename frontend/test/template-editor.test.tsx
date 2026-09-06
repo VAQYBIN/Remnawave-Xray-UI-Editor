@@ -5,6 +5,7 @@ import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TemplateEditorPage } from '../src/features/templates/TemplateEditorPage'
 import { useDraftStore } from '../src/features/editor/draftStore'
+import { useHistoryStore } from '../src/features/editor/historyStore'
 import { docStorageKey } from '../src/shared/lib/docKey'
 import { selectOption } from './helpers'
 
@@ -216,10 +217,12 @@ describe('редактор шаблона', () => {
     expect(screen.getByRole('button', { name: 'Куда пойдёт трафик' })).toBeInTheDocument()
   })
 
+  // MIHOMO с приходом своего редактора из этой ветки ушёл: здесь остались типы,
+  // содержимое которых редактор не разбирает вовсе
   it('YAML-шаблон не открывается, а объясняет почему и даёт вернуться', async () => {
-    mockPanel('MIHOMO')
+    mockPanel('CLASH')
     renderEditor()
-    expect(await screen.findByText(/только шаблоны XRAY_JSON/)).toBeInTheDocument()
+    expect(await screen.findByText(/умеет шаблоны XRAY_JSON и MIHOMO/)).toBeInTheDocument()
     // Тупик без выхода: сюда попадают по прямой ссылке, «назад» браузера увёл бы
     // из приложения — кнопка обязана быть и вести в список
     expect(screen.getByRole('button', { name: '← Шаблоны' })).toBeInTheDocument()
@@ -377,5 +380,223 @@ describe('редактор шаблона', () => {
     // Сообщение о пустом шаблоне исчезает: панель после сохранения отдаёт
     // уже заполненный templateJson
     expect(screen.queryByText(/Шаблон в панели пуст/)).not.toBeInTheDocument()
+  }, 30_000)
+})
+
+/**
+ * Импорт из каталога у Xray-шаблона. Сам диалог покрыт своим тестом
+ * (`import-template-dialog.test.tsx`), здесь — ровно проводка страницы: чем
+ * открывается, какой `docType` уходит внутрь, куда попадает скачанное и откуда
+ * берётся `dirty`. У Mihomo та же проводка живёт в `mihomo-editor-page`, и без
+ * этих проверок половина её (Xray) держалась бы только на типах.
+ */
+const CATALOG_XRAY_URL = 'https://raw.githubusercontent.com/remnawave/templates/main/xray.json'
+const CATALOG_MIHOMO_URL = 'https://raw.githubusercontent.com/remnawave/templates/main/a.yaml'
+/**
+ * Что «скачали»: документ заведомо другой, чем TEMPLATE_JSON панели. Правило в
+ * нём есть НАМЕРЕННО: узел `rule:0` обязан существовать и после замены
+ * документа, иначе проверка «импорт снял выбор» зеленела бы сама собой — узел
+ * исчез бы вместе с документом (ровно та ловушка, что уже ловилась на группе
+ * в редакторе Mihomo).
+ */
+const IMPORTED_XRAY = JSON.stringify(
+  {
+    outbounds: [{ tag: 'imported', protocol: 'freedom' }],
+    routing: { rules: [{ type: 'field', outboundTag: 'imported', domain: ['example.org'] }] },
+  },
+  null,
+  2,
+)
+
+/** Шаблон панели с одной диагностикой на узле `rule:0`: правило ведёт в никуда */
+const ISSUE_TEMPLATE_JSON = {
+  log: { loglevel: 'warning' },
+  inbounds: [{ tag: 'socks', port: 10808, listen: '127.0.0.1', protocol: 'socks', settings: {} }],
+  outbounds: [{ tag: 'direct', protocol: 'freedom' }],
+  routing: { rules: [{ type: 'field', outboundTag: 'нет-такого', domain: ['example.com'] }] },
+}
+
+/**
+ * Панель плюс каталог. Отдельно от `mockPanel`: тот на адреса каталога отвечает
+ * шаблоном панели, и список записей вышел бы пустым. Документ параметризован —
+ * одному из тестов нужен шаблон с диагностикой; умолчание оставляет прежний.
+ */
+function mockPanelWithCatalog(templateJson: unknown = TEMPLATE_JSON) {
+  const calls: { url: string; init?: RequestInit }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, init })
+      if (url.includes('/api/catalog/template?')) return json({ content: IMPORTED_XRAY })
+      if (url.includes('/api/catalog/templates')) {
+        return json({
+          templates: [
+            { name: 'xray-default', type: 'XRAY_JSON', author: 'remnawave', url: CATALOG_XRAY_URL },
+            {
+              name: 'mihomo-default',
+              type: 'MIHOMO',
+              author: 'remnawave',
+              url: CATALOG_MIHOMO_URL,
+            },
+          ],
+        })
+      }
+      if (url.includes('/api/panel/token')) {
+        return json({ expiresAt: null, daysLeft: null, expired: false, expiringSoon: false })
+      }
+      if (url.includes('/api/geo')) {
+        return json({ geosite: { url: '', present: false }, geoip: { url: '', present: false } })
+      }
+      return json({
+        template: {
+          uuid: UUID,
+          viewPosition: 0,
+          name: 'Xray Default',
+          templateType: 'XRAY_JSON',
+          templateJson,
+          encodedTemplateYaml: null,
+        },
+        hash: HASH1,
+      })
+    }),
+  )
+  return calls
+}
+
+describe('импорт из каталога в редакторе Xray-шаблона', () => {
+  // Фильтр по умолчанию — тип ОТКРЫТОГО документа: подставь страница чужой
+  // docType, и в списке оказались бы шаблоны, которые сюда не лезут
+  it('«Импорт» открывает каталог и по умолчанию показывает XRAY_JSON', async () => {
+    const calls = mockPanelWithCatalog()
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Xray Default' })
+    // Пока диалог не открыли, на GitHub через бэкенд никто не ходит
+    expect(calls.some((c) => c.url.includes('/api/catalog'))).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Импорт' }))
+
+    expect(await screen.findByText('xray-default')).toBeInTheDocument()
+    expect(screen.queryByText('mihomo-default')).not.toBeInTheDocument()
+  }, 30_000)
+
+  it('импорт кладёт скачанное в черновик, а в панель ничего не шлёт', async () => {
+    const calls = mockPanelWithCatalog()
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Xray Default' })
+
+    await user.click(screen.getByRole('button', { name: 'Импорт' }))
+    await user.click(await screen.findByText('xray-default'))
+    // Ждём содержимое: до его загрузки кнопка импорта заперта
+    await screen.findByText(/imported/)
+    await user.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(
+        IMPORTED_XRAY,
+      ),
+    )
+    // Решение сохранять остаётся за пользователем: ни одного PATCH
+    expect(calls.some((c) => c.init?.method === 'PATCH')).toBe(false)
+  }, 30_000)
+
+  // `dirty` обязан приходить из черновика: с зашитым `false` импорт молча затёр
+  // бы чужую работу, с зашитым `true` спрашивал бы там, где затирать нечего
+  it('поверх изменённого черновика импорт спрашивает подтверждение', async () => {
+    mockPanelWithCatalog()
+    useDraftStore
+      .getState()
+      .setDraft(
+        docStorageKey('template', UUID),
+        JSON.stringify({ outbounds: [{ tag: 'моя правка', protocol: 'freedom' }] }),
+        HASH1,
+      )
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Xray Default' })
+
+    await user.click(screen.getByRole('button', { name: 'Импорт' }))
+    await user.click(await screen.findByText('xray-default'))
+    await screen.findByText(/imported/)
+    await user.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+
+    expect(screen.getByText(/затрёт ваши правки/)).toBeInTheDocument()
+    // До подтверждения черновик не тронут
+    expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).not.toBe(
+      IMPORTED_XRAY,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Затереть и импортировать' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(
+        IMPORTED_XRAY,
+      ),
+    )
+  }, 30_000)
+
+  // Импорт кладётся в историю (`{ history: true }`): диалог подтверждения прямо
+  // обещает возврат через Ctrl+Z, и обещание обязано быть проверено
+  it('импорт отменяется через «Отменить»', async () => {
+    mockPanelWithCatalog()
+    useHistoryStore.setState({ stacks: {} })
+    const before = JSON.stringify({ outbounds: [{ tag: 'до импорта', protocol: 'freedom' }] })
+    useDraftStore.getState().setDraft(docStorageKey('template', UUID), before, HASH1)
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Xray Default' })
+    // Пока ничего не импортировано, отменять нечего: иначе тест зеленел бы на
+    // кнопке, доступной и без записи в историю
+    expect(screen.getByRole('button', { name: 'Отменить' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Импорт' }))
+    await user.click(await screen.findByText('xray-default'))
+    await screen.findByText(/imported/)
+    await user.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+    await user.click(screen.getByRole('button', { name: 'Затереть и импортировать' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(
+        IMPORTED_XRAY,
+      ),
+    )
+
+    expect(screen.getByRole('button', { name: 'Отменить' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Отменить' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(before),
+    )
+  }, 30_000)
+
+  // Документ заменяется целиком, а id узлов считаются по тегам и позициям
+  // правил. Выбор берём не с канваса, а из списка проблем в статус-баре
+  // (`selectIssue`), и ведёт он в `rule:0` — узел, который есть и в
+  // импортируемом документе: исчезни он вместе с документом, проверка зеленела
+  // бы и без снятия выбора
+  it('импорт снимает выбранный узел', async () => {
+    mockPanelWithCatalog(ISSUE_TEMPLATE_JSON)
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByRole('heading', { name: 'Xray Default' })
+
+    // Диагностика здесь предупреждение, а не ошибка: узел у неё есть, а больше
+    // для выбора ничего не нужно
+    await user.click(screen.getByRole('button', { name: /предупреждений/ }))
+    // По роли, а не по тексту: тот же список проблем рендерит и закрытый диалог
+    // сохранения, а из дерева доступности закрытый <dialog> выпадает
+    await user.click(await screen.findByRole('button', { name: /несуществующий outbound/ }))
+    expect(screen.getByRole('button', { name: 'Удалить узел' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Импорт' }))
+    await user.click(await screen.findByText('xray-default'))
+    await screen.findByText(/imported/)
+    await user.click(screen.getByRole('button', { name: 'Импортировать в редактор' }))
+
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(
+        IMPORTED_XRAY,
+      ),
+    )
+    expect(screen.queryByRole('button', { name: 'Удалить узел' })).not.toBeInTheDocument()
   }, 30_000)
 })

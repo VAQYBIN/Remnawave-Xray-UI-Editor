@@ -15,7 +15,13 @@ interface Props {
 }
 
 export function SaveDialog({ open, onClose, original, modified, issues, busy, onConfirm, error }: Props) {
-  const warnings = issues.filter((i) => i.level === 'warning')
+  // Показываем ВСЕ диагностики, а не только предупреждения. У Xray разницы нет:
+  // ошибки блокируют кнопку сохранения, и до диалога такой документ не доходит.
+  // У шаблона Mihomo блокирует только синтаксис YAML, поэтому сюда доезжают
+  // ошибки — повтор имени группы, кольцо групп, неразбираемое правило, — и
+  // именно они по-настоящему ломают подписку. Спрятать их здесь значило бы
+  // показать человеку ровно то, что неважно, и умолчать о важном.
+  const hasErrors = issues.some((i) => i.level === 'error')
 
   return (
     <Dialog open={open} title="Сохранить в панель" onClose={onClose} wide>
@@ -26,10 +32,14 @@ export function SaveDialog({ open, onClose, original, modified, issues, busy, on
           modified не может измениться при открытом диалоге: DiffView монтируется на
           открытие и уничтожается на закрытие. */}
       {open && <DiffView original={original} modified={modified} />}
-      {warnings.length > 0 && (
+      {issues.length > 0 && (
         <>
-          <IssueList issues={warnings} />
-          <p className="muted">Панель — финальный арбитр: можно сохранить с предупреждениями.</p>
+          <IssueList issues={issues} />
+          <p className="muted">
+            {hasErrors
+              ? 'Панель — финальный арбитр: она примет и такой документ, но клиенты получат подписку с этими ошибками.'
+              : 'Панель — финальный арбитр: можно сохранить с предупреждениями.'}
+          </p>
         </>
       )}
       {error && <p className="field-error">{error}</p>}
@@ -39,7 +49,7 @@ export function SaveDialog({ open, onClose, original, modified, issues, busy, on
           Отмена
         </Button>
         <Button variant="primary" disabled={busy} onClick={onConfirm}>
-          {warnings.length > 0 ? 'Сохранить всё равно' : 'Сохранить'}
+          {issues.length > 0 ? 'Сохранить всё равно' : 'Сохранить'}
         </Button>
       </div>
     </Dialog>

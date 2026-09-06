@@ -10,6 +10,10 @@ const KIND_LABEL: Record<SearchHit['kind'], string> = {
   dns: 'dns',
   balancer: 'балансер',
   inject: 'подстановка',
+  'mihomo-group': 'группа',
+  'mihomo-rule': 'правило',
+  'mihomo-provider': 'провайдер',
+  'mihomo-hosts': 'подстановка',
 }
 
 export function SearchBox({

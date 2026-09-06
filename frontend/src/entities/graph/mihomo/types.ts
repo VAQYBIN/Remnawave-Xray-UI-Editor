@@ -15,6 +15,8 @@ export interface MihomoRuleNodeData extends Record<string, unknown> {
    */
   target?: string
   modifiers: string[]
+  /** Вердикт трассировки; 'winner' — правило, которое победило */
+  traceState?: 'yes' | 'no' | 'unknown' | 'winner'
   issueCount?: IssueCount
 }
 export interface MihomoGroupNodeData extends Record<string, unknown> {
@@ -48,4 +50,18 @@ export interface MihomoHostsNodeData extends Record<string, unknown> {
 export interface MihomoBuiltinNodeData extends Record<string, unknown> {
   kind: 'mihomo-builtin'
   name: string
+}
+export interface MihomoSubRuleNodeData extends Record<string, unknown> {
+  kind: 'mihomo-subrule'
+  name: string
+  /** Сколько правил в подсписке — раскрывать их узлами незачем, их читает инспектор */
+  count: number
+  /**
+   * Цели правил подсписка в порядке появления, без повторов. Здесь лежат ВСЕ
+   * цели, включая неразрешимые (имя хоста от панели — норма, а не ошибка), тем
+   * же правилом, что и `target` у узла правила; ребро рисуется только на
+   * разрешимую.
+   */
+  targets: string[]
+  issueCount?: IssueCount
 }

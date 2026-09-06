@@ -2,11 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type {
   BackupEntry,
+  CatalogEntry,
   GeoCategory,
   GeoCategoryPage,
   GeoKind,
   GeoMatchAnswer,
   GeoStatus,
+  MihomoTestResult,
   PanelTokenStatus,
   Profile,
   ProfileInboundDetail,
@@ -181,7 +183,10 @@ export function useTemplate(uuid: string) {
 export function useCreateTemplate() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { name: string }) =>
+    // Тип уходит в панель вместе с именем: каркас пустого шаблона зависит от
+    // него (роут подставляет свой для XRAY_JSON и свой для MIHOMO), и выбрать
+    // его позже нельзя — тип шаблона панель менять не даёт
+    mutationFn: (input: { name: string; templateType: 'XRAY_JSON' | 'MIHOMO' }) =>
       apiFetch<{ template: SubscriptionTemplate }>('/api/templates', {
         method: 'POST',
         body: JSON.stringify(input),
@@ -202,7 +207,16 @@ export function useDeleteTemplate() {
 export function useSaveTemplate(uuid: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { templateJson: unknown; name?: string; expectedHash: string }) =>
+    // Содержимое приходит ровно одним полем: JSON-типы правятся через
+    // templateJson, YAML-типы — через encodedTemplateYaml. Бэкенд отвечает 400
+    // на поле, не подходящее типу шаблона, и слать оба — значит спрятать эту
+    // защиту от себя же: чужое поле уехало бы в панель молча.
+    mutationFn: (input: {
+      templateJson?: unknown
+      encodedTemplateYaml?: string
+      name?: string
+      expectedHash: string
+    }) =>
       apiFetch<{ template: SubscriptionTemplate; hash: string }>(`/api/templates/${uuid}`, {
         method: 'PATCH',
         body: JSON.stringify(input),
@@ -287,6 +301,54 @@ export function useXrayTest() {
         method: 'POST',
         body: JSON.stringify(input),
       }),
+  })
+}
+
+/**
+ * Проверка шаблона Mihomo ядром. Мутация, а не запрос: она запускает процесс на
+ * сервере, и делать это фоном по монтированию нельзя.
+ */
+export function useMihomoTest() {
+  return useMutation({
+    mutationFn: (input: { encodedTemplateYaml: string }) =>
+      apiFetch<MihomoTestResult>('/api/tools/mihomo-test', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+  })
+}
+
+/**
+ * Индекс каталога готовых шаблонов. `enabled` — потому что диалог импорта
+ * смонтирован вместе со страницей: без гейта каждый открытый редактор ходил бы
+ * на GitHub. Бэкенд кэширует индекс на час — держим тот же срок и здесь.
+ */
+export function useCatalog(enabled = true) {
+  return useQuery({
+    queryKey: ['catalog'],
+    queryFn: () =>
+      apiFetch<{ templates: CatalogEntry[] }>('/api/catalog/templates').then((r) => r.templates),
+    enabled,
+    staleTime: 60 * 60_000,
+    retry: false,
+  })
+}
+
+/**
+ * Содержимое шаблона каталога. Ссылка идёт ровно та, что пришла в индексе:
+ * собранный на клиенте адрес бэкенд отвергает — принимать чужой url значило бы
+ * открыть SSRF через наш сервер.
+ */
+export function useCatalogTemplate(url: string | null) {
+  return useQuery({
+    queryKey: ['catalog', 'template', url],
+    queryFn: () =>
+      apiFetch<{ content: string }>(
+        `/api/catalog/template?url=${encodeURIComponent(url!)}`,
+      ).then((r) => r.content),
+    enabled: url !== null,
+    staleTime: 60 * 60_000,
+    retry: false,
   })
 }
 

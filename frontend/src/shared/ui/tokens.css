@@ -1188,18 +1188,30 @@ p { margin: 0 0 10px; }
 
 /* Куда можно воткнуть тянущийся кабель. Набор колонок в data-accepts считает
    PatchbayState по isValidConnection — здесь только оформление. Цель видно с
-   другого конца холста, а не только когда курсор уже над гнездом. */
+   другого конца холста, а не только когда курсор уже над гнездом.
+
+   Виды перечислены за ОБА графа: `rule`/`out`/`inj`/`bal` — Xray,
+   `group`/`provider`/`builtin` — Mihomo. Список обязан покрывать targetKinds
+   каждой топологии целиком: вид, которого здесь нет, data-accepts проставит, а
+   подсветки не будет — кабель тянется вслепую. Новых токенов и компонентов
+   правила не заводят, оформление у обоих графов одно. */
 [data-accepts~='rule'] .react-flow__node[data-id^='rule:'] .fnode,
 [data-accepts~='out'] .react-flow__node[data-id^='out:'] .fnode,
 [data-accepts~='inj'] .react-flow__node[data-id^='inj:'] .fnode,
-[data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .fnode {
+[data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .fnode,
+[data-accepts~='group'] .react-flow__node[data-id^='group:'] .fnode,
+[data-accepts~='provider'] .react-flow__node[data-id^='provider:'] .fnode,
+[data-accepts~='builtin'] .react-flow__node[data-id^='builtin:'] .fnode {
   border-color: color-mix(in srgb, var(--live) 55%, var(--rail));
   box-shadow: var(--shadow-1), 0 0 0 1px color-mix(in srgb, var(--live) 30%, transparent);
 }
 [data-accepts~='rule'] .react-flow__node[data-id^='rule:'] .react-flow__handle-left,
 [data-accepts~='out'] .react-flow__node[data-id^='out:'] .react-flow__handle-left,
 [data-accepts~='inj'] .react-flow__node[data-id^='inj:'] .react-flow__handle-left,
-[data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .react-flow__handle-left {
+[data-accepts~='bal'] .react-flow__node[data-id^='bal:'] .react-flow__handle-left,
+[data-accepts~='group'] .react-flow__node[data-id^='group:'] .react-flow__handle-left,
+[data-accepts~='provider'] .react-flow__node[data-id^='provider:'] .react-flow__handle-left,
+[data-accepts~='builtin'] .react-flow__node[data-id^='builtin:'] .react-flow__handle-left {
   border-color: var(--live);
   background: color-mix(in srgb, var(--live) 30%, var(--panel-3));
 }

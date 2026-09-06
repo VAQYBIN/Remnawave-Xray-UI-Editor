@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TemplatesPage } from '../src/features/templates/TemplatesPage'
 import { useDraftStore } from '../src/features/editor/draftStore'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
+import { optionLabels, selectedValue, selectOption } from './helpers'
 
 const UUID = 'a0000000-0000-4000-8000-000000000001'
 
@@ -22,6 +23,14 @@ const TEMPLATES = [
   {
     uuid: 'a0000000-0000-4000-8000-000000000002',
     viewPosition: 1,
+    name: 'Clash',
+    templateType: 'CLASH',
+    templateJson: null,
+    encodedTemplateYaml: 'eA==',
+  },
+  {
+    uuid: 'a0000000-0000-4000-8000-000000000003',
+    viewPosition: 2,
     name: 'Mihomo',
     templateType: 'MIHOMO',
     templateJson: null,
@@ -69,9 +78,20 @@ describe('список шаблонов', () => {
   it('неподдерживаемый тип показан, но без ссылки в редактор', async () => {
     mockFetch({ templates: TEMPLATES })
     renderPage()
-    expect(await screen.findByText('Mihomo')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Mihomo' })).not.toBeInTheDocument()
+    expect(await screen.findByText('Clash')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Clash' })).not.toBeInTheDocument()
     expect(screen.getByText(/откройте в панели/)).toBeInTheDocument()
+  })
+
+  // Редактор умеет два типа, и MIHOMO — второй: ссылка обязана быть, а плашка
+  // «откройте в панели» на его карточке — нет
+  it('MIHOMO открывается ссылкой в редактор', async () => {
+    mockFetch({ templates: TEMPLATES })
+    renderPage()
+    const link = await screen.findByRole('link', { name: 'Mihomo' })
+    expect(link).toHaveAttribute('href', `/templates/${TEMPLATES[2]!.uuid}`)
+    // Плашка ровно одна — у CLASH; будь она и у MIHOMO, их было бы две
+    expect(screen.getAllByText(/откройте в панели/)).toHaveLength(1)
   })
 
   it('XRAY_JSON открывается ссылкой в редактор', async () => {
@@ -134,5 +154,56 @@ describe('список шаблонов', () => {
     await screen.findByText('Xray Default')
     await userEvent.click(screen.getAllByRole('button', { name: 'Удалить' })[0]!)
     await waitFor(() => expect(screen.getByText(/нельзя отменить/)).toBeInTheDocument())
+  })
+})
+
+/**
+ * Панель для создания: список отдаёт пустым, а на POST возвращает заведённый
+ * шаблон — иначе onSuccess диалога уйдёт навигацией в `/templates/undefined`.
+ * Возвращает тела POST-запросов: тип шаблона в них — то, ради чего тест написан.
+ */
+function mockCreate() {
+  const bodies: Record<string, unknown>[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+        return new Response(JSON.stringify({ template: { uuid: 'new-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      // Список НЕ пустой намеренно: у пустого EmptyState рисует вторую кнопку
+      // «Создать шаблон», и findByRole упал бы на двух совпадениях
+      return new Response(JSON.stringify({ templates: TEMPLATES }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }),
+  )
+  return bodies
+}
+
+describe('создание шаблона', () => {
+  // Тип панель менять после создания не даёт, и каркас пустого шаблона зависит
+  // от него — выбор обязан быть здесь, до нажатия «Создать»
+  it('предлагает оба типа, которые умеет редактор, и начинает с XRAY_JSON', async () => {
+    mockCreate()
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Создать шаблон' }))
+    expect(selectedValue('Тип шаблона')).toBe('XRAY_JSON')
+    expect(await optionLabels('Тип шаблона')).toEqual(['Xray (JSON)', 'Mihomo (YAML)'])
+  })
+
+  it('выбранный тип уходит в панель вместе с именем', async () => {
+    const bodies = mockCreate()
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Создать шаблон' }))
+    await userEvent.type(screen.getByLabelText('Имя шаблона'), 'My Mihomo')
+    await selectOption('Тип шаблона', 'MIHOMO')
+    await userEvent.click(screen.getByRole('button', { name: 'Создать' }))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toEqual({ name: 'My Mihomo', templateType: 'MIHOMO' })
   })
 })

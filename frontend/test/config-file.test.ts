@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { downloadJson, exportFileName, parseImported } from '../src/features/editor/configFile'
+import {
+  downloadJson,
+  exportFileName,
+  parseImported,
+  parseImportedYaml,
+} from '../src/features/editor/configFile'
+import { encodeYaml } from '../src/shared/lib/base64'
 
 const DATE = new Date('2026-07-25T12:00:00.000Z')
 
@@ -114,5 +120,70 @@ describe('downloadJson', () => {
     expect(click).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:x')
     click.mockRestore()
+  })
+})
+
+describe('exportFileName: расширение', () => {
+  it('по умолчанию json, а по запросу — любое другое', () => {
+    const date = new Date('2026-07-25T12:00:00.000Z')
+    expect(exportFileName('Mihomo', date)).toBe('mihomo-2026-07-25.json')
+    expect(exportFileName('Mihomo', date, 'yaml')).toBe('mihomo-2026-07-25.yaml')
+  })
+})
+
+describe('parseImportedYaml', () => {
+  const YAML = 'proxy-groups:\n  - name: A\n'
+
+  it('обычный YAML уходит в черновик текстом, байт в байт', () => {
+    // Круг через модель стёр бы якоря и комментарий-маркер подстановки —
+    // источник истины у Mihomo текст, и импорт обязан это уважать
+    expect(parseImportedYaml(YAML)).toEqual({ text: YAML })
+  })
+
+  it('бэкап панели раскодируется из encodedTemplateYaml', () => {
+    const raw = JSON.stringify({
+      savedAt: '2026-07-20T10:00:00.000Z',
+      template: { templateType: 'MIHOMO', templateJson: null, encodedTemplateYaml: encodeYaml(YAML) },
+    })
+    expect(parseImportedYaml(raw)).toEqual({ text: YAML })
+  })
+
+  it('бэкап шаблона другого вида — отказ, а не обёртка в черновике', () => {
+    const raw = JSON.stringify({
+      savedAt: '2026-07-20T10:00:00.000Z',
+      template: { templateType: 'XRAY_JSON', templateJson: { outbounds: [] } },
+    })
+    const result = parseImportedYaml(raw)
+    expect('error' in result && result.error).toMatch(/другого вида/)
+  })
+
+  it('нечитаемое содержимое бэкапа объясняется', () => {
+    const raw = JSON.stringify({
+      template: { templateType: 'MIHOMO', encodedTemplateYaml: 'не base64 ¡' },
+    })
+    const result = parseImportedYaml(raw)
+    expect('error' in result && result.error).toMatch(/не base64/)
+  })
+
+  it('JSON без обёртки бэкапа — валидный YAML, отдаётся как есть', () => {
+    expect(parseImportedYaml('{"mode":"rule"}')).toEqual({ text: '{"mode":"rule"}' })
+  })
+
+  // Отказ по форме, а не по синтаксису: JSON — валидный YAML, и отвергать файл
+  // за то, что он разобрался как JSON, значило бы отвергать законный документ
+  // Mihomo в JSON-стиле. Проверяем обе стороны этой границы
+  it('конфиг Xray отвергается, а не уезжает молча в черновик Mihomo', () => {
+    const xray = '{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}'
+    const wrapped = '{"profile":{"config":{"outbounds":[]}}}'
+    const apiShape = '{"config":{"outbounds":[]}}'
+    for (const raw of [xray, wrapped, apiShape]) {
+      const result = parseImportedYaml(raw)
+      expect('error' in result && result.error).toMatch(/конфиг Xray/)
+    }
+  })
+
+  it('документ Mihomo в JSON-стиле принимается как есть', () => {
+    const raw = '{"proxy-groups":[{"name":"A","type":"select"}],"rules":["MATCH,A"]}'
+    expect(parseImportedYaml(raw)).toEqual({ text: raw })
   })
 })

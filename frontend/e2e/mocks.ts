@@ -170,6 +170,9 @@ export async function mockTemplates(
       json: {
         templates: [
           TEMPLATE,
+          // Редактор умеет два типа, и MIHOMO — второй: у него в списке есть
+          // ссылка. Неоткрываемый тип нужен рядом, иначе проверка «ссылки нет»
+          // осталась бы без предмета
           {
             uuid: '44444444-4444-4444-8444-444444444444',
             viewPosition: 1,
@@ -178,8 +181,154 @@ export async function mockTemplates(
             templateJson: null,
             encodedTemplateYaml: 'eA==',
           },
+          {
+            uuid: '55555555-5555-4555-8555-555555555555',
+            viewPosition: 2,
+            name: 'Clash',
+            templateType: 'CLASH',
+            templateJson: null,
+            encodedTemplateYaml: 'eA==',
+          },
         ],
       },
     })
   })
+}
+
+/**
+ * Шаблон Mihomo. UUID тот же, что у записи `MIHOMO` в списке `mockTemplates`
+ * выше: второй шаблон того же типа сломал бы утверждения списка, а редактор
+ * всё равно читает содержимое отдельным запросом.
+ *
+ * Документ компактный, но настоящий: группа с маркером подстановки, вторая
+ * группа через провайдера, сам провайдер и три правила. Порядок строк здесь
+ * значим — сценарий правки проверяет НОМЕР строки, на которую форма вписала
+ * поле (см. mihomo.spec.ts).
+ */
+export const MIHOMO_UUID = '44444444-4444-4444-8444-444444444444'
+
+export const MIHOMO_YAML = `mode: rule
+log-level: info
+
+proxy-groups:
+  - name: Основная
+    type: select
+    proxies:
+      - Резерв
+      # LEAVE THIS LINE!
+
+  - name: Резерв
+    type: url-test
+    url: https://captive.apple.com/generate_204
+    interval: 300
+    use:
+      - backup
+
+proxy-providers:
+  backup:
+    type: http
+    url: https://example.test/backup.yaml
+    path: ./backup.yaml
+    interval: 86400
+
+rules:
+  - DOMAIN-SUFFIX,example.com,Резерв
+  - DOMAIN-SUFFIX,ya.ru,Основная
+  - MATCH,Резерв
+`
+
+/** Содержимое шаблона из каталога — намеренно ДРУГОЙ документ: по имени группы
+ *  видно, что импорт действительно заменил содержимое редактора */
+export const CATALOG_MIHOMO_YAML = `mode: rule
+
+proxy-groups:
+  - name: Каталог
+    type: select
+    proxies:
+      # LEAVE THIS LINE!
+
+rules:
+  - MATCH,Каталог
+`
+
+/** base64 от utf-8, как хранит панель: в именах групп бывает кириллица */
+const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64')
+
+const MIHOMO_HASH = 'e'.repeat(64)
+
+export const MIHOMO_TEMPLATE = {
+  uuid: MIHOMO_UUID,
+  viewPosition: 1,
+  name: 'Mihomo',
+  tags: [],
+  templateType: 'MIHOMO',
+  templateJson: null,
+  encodedTemplateYaml: b64(MIHOMO_YAML),
+}
+
+/**
+ * Индекс каталога: три записи, одна из них — типа, которого в контракте панели
+ * нет (`SINGBOX_LEGACY`). Диалог обязан показать её с пометкой, а не уронить
+ * список.
+ */
+export const CATALOG_ENTRIES = [
+  {
+    name: 'mihomo-default',
+    type: 'MIHOMO',
+    author: 'legiz-ru',
+    url: 'https://raw.example.test/templates/mihomo-default.yaml',
+  },
+  {
+    name: 'xray-default',
+    type: 'XRAY_JSON',
+    author: 'remnawave',
+    url: 'https://raw.example.test/templates/xray-default.json',
+  },
+  {
+    name: 'singbox-legacy',
+    type: 'SINGBOX_LEGACY',
+    author: 'community',
+    url: 'https://raw.example.test/templates/singbox-legacy.json',
+  },
+]
+
+const CATALOG_CONTENT: Record<string, string> = {
+  [CATALOG_ENTRIES[0]!.url]: CATALOG_MIHOMO_YAML,
+  [CATALOG_ENTRIES[1]!.url]: JSON.stringify({ outbounds: [{ tag: 'direct', protocol: 'freedom' }] }, null, 2),
+  [CATALOG_ENTRIES[2]!.url]: '{"outbounds":[]}',
+}
+
+/**
+ * Маршруты редактора Mihomo. Отдельно от `mockTemplates`: тем спекам нужен
+ * список шаблонов, а этим — содержимое одного и инструменты вокруг него.
+ * `core` задаёт ответ проверки ядром — сценарию отчёта нужен принявший вердикт.
+ */
+export async function mockMihomo(
+  page: Page,
+  opts: { core?: { available: boolean; ok: boolean; errors: string[] } } = {},
+) {
+  await page.route(`**/api/templates/${MIHOMO_UUID}/backups`, (r) =>
+    r.fulfill({ json: { backups: [] } }),
+  )
+  await page.route(`**/api/templates/${MIHOMO_UUID}`, (r) =>
+    r.fulfill({ json: { template: MIHOMO_TEMPLATE, hash: MIHOMO_HASH } }),
+  )
+
+  // Регулярками, а не глобами: `**/api/catalog/template*` поймал бы и индекс
+  // (`/templates`), и порядок перехвата пришлось бы держать в голове
+  await page.route(/\/api\/catalog\/templates$/, (r) =>
+    r.fulfill({ json: { templates: CATALOG_ENTRIES } }),
+  )
+  await page.route(/\/api\/catalog\/template\?/, (r) => {
+    const url = new URL(r.request().url()).searchParams.get('url') ?? ''
+    const content = CATALOG_CONTENT[url]
+    if (content === undefined) {
+      return r.fulfill({ status: 400, json: { message: 'Такой ссылки в каталоге нет' } })
+    }
+    return r.fulfill({ json: { content } })
+  })
+
+  await page.route('**/api/tools/mihomo-test', (r) =>
+    r.fulfill({ json: opts.core ?? { available: true, ok: true, errors: [] } }),
+  )
 }

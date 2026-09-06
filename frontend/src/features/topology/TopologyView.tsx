@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import {
-  applyEdgeChanges, applyNodeChanges, Background, Controls, Panel, ReactFlow, useConnection,
-  useReactFlow, useStore, useUpdateNodeInternals, ViewportPortal,
-  type Edge, type EdgeChange, type NodeChange, type Connection, type Node,
-} from '@xyflow/react'
+export { inspectorWidth, resyncEdges } from './GraphCanvas'
+
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import type { Connection, Edge } from '@xyflow/react'
 import {
   blockingInjectPrefix, expandBlockedByPanelTags, expandSelector,
   type TraceResult, type XrayConfig,
@@ -18,6 +16,7 @@ import {
 } from '../../entities/graph/mutations'
 import { Button, Dialog } from '../../shared/ui'
 import { edgeTypes } from './edges'
+import { GraphCanvas } from './GraphCanvas'
 import { nodeTypes } from './nodes'
 import { usePositionsStore } from './positionsStore'
 
@@ -62,12 +61,6 @@ const EDGE_BAL_INJ = /^e:bal:(.+)->inj:(\d+)$/
 function ruleIndexOf(edgeId: string): number {
   const m = RULE_INDEX.exec(edgeId)
   return m ? Number(m[1]) : -1
-}
-
-// Пересборка графа заменяет объекты рёбер — переносим флаг выделения по id
-export function resyncEdges(prev: Edge[], next: Edge[]): Edge[] {
-  const selected = new Set(prev.filter((e) => e.selected).map((e) => e.id))
-  return next.map((e) => (selected.has(e.id) ? { ...e, selected: true } : e))
 }
 
 /**
@@ -121,117 +114,8 @@ export function applyConnection(
   return config
 }
 
-/** Ширина инспектора; держится в паре с --inspector-w в tokens.css */
-export function inspectorWidth(viewportWidth: number): number {
-  return Math.min(440, viewportWidth * 0.92)
-}
-
-/**
- * Инспектор выезжает поверх канваса, поэтому без компенсации правая колонка узлов
- * оказалась бы под ним и стала недоступной для клика. Сдвигаем вьюпорт ровно на
- * ширину панели — граф не перекомпоновывается, но «выталкивается» из-под неё.
- * Между двумя выбранными узлами сдвиг не меняется, так что дёргается только
- * открытие и закрытие.
- */
-function ViewportShift({ shift }: { shift: number }) {
-  const { getViewport, setViewport } = useReactFlow()
-  const applied = useRef(0)
-
-  useEffect(() => {
-    const delta = shift - applied.current
-    if (delta === 0) return
-    applied.current = shift
-    const vp = getViewport()
-    setViewport({ ...vp, x: vp.x - delta }, { duration: 180 })
-  }, [shift, getViewport, setViewport])
-
-  return null
-}
-
-/** Центрирование на узле по запросу поиска; nonce позволяет вернуться к тому же узлу повторно */
-function FocusNode({ request }: { request?: { nodeId: string; nonce: number } | null }) {
-  const { getNode, setCenter } = useReactFlow()
-
-  useEffect(() => {
-    if (!request) return
-    const node = getNode(request.nodeId)
-    if (!node) return
-    const width = node.measured?.width ?? 220
-    const height = node.measured?.height ?? 90
-    setCenter(node.position.x + width / 2, node.position.y + height / 2, {
-      zoom: 1,
-      duration: 320,
-    })
-  }, [request, getNode, setCenter])
-
-  return null
-}
-
 /** Колонки, куда вообще можно воткнуть кабель. Ключ — префикс id узла. */
 const TARGET_KINDS = ['rule', 'out', 'bal', 'inj'] as const
-
-/**
- * Гнёзда живут внутри масштабируемого вьюпорта: на отдалении 12px-джек
- * превращается в пять экранных пикселей, и попасть в него мышью нечем. Кладём
- * зум в CSS-переменную — хит-зона делится на него и остаётся постоянной на
- * экране, каким бы ни был масштаб.
- *
- * Второй атрибут говорит, куда сейчас можно воткнуть тянущийся кабель. Набор
- * колонок выводится из isValidConnection, а не переписывается в CSS: правила
- * коммутации должны жить в одном месте. Подсветка тогда — чистый CSS, без
- * перерисовки узлов на каждое движение мыши.
- */
-function PatchbayState() {
-  const dom = useStore((s) => s.domNode)
-  const zoom = useStore((s) => s.transform[2])
-  const connection = useConnection()
-  const from = connection.inProgress ? (connection.fromHandle?.nodeId ?? null) : null
-
-  const accepts = useMemo(() => {
-    if (from === null) return null
-    return TARGET_KINDS.filter((kind) =>
-      isValidConnection({ source: from, target: `${kind}:probe` }),
-    ).join(' ')
-  }, [from])
-
-  useEffect(() => {
-    dom?.style.setProperty('--rf-zoom', String(zoom))
-  }, [dom, zoom])
-
-  useEffect(() => {
-    if (!dom) return
-    if (accepts === null) delete dom.dataset.accepts
-    else dom.dataset.accepts = accepts
-  }, [dom, accepts])
-
-  return null
-}
-
-/**
- * Входная анимация `.fnode` сдвигает карточку на 8px вниз (`node-enter`), а React Flow
- * снимает позиции гнёзд как раз в это время — и все рёбра остаются на 8px ниже своих
- * гнёзд до первой перерисовки, которую раньше вызывало только перетаскивание узла.
- * По окончании анимации просим пересчитать внутренности узла.
- *
- * Живёт отдельным узлом внутри `<ReactFlow>`: хук требует контекста провайдера, который
- * создаёт сам канвас, — снаружи он падает с ошибкой 001.
- */
-function RemeasureOnEnter() {
-  const updateNodeInternals = useUpdateNodeInternals()
-
-  useEffect(() => {
-    function onAnimationEnd(event: AnimationEvent) {
-      const target = event.target
-      if (!(target instanceof HTMLElement) || !target.classList.contains('fnode')) return
-      const id = target.closest('.react-flow__node')?.getAttribute('data-id')
-      if (id) updateNodeInternals(id)
-    }
-    document.addEventListener('animationend', onAnimationEnd, true)
-    return () => document.removeEventListener('animationend', onAnimationEnd, true)
-  }, [updateNodeInternals])
-
-  return null
-}
 
 const COLUMNS = [
   { kind: 'squad', title: 'сквады', x: COLUMN_X.squad },
@@ -311,8 +195,6 @@ export function TopologyView({
   allowInject,
 }: Props) {
   const saved = usePositionsStore((s) => s.positions[docKey])
-  const setPosition = usePositionsStore((s) => s.setPosition)
-  const resetPositions = usePositionsStore((s) => s.resetPositions)
 
   // Граф пересобирается только от конфига и контекста панели. Трассировка сюда
   // не входит намеренно: иначе каждый символ в строке адреса создавал бы все узлы
@@ -360,33 +242,10 @@ export function TopologyView({
     return { nodes: laid, edges: wired }
   }, [graph, config, saved, selectedId, trace, issues])
 
-  // controlled-режим: drag применяется к локальному стейту, ресинк при пересборке графа
-  const [nodes, setNodes] = useState<Node[]>(computed.nodes)
-  useEffect(() => setNodes(computed.nodes), [computed.nodes])
-  const [edges, setEdges] = useState<Edge[]>(computed.edges)
-  useEffect(() => setEdges((prev) => resyncEdges(prev, computed.edges)), [computed.edges])
-
   // Запрос на разворот префикса selector — ставится при разрыве префиксного ребра
   const [expand, setExpand] = useState<{ balancerTag: string; outboundTag: string } | null>(null)
   // Запрос про неразрешимый префикс на ребре балансер → группа подстановки
   const [groupBlock, setGroupBlock] = useState<{ balancerTag: string; prefix: string } | null>(null)
-
-  const onNodesChange = useCallback(
-    (changes: NodeChange[]) => {
-      setNodes((nds) => applyNodeChanges(changes, nds))
-      for (const change of changes) {
-        if (change.type === 'position' && change.position && !change.dragging) {
-          setPosition(docKey, change.id, change.position)
-        }
-      }
-    },
-    [docKey, setPosition],
-  )
-
-  const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    [],
-  )
 
   const onConnect = useCallback(
     (conn: Connection) => {
@@ -437,11 +296,6 @@ export function TopologyView({
     [config, onChangeConfig],
   )
 
-  const filledColumns = useMemo(() => {
-    const kinds = new Set(computed.nodes.map((n) => n.data.kind))
-    return COLUMNS.filter((c) => kinds.has(c.kind))
-  }, [computed.nodes])
-
   const noRules = (config.routing?.rules?.length ?? 0) === 0
 
   // Если префикс держит и кандидата, и группу подстановки, expandSelector вернёт тот же
@@ -454,77 +308,40 @@ export function TopologyView({
       : undefined
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
+    <GraphCanvas
+      docKey={docKey}
+      nodes={computed.nodes}
+      edges={computed.edges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
-      colorMode="dark"
-      fitView
-      fitViewOptions={{ padding: 0.22 }}
-      minZoom={0.25}
-      maxZoom={1.75}
-      proOptions={{ hideAttribution: true }}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onNodeClick={(_, node: Node) => onSelect(node.id)}
-      onPaneClick={() => onSelect(null)}
-      onConnect={onConnect}
+      selectedId={selectedId}
+      onSelect={onSelect}
       isValidConnection={isValidConnection}
+      onConnect={onConnect}
       onEdgesDelete={onEdgesDelete}
+      targetKinds={TARGET_KINDS}
+      columns={COLUMNS}
+      focus={focus}
+      hint={
+        noRules ? (
+          <>Правил пока нет. Протяните кабель от гнезда inbound к outbound — правило создастся само.</>
+        ) : undefined
+      }
+      dockActions={
+        <>
+          <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
+          <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
+          <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
+          <Button onClick={() => onChangeConfig(addBalancer(config))}>+ Балансер</Button>
+          {allowInject && (
+            <Button onClick={() => onChangeConfig(addInjectGroup(config))}>+ Подстановка</Button>
+          )}
+          {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
+        </>
+      }
+      dockExtra={dockExtra}
+      dockRow={dockRow}
     >
-      <Background gap={22} size={1} />
-      <Controls showInteractive={false} position="bottom-right" />
-      <ViewportShift shift={selectedId === null ? 0 : inspectorWidth(window.innerWidth)} />
-      <FocusNode request={focus} />
-      <RemeasureOnEnter />
-      <PatchbayState />
-
-      {/* Подписи колонок живут в координатах канваса и едут вместе с узлами */}
-      <ViewportPortal>
-        {filledColumns.map((c) => (
-          <div
-            key={c.kind}
-            className="column-label"
-            style={{ position: 'absolute', transform: `translate(${c.x}px, -52px)` }}
-          >
-            {c.title}
-          </div>
-        ))}
-      </ViewportPortal>
-
-      {noRules && (
-        <Panel position="top-center">
-          <p className="canvas-hint">
-            Правил пока нет. Протяните кабель от гнезда inbound к outbound — правило создастся само.
-          </p>
-        </Panel>
-      )}
-
-      <Panel position="bottom-center">
-        {/* Раскрытый инструмент уезжает во вторую строку: в одной он растягивал
-            док почти во всю ширину окна и накрывал правую колонку узлов */}
-        <div className={dockRow ? 'wb-dock wb-dock-stacked' : 'wb-dock'}>
-          <div className="wb-dock-row">
-            <Button onClick={() => onChangeConfig(addInbound(config))}>+ Inbound</Button>
-            <Button onClick={() => onChangeConfig(addOutbound(config))}>+ Outbound</Button>
-            <Button onClick={() => onChangeConfig(addRule(config))}>+ Правило</Button>
-            <Button onClick={() => onChangeConfig(addBalancer(config))}>+ Балансер</Button>
-            {allowInject && (
-              <Button onClick={() => onChangeConfig(addInjectGroup(config))}>+ Подстановка</Button>
-            )}
-            {onOpenRecipes && <Button onClick={onOpenRecipes}>+ Рецепт</Button>}
-            <span className="wb-dock-sep" aria-hidden="true" />
-            {dockExtra}
-            {dockExtra && <span className="wb-dock-sep" aria-hidden="true" />}
-            <Button variant="ghost" onClick={() => resetPositions(docKey)}>
-              Сбросить расположение
-            </Button>
-          </div>
-          {dockRow && <div className="wb-dock-row wb-dock-row-2">{dockRow}</div>}
-        </div>
-      </Panel>
-
       <Dialog open={expand !== null} title="Убрать выход из балансера" onClose={() => setExpand(null)}>
         {panelBlocked ? (
           <>
@@ -612,6 +429,6 @@ export function TopologyView({
           </Button>
         </div>
       </Dialog>
-    </ReactFlow>
+    </GraphCanvas>
   )
 }

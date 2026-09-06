@@ -16,6 +16,8 @@ import {
 } from '../../shared/api'
 import type { GraphContext } from '../../entities/graph/types'
 import { Button, Dialog } from '../../shared/ui'
+import { ImportTemplateDialog } from './ImportTemplateDialog'
+import { MihomoEditorPage } from './MihomoEditorPage'
 import { SaveDialog } from '../editor/SaveDialog'
 import { Workbench } from '../editor/Workbench'
 import { useConfigDraft } from '../editor/useConfigDraft'
@@ -65,6 +67,10 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
   const save = useSaveTemplate(template.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
   const [conflict, setConflict] = useState<ConflictState | null>(null)
+  // Каталог отдаёт шаблоны всех типов, и Xray-редактору он нужен ровно так же,
+  // как Mihomo. Состояние здесь местное: useConfigDraft общий с профилем, а у
+  // профиля импортировать из каталога подписок нечего
+  const [importOpen, setImportOpen] = useState(false)
 
   function doSave(expectedHash: string) {
     save.mutate(
@@ -114,6 +120,11 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
       title={template.name}
       subtitle={`шаблон ${template.templateType}`}
       allowInject
+      actions={
+        <Button variant="ghost" onClick={() => setImportOpen(true)}>
+          Импорт
+        </Button>
+      }
       statusExtra={
         saveError ? (
           <span className="field-error">{saveError}</span>
@@ -131,6 +142,21 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
         </Button>
       }
     >
+      <ImportTemplateDialog
+        open={importOpen}
+        docType="XRAY_JSON"
+        dirty={draft.dirty}
+        onImport={(content) => {
+          // Импорт — правка черновика, а не запись в панель: пользователь видит
+          // шаблон в редакторе, может отменить его через Ctrl+Z и сам решает,
+          // сохранять ли. Выбор снимаем: документ заменён целиком, а id узлов
+          // считаются по тегам и позициям правил старого
+          draft.writeDraft(content, { history: true })
+          draft.setSelectedNode(null)
+        }}
+        onClose={() => setImportOpen(false)}
+      />
+
       <SaveDialog
         open={saveOpen}
         onClose={() => setSaveOpen(false)}
@@ -206,13 +232,21 @@ export function TemplateEditorPage() {
     )
   }
   const { template, hash } = query.data
-  // YAML-типы держат содержимое в encodedTemplateYaml, а templateJson у них null:
-  // открыть их этим редактором нельзя, и молчать об этом — худшее из решений
+  // Тип известен только после загрузки, поэтому маршрут у обоих редакторов один
+  // (/templates/:uuid), а разводит их страница — там, где уже стояла проверка
+  // типа. Отдельный адрес пришлось бы угадывать в списке шаблонов.
+  // key — по той же причине, что и у TemplateEditor ниже.
+  if (template.templateType === 'MIHOMO') {
+    return <MihomoEditorPage key={template.uuid} template={template} hash={hash} />
+  }
+  // Остальные YAML-типы держат содержимое в encodedTemplateYaml, а разбирать
+  // его редактор умеет только по правилам Mihomo; XRAY_BASE64 и SINGBOX — свои
+  // форматы. Открыть их нельзя, и молчать об этом — худшее из решений
   if (template.templateType !== 'XRAY_JSON') {
     return (
       <main style={{ padding: 24 }}>
         <p>
-          Редактор пока умеет только шаблоны XRAY_JSON, а «{template.name}» —{' '}
+          Редактор умеет шаблоны XRAY_JSON и MIHOMO, а «{template.name}» —{' '}
           {template.templateType}. Откройте его в панели Remnawave.
         </p>
         {back}

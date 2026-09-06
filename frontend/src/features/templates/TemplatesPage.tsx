@@ -16,9 +16,10 @@ import { SectionSwitch } from '../nav/SectionSwitch'
 import { usePositionsStore } from '../topology/positionsStore'
 import { CreateTemplateDialog } from './CreateTemplateDialog'
 
-// Редактор умеет пока только этот тип; остальные пять (MIHOMO, CLASH, STASH,
-// SINGBOX, XRAY_BASE64) держат содержимое в другом поле и правятся в панели.
-const EDITABLE: TemplateType = 'XRAY_JSON'
+// Редактор умеет два типа; остальные четыре (CLASH, STASH, SINGBOX,
+// XRAY_BASE64) держат содержимое в полях, которых он не разбирает, и правятся
+// в панели. Набор, а не одно значение: типов здесь уже больше одного.
+const EDITABLE: ReadonlySet<TemplateType> = new Set(['XRAY_JSON', 'MIHOMO'])
 
 function TemplateCard({
   template,
@@ -31,7 +32,7 @@ function TemplateCard({
   index: number
   onDelete: () => void
 }) {
-  const editable = template.templateType === EDITABLE
+  const editable = EDITABLE.has(template.templateType)
   return (
     // Карточки въезжают волной — тот же язык появления, что у узлов графа
     <Card className="profile-card" style={{ '--enter-delay': `${Math.min(index, 8) * 45}ms` } as CSSProperties}>

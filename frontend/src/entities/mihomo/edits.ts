@@ -14,7 +14,9 @@
 // а не собирать их пачкой.
 
 import { isAlias, isMap, isScalar, isSeq, stringify, type Pair } from 'yaml'
+import type { PathParts } from '../xray/config'
 import { groupsOf } from './groups'
+import { dealias, mergedHas, mergedNode } from './merge'
 import { parseMihomo, rangeOf, sectionNode, type MihomoDoc, type Range } from './parse'
 import { formatRule, parseRule, rulesOf, type MihomoRule } from './rules'
 
@@ -97,7 +99,7 @@ export function applyEdits(text: string, edits: TextEdit[]): string {
  * раньше: `graph/mihomo` уже импортирует из `mihomo/edits`, обратной
  * зависимости это не создаёт.
  */
-export function scalar(value: string | boolean): string | null {
+export function scalar(value: string | boolean | number): string | null {
   const printed = stringify(value, { lineWidth: 0 }).trimEnd()
   return printed.includes('\n') ? null : printed
 }
@@ -142,7 +144,26 @@ function ruleText(rule: MihomoRule): string | null {
   return scalar(formatRule(rule))
 }
 
-export type FieldOrigin = 'own' | 'merged' | 'absent'
+/**
+ * `alias` (ревью раунд 1, находка 1) — путь к полю прошёл через `*alias` на
+ * ПРОМЕЖУТОЧНОМ сегменте составного ключа (`remnawave: *rw`, дальше
+ * `include-proxies` внутри `*rw`): отображение, в котором физически лежит
+ * поле, — это разделяемое объявление якоря (`&rw`), а не собственная секция
+ * узла. Правка по такому пути изменила бы ВСЕ места, которые используют этот
+ * алиас, и притом произвольно выбрала бы, чьей строкой считать удаление —
+ * тот же класс дефекта, что и `merged` (слияние `<<`), только сооружённый
+ * через `*alias`, а не через `<<`. Читателям (`readFieldAt`) `alias` не
+ * мешает — значение читается как обычно, просто без права записи.
+ *
+ * Тем же членом отвечает и второй случай (ревью раунд 2, находки 1 и 2): сам
+ * ЛИСТ пути — ссылка (`interval: *n`, `proxies: *base`). Ключ здесь свой, но
+ * значение принадлежит объявлению якоря, и правка по диапазону токена `*n`
+ * просто СТЁРЛА БЫ авторскую ссылку литералом, ничего об этом не сказав.
+ * Определение члена от этого не расширяется: «писать сюда нельзя, потому что
+ * правка затронет объявление якоря» — ровно тот же смысл, что и у пути через
+ * промежуточный алиас.
+ */
+export type FieldOrigin = 'own' | 'merged' | 'absent' | 'alias'
 
 function groupsSection(md: MihomoDoc): unknown {
   return sectionNode(md, 'proxy-groups')
@@ -158,37 +179,14 @@ function ownPair(map: unknown, key: string): Pair | undefined {
   return map.items.find((p) => (p.key as { value?: unknown } | null)?.value === key)
 }
 
-/** Коллекция во flow-стиле (`[a, b]`/`{a: b}`) — решение А: такие места сплайсом не правим */
-function isFlowNode(node: unknown): boolean {
+/**
+ * Коллекция во flow-стиле (`[a, b]`/`{a: b}`) — решение А: такие места сплайсом не
+ * правим. Экспортирована: `entities/graph/mihomo/mutations.ts` (коммутация кабелем)
+ * различает по ней «ключа нет» и «список во flow-стиле» отдельными причинами отказа
+ * (`MihomoRefusal`), а не одним и тем же пустым результатом.
+ */
+export function isFlowNode(node: unknown): boolean {
   return (isMap(node) || isSeq(node)) && (node as { flow?: boolean }).flow === true
-}
-
-/**
- * Есть ли значение ключа `key` в отображении `map` через слияние `<<`. Библиотека
- * `yaml` не разворачивает `<<` сама по себе (парсинг идёт без опции `merge`), поэтому
- * `map.get()` слияние не видит — обходим цепочку алиасов вручную, как groups.ts.
- */
-function mergedPresent(md: MihomoDoc, map: unknown, key: string, seen: Set<unknown> = new Set()): boolean {
-  if (!isMap(map) || seen.has(map)) return false
-  seen.add(map)
-  const mergePair = ownPair(map, '<<')
-  if (mergePair === undefined) return false
-  const targets = isSeq(mergePair.value) ? mergePair.value.items : [mergePair.value]
-  return targets.some((target) => {
-    const resolved = isAlias(target) ? target.resolve(md.doc) : target
-    return ownPair(resolved, key) !== undefined || mergedPresent(md, resolved, key, seen)
-  })
-}
-
-/**
- * Откуда у поля значение. `merged` — оно пришло через `<<: *anchor`, и править
- * его сплайсом нельзя: изменение затронуло бы все места, где используется якорь.
- */
-export function fieldOrigin(md: MihomoDoc, groupIndex: number, key: string): FieldOrigin {
-  const node = groupNode(md, groupIndex)
-  if (ownPair(node, key) !== undefined) return 'own'
-  if (mergedPresent(md, node, key)) return 'merged'
-  return 'absent'
 }
 
 /**
@@ -210,53 +208,353 @@ function lineEndFrom(text: string, offset: number): number {
   return nl === -1 ? text.length : nl
 }
 
-export function setGroupField(
-  md: MihomoDoc,
-  groupIndex: number,
-  key: string,
-  value: string | boolean,
-): TextEdit[] {
-  const origin = fieldOrigin(md, groupIndex, key)
-  // Значение из якоря правкой не трогаем: форма показывает такое поле только для чтения
-  if (origin === 'merged') return []
+/**
+ * Начало строки, следующей ПОСЛЕ блочной коллекции (элемент `proxy-groups`,
+ * блочный список `proxies` и подобные), чей диапазон заканчивается на `to`.
+ *
+ * У блочной коллекции второй элемент `node.range` уже включает завершающий
+ * перевод строки последнего потомка — то есть указывает на НАЧАЛО следующей
+ * физической строки, а не на конец своей (легко проверить: диапазон значения
+ * `proxies:\n  - DIRECT\n` заканчивается сразу после этого `\n`, на первом
+ * символе следующей строки). Наивный `text.indexOf('\n', to) + 1`, который
+ * годится для СКАЛЯРНОГО диапазона (там `to` — середина строки, до хвостового
+ * комментария), в этом случае искал бы \n уже СЛЕДУЮЩЕЙ строки и включил бы
+ * её в правку целиком — тот же класс дефекта, что и находка C3 плана 1 (там
+ * его обошли, выбрав якорем гарантированно скалярный ключ `name`), только
+ * здесь коллекция и есть сам предмет правки, обойти её нечем.
+ *
+ * Экспортирован ради `entities/graph/mihomo/mutations.ts` (коммутация кабелем):
+ * там удаление участника группы считало конец строки тем же наивным
+ * `indexOf('\n', range.to)` и на многострочной записи имени съедало СЛЕДУЮЩЕГО
+ * участника. Второй копии этой арифметики в проекте быть не должно — она уже
+ * дважды разъезжалась с оригиналом.
+ */
+export function afterBlock(text: string, to: number): number {
+  if (to > 0 && text[to - 1] === '\n') return to
+  const nl = text.indexOf('\n', to)
+  return nl === -1 ? text.length : nl + 1
+}
 
-  const node = groupNode(md, groupIndex)
-  if (origin === 'own') {
-    const range = rangeOf(ownPair(node, key)?.value)
+/**
+ * Отображение по пути; undefined — путь не ведёт к отображению. Общий спуск для
+ * `originAt`/`setFieldAt`/`removeFieldAt`/`readFieldAt`/`setListAt` — формы
+ * инспектора адресуют поле парой (путь до узла графа, ключ внутри него), а не
+ * голым индексом группы, как раньше умел только `setGroupField`.
+ */
+function mapAt(md: MihomoDoc, parts: PathParts): unknown {
+  let node: unknown = md.doc.contents
+  for (const part of parts) {
+    if (typeof part === 'number') {
+      if (!isSeq(node)) return undefined
+      node = node.items[part]
+      continue
+    }
+    if (!isMap(node)) return undefined
+    node = node.items.find((p) => (p.key as { value?: unknown } | null)?.value === part)?.value
+  }
+  return isMap(node) ? node : undefined
+}
+
+/**
+ * Спуск по составному ключу (`remnawave.include-proxies`) до отображения, в
+ * котором лежит последний сегмент. Промежуточного отображения нет — undefined:
+ * заводить вложенный блок в чужом файле правка не имеет права, это структурное
+ * изменение, а не смена значения.
+ *
+ * `aliased` (ревью раунд 1, находка 1) — хотя бы один ПРОМЕЖУТОЧНЫЙ сегмент
+ * дошёл до своего отображения через `*alias` (`remnawave: *rw`), а не собственным
+ * вложенным блоком. `dealias` ниже нужен, чтобы вообще НАЙТИ это отображение
+ * (иначе `isMap(Alias)` — `false`, и спуск дальше невозможен), но найденное
+ * отображение при этом — общее объявление якоря (`&rw`), используемое, возможно,
+ * ещё где-то. Флаг поднимается независимо от того, «свой» или «через `<<`»
+ * искомый ключ внутри этого отображения: сам факт прихода через алиас уже
+ * запрещает запись, кем бы полем оно ни оказалось.
+ */
+function ownerOf(
+  md: MihomoDoc,
+  map: unknown,
+  key: string,
+): { map: unknown; leaf: string; aliased: boolean } | undefined {
+  const segments = key.split('.')
+  const leaf = segments.pop()!
+  let node = map
+  let aliased = false
+  for (const segment of segments) {
+    if (!isMap(node)) return undefined
+    const raw = node.items.find((p) => (p.key as { value?: unknown } | null)?.value === segment)?.value
+    if (isAlias(raw)) aliased = true
+    node = dealias(md, raw)
+  }
+  return isMap(node) ? { map: node, leaf, aliased } : undefined
+}
+
+/**
+ * Откуда у поля значение. `merged` — оно пришло через `<<: *anchor` в ТОМ ЖЕ
+ * отображении; `alias` — либо путь до отображения прошёл через `*alias` на
+ * промежуточном сегменте составного ключа (см. `ownerOf`), либо ссылкой
+ * является само значение найденной собственной пары (`interval: *n`).
+ * Ни то, ни другое сплайсом не трогается: правка затронула бы объявление
+ * якоря — в первом случае у всех его потребителей, во втором стёрла бы саму
+ * ссылку, подменив её литералом.
+ */
+export function originAt(md: MihomoDoc, parts: PathParts, key: string): FieldOrigin {
+  const owner = ownerOf(md, mapAt(md, parts), key)
+  if (owner === undefined) return 'absent'
+  if (owner.aliased) return 'alias'
+  const own = ownPair(owner.map, owner.leaf)
+  // Ключ свой, а значение — ссылка: `setFieldAt` заменил бы диапазон токена
+  // `*n` литералом и молча уничтожил бы авторскую ссылку (ревью раунд 2).
+  if (own !== undefined) return isAlias(own.value) ? 'alias' : 'own'
+  return mergedHas(md, owner.map, owner.leaf) ? 'merged' : 'absent'
+}
+
+/**
+ * Тонкая обёртка над `originAt` для частого случая «поле группы» — сигнатура и
+ * поведение сохранены ради `mutations.ts` (коммутация кабелем) и тестов плана 1.
+ */
+export function fieldOrigin(md: MihomoDoc, groupIndex: number, key: string): FieldOrigin {
+  return originAt(md, ['proxy-groups', groupIndex], key)
+}
+
+/** Диапазон пары «ключ: значение» — от начала ключа до конца значения */
+function pairRangeOf(pair: Pair): Range | null {
+  const key = rangeOf(pair.key as unknown)
+  const value = rangeOf(pair.value)
+  if (key === null) return null
+  return { from: key.from, to: value?.to ?? key.to }
+}
+
+/**
+ * Последняя СВОЯ пара отображения со скалярным значением — безопасный якорь для
+ * вставки отсутствующего поля. Раньше (`setGroupField`) якорем всегда служил
+ * ключ `name`: он гарантированно есть у группы и гарантированно однострочный.
+ * У произвольной секции (`dns`, `remnawave` и т.п.) такого гарантированного
+ * ключа нет, поэтому здесь берётся ЛЮБАЯ скалярная своя пара — блочная
+ * коллекция (список/отображение) не годится по той же причине, что и раньше
+ * (находка C3): её диапазон в yaml может включать отступ следующего соседа, и
+ * вставка по такому диапазону рвёт документ.
+ */
+function lastScalarPair(map: unknown): Pair | undefined {
+  if (!isMap(map)) return undefined
+  let found: Pair | undefined
+  for (const pair of map.items) {
+    if (isScalar(pair.value)) found = pair
+  }
+  return found
+}
+
+/**
+ * Правка поля ЛЮБОЙ секции документа, а не только группы — `setGroupField`
+ * теперь тонкая обёртка над этой функцией (задача 7). `key` вида
+ * `remnawave.include-proxies` — путь: сначала отображение `remnawave` внутри
+ * узла по `parts`, потом ключ в нём; отсутствие промежуточного отображения —
+ * отказ (`ownerOf` вернёт undefined), а не создание вложенного блока в чужом
+ * файле.
+ */
+export function setFieldAt(
+  md: MihomoDoc,
+  parts: PathParts,
+  key: string,
+  value: string | boolean | number,
+): TextEdit[] {
+  // Значение из якоря правкой не трогаем — ни пришедшее через `<<` в этом же
+  // отображении (`merged`), ни через `*alias` на промежуточном сегменте пути
+  // (`alias`, находка 1 ревью раунд 1): форма показывает такое поле только для
+  // чтения — изменение задело бы все места, где используется якорь.
+  const origin = originAt(md, parts, key)
+  if (origin === 'merged' || origin === 'alias') return []
+  const owner = ownerOf(md, mapAt(md, parts), key)
+  if (owner === undefined) return []
+  const printed = scalar(value)
+  if (printed === null) return [] // печать не уместилась в одну строку (раунд 4) — отказ
+
+  const existing = ownPair(owner.map, owner.leaf)
+  if (existing !== undefined) {
+    const range = rangeOf(existing.value)
     if (range === null) return []
-    const printed = scalar(value)
-    if (printed === null) return [] // печать не уместилась в одну строку (раунд 4) — отказ
+    // Находка ревью (финальный раунд): замена по диапазону значения верна только
+    // для ОДНОСТРОЧНОГО значения. У свёрнутого (`filter: >-`), литерального (`|`)
+    // и у блочного СПИСКА диапазон занимает несколько физических строк и
+    // заканчивается уже на начале следующей — вставка одной напечатанной строки
+    // на его место склеивает соседнюю строку с этой («filter: zzz    type: select»)
+    // либо, у списка, оставляет скаляр на месте элементов и порчу не видно даже
+    // по ошибкам разбора. Схема объявляет поле строкой, а чужой документ держит
+    // тут блок — это штатное расхождение, ради которого модуль и существует,
+    // поэтому исход прежний: ОТКАЗ, а не «примерно правильная» правка. Форма по
+    // пустому списку правок покажет замок.
+    if (md.text.slice(range.from, range.to).includes('\n')) return []
     // Минорная находка: пустое значение («type:» без содержимого) начинается
     // сразу после двоеточия без пробела — без пробела склейка даст «type:url-test».
     const needsSpace = md.text[range.from - 1] === ':'
     return [{ from: range.from, to: range.to, insert: (needsSpace ? ' ' : '') + printed }]
   }
 
-  // Остаток 1: группа целиком записана во flow-стиле (`{name: a, type: select}`) —
-  // у неё нет «строк» с отступом, по которым построена вставка ниже; попытка
+  // Остаток 1: отображение целиком записано во flow-стиле (`{a: b}`) — у него
+  // нет «строк» с отступом, по которым построена вставка ниже; попытка
   // дописать `\n<indent>key: value` рвёт синтаксис («All mapping items must
-  // start at the same column»). Замена скаляра «own»-веткой выше по-прежнему
-  // безопасна и работает (решения А это не касается) — а вот вставку новой
-  // строки распространяем на отказ.
-  if (isFlowNode(node)) return []
+  // start at the same column»). Замена скаляра выше по-прежнему безопасна и
+  // работает (решения А это не касается) — а вот вставку новой строки
+  // распространяем на отказ.
+  if (isFlowNode(owner.map)) return []
 
-  // Поле отсутствует — дописываем его после СОБСТВЕННОГО ключа `name`. У любой
-  // валидной группы `name` есть и это всегда скаляр (см. groupsOf) — раньше якорем
-  // служил ПЕРВЫЙ ключ группы вообще (`items[0]`); если им оказывалась блочная
-  // коллекция (типично для `proxies` с маркером подстановки — самый частый
-  // случай), диапазон её значения в yaml включает отступ СЛЕДУЮЩЕГО соседа по
-  // списку, и вставка рвала документ (находка C3). У `name` такого не бывает.
-  const namePair = ownPair(node, 'name')
-  const nameRange = rangeOf(namePair?.value)
-  if (nameRange === null) return []
-  const printed = scalar(value)
-  if (printed === null) return [] // печать не уместилась в одну строку (раунд 4) — отказ
-  const keyStart = rangeOf(namePair?.key as unknown)?.from ?? nameRange.from
+  // Поле отсутствует — дописываем его после последней СВОЕЙ скалярной пары
+  // отображения (см. `lastScalarPair`). Нет ни одной скалярной пары — отказ,
+  // а не рискованная вставка после блочной коллекции.
+  const anchor = lastScalarPair(owner.map)
+  if (anchor === undefined) return []
+  const anchorRange = rangeOf(anchor.value)
+  if (anchorRange === null) return []
+  const keyStart = rangeOf(anchor.key as unknown)?.from ?? anchorRange.from
   const indent = indentAt(md.text, keyStart)
   // Вставляем в конец СТРОКИ, а не в конец значения (находка I5): иначе хвостовой
   // комментарий («- name: g  # важный») окажется приклеен уже к новому полю.
-  const at = lineEndFrom(md.text, nameRange.to)
-  return [{ from: at, to: at, insert: `\n${indent}${key}: ${printed}` }]
+  const at = lineEndFrom(md.text, anchorRange.to)
+  return [{ from: at, to: at, insert: `\n${indent}${owner.leaf}: ${printed}` }]
+}
+
+/** Тонкая обёртка над `setFieldAt` для частого случая «поле группы» — сигнатура
+ *  и поведение сохранены ради тестов плана 1. */
+export function setGroupField(
+  md: MihomoDoc,
+  groupIndex: number,
+  key: string,
+  value: string | boolean,
+): TextEdit[] {
+  return setFieldAt(md, ['proxy-groups', groupIndex], key, value)
+}
+
+/**
+ * Снятие СВОЕГО поля вместе со строкой — иначе останется висящий отступ. Поле
+ * из слияния снять нельзя тем же способом, что и отредактировать: строка
+ * принадлежит объявлению якоря, а не месту, где стоит `<<`, и удалять там
+ * нечего — сам ключ `<<` в этом узле никуда не денется.
+ */
+export function removeFieldAt(md: MihomoDoc, parts: PathParts, key: string): TextEdit[] {
+  if (originAt(md, parts, key) !== 'own') return []
+  const owner = ownerOf(md, mapAt(md, parts), key)!
+  if (isFlowNode(owner.map)) return []
+  const pair = ownPair(owner.map, owner.leaf)!
+  const range = pairRangeOf(pair)
+  if (range === null) return []
+  // Удаление ключа забирает его строки целиком — иначе останется висящий отступ.
+  // Конец считает `afterBlock`, а не наивный `indexOf('\n', range.to)`: у поля с
+  // БЛОЧНЫМ значением (свёрнутый `>-`, литеральный `|`, список) диапазон уже
+  // заканчивается на начале следующей физической строки, и поиск \n от него
+  // захватывал СОСЕДНЕЕ поле — молча, без единой ошибки разбора (находка ревью,
+  // финальный раунд). Для однострочного скаляра `afterBlock` даёт ровно то же,
+  // что и прежняя арифметика, — подстановка без побочных эффектов.
+  const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
+  return [{ from: lineStart, to: afterBlock(md.text, range.to), insert: '' }]
+}
+
+/**
+ * Значение поля вместе с происхождением. Формы читают ТОЛЬКО отсюда: отдельный
+ * читатель разошёлся бы с писателем в трактовке якорей — а это ровно то место,
+ * где расхождение стоит порчи чужого файла.
+ */
+export function readFieldAt(
+  md: MihomoDoc,
+  parts: PathParts,
+  key: string,
+): { value: string | number | boolean | string[] | undefined; origin: FieldOrigin } {
+  const origin = originAt(md, parts, key)
+  if (origin === 'absent') return { value: undefined, origin }
+  const owner = ownerOf(md, mapAt(md, parts), key)
+  if (owner === undefined) return { value: undefined, origin: 'absent' }
+  // Через слияние значение лежит у якоря — читаем его тем же обходом `<<`,
+  // которым groups.ts читает behavior и type в живых шаблонах
+  const node = dealias(md, mergedNode(md, owner.map, owner.leaf))
+  if (isSeq(node)) {
+    const json = node.toJSON()
+    return {
+      value: Array.isArray(json) ? json.filter((v): v is string => typeof v === 'string') : [],
+      origin,
+    }
+  }
+  if (!isScalar(node)) return { value: undefined, origin }
+  const value = node.value
+  return {
+    value:
+      typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+        ? value
+        : undefined,
+    origin,
+  }
+}
+
+/**
+ * Замена блочного списка целиком. Диапазон списка заменяется напечатанными
+ * строками с тем же отступом, что был у первого элемента (а если элементов не
+ * было — отступ ключа плюс шаг вложенности документа).
+ */
+export function setListAt(
+  md: MihomoDoc,
+  parts: PathParts,
+  key: string,
+  values: string[],
+): TextEdit[] {
+  if (originAt(md, parts, key) !== 'own') return []
+  const owner = ownerOf(md, mapAt(md, parts), key)!
+  const pair = ownPair(owner.map, key.split('.').pop()!)!
+  const list = pair.value
+  // Алиас на список (`proxies: *base`, находка 2 ревью раунд 1) — ключ «свой»
+  // (origin === 'own', вот почему это не ловится проверкой выше), но его
+  // ЗНАЧЕНИЕ — ссылка на чужое объявление, а не блочный список и не «пусто».
+  // Без этой проверки ветка «пустого списка» ниже приняла бы диапазон алиаса
+  // за отсутствующий список и дописала бы новый блок РЯДОМ с ним, оставив сам
+  // алиас на строке ключа — синтаксически битый документ (воспроизведено на
+  // `bundle.yaml`: `dns.default-nameserver: *dns_ru`).
+  //
+  // После ревью раунд 2 такой ключ отсеивается ещё проверкой origin выше
+  // (`alias`), и сюда дойти уже нельзя. Проверку оставляем: `setListAt`
+  // экспортирован, и защита от порчи документа не должна зависеть от того, кто
+  // и в каком порядке спросил происхождение поля до вызова.
+  if (isAlias(list)) return []
+  // Список в одну строку держит ключ и элементы одной физической строкой —
+  // построчная арифметика ниже его порвёт (решение А, как в connectMihomo)
+  if (isSeq(list) && list.flow === true) return []
+  // Значение — не блочный список и не «пусто» (голый ключ без значения либо с
+  // маркером-комментарием, `isScalar(list) && list.value === null`) — структуру
+  // придумывать не будем, отказ
+  if (!isSeq(list) && !(isScalar(list) && list.value === null)) return []
+  const printed = values.map((v) => scalar(v))
+  // Хоть один элемент не печатается одной строкой — отказ целиком, а не
+  // частичная запись: половина списка хуже, чем несделанная правка
+  if (printed.some((p) => p === null)) return []
+
+  const listRange = rangeOf(list)
+  const first = isSeq(list) ? list.items[0] : undefined
+  const firstRange = rangeOf(first)
+  // Отступ элементов: у существующего первого элемента — его собственный,
+  // у пустого списка — отступ ключа плюс шаг вложенности документа
+  const keyRange = rangeOf(pair.key as unknown)
+  if (keyRange === null) return []
+  const indent =
+    firstRange === null
+      ? md.text.slice(md.text.lastIndexOf('\n', keyRange.from - 1) + 1, keyRange.from) +
+        ' '.repeat(detectIndentStep(md.text))
+      : md.text
+          .slice(md.text.lastIndexOf('\n', firstRange.from - 1) + 1, firstRange.from)
+          .replace(/-\s*$/, '')
+  const block = printed.map((p) => `${indent}- ${p}\n`).join('')
+
+  // Пустой список записан на строке ключа (`proxies: []` или `proxies:` с
+  // комментарием-маркером) — заменять его диапазон нельзя, там же может стоять
+  // маркер подстановки; дописываем блок ПОСЛЕ строки ключа
+  if (listRange === null || firstRange === null) {
+    const lineEnd = md.text.indexOf('\n', keyRange.from)
+    const at = lineEnd === -1 ? md.text.length : lineEnd + 1
+    const lead = at > 0 && md.text[at - 1] !== '\n' ? '\n' : ''
+    return [{ from: at, to: at, insert: lead + block }]
+  }
+
+  // Есть блочные элементы — заменяем их строки целиком, от начала строки
+  // первого элемента до конца строки последнего (`afterBlock` — находка
+  // задачи 7: диапазон списка сам по себе уже указывает на начало СЛЕДУЮЩЕЙ
+  // строки, наивный поиск \n от него захватил бы и её)
+  const lineStart = md.text.lastIndexOf('\n', firstRange.from - 1) + 1
+  const to = afterBlock(md.text, listRange.to)
+  return [{ from: lineStart, to, insert: block }]
 }
 
 /** Разбор строк-правил произвольного списка (`rules`, любой список в `sub-rules`) */
@@ -319,52 +617,63 @@ const EXCLUDED_REFERENCE_KEYS = new Set([
  * неполным. Список ИСКЛЮЧЕНИЙ — другое дело: это не про полноту, а про то, что
  * значение этих ключей в принципе не может быть ссылкой на группу.
  *
- * `insideFlow` сообщает колбэку, что скаляр лежит внутри коллекции во
+ * `mode.insideFlow` сообщает колбэку, что скаляр лежит внутри коллекции во
  * flow-стиле (решение А) — в том числе если flow-стиль стоит у коллекции,
  * ГДЕ ФИЗИЧЕСКИ ОБЪЯВЛЕН якорь: правка внутри такой коллекции не безопаснее,
  * чем правка внутри `rules: [A, B]`, потому что там нет «строк», к которым
  * привязана арифметика правок.
  *
- * `dnsOnly` — тем же способом, что `insideFlow`, взводится один раз при входе
- * в поддерево ключа `dns` и остаётся взведённым до конца поддерева. Находка
- * ревью, раунд 4: под `dns` (`nameserver`, `nameserver-policy` и подобные)
- * ссылка на группу — это ТОЛЬКО суффикс `#<имя>` в DNS-строке вида
+ * `mode.dnsOnly` — тем же способом, что `insideFlow`, взводится один раз при
+ * входе в поддерево ключа `dns` и остаётся взведённым до конца поддерева.
+ * Находка ревью, раунд 4: под `dns` (`nameserver`, `nameserver-policy` и
+ * подобные) ссылка на группу — это ТОЛЬКО суффикс `#<имя>` в DNS-строке вида
  * `https://.../dns-query#🌍 VPN` (задокументированное поведение mihomo), а
  * голый скаляр, равный имени группы целиком, — совпадение, а не ссылка: там
  * в принципе ожидаются адреса/IP/ключевые слова, а не имена групп. Вне `dns`
  * голое совпадение остаётся ссылкой (участник группы, `dialer-proxy`, `proxy`
  * у провайдера и так далее) — поэтому это именно РЕЖИМ обхода, а не ещё один
  * исключённый ключ.
+ *
+ * Оба флага взведённого режима переданы одним объектом `WalkMode`, а не двумя
+ * соседними булевыми параметрами: перестановка `insideFlow` и `dnsOnly`
+ * местами раньше не давала ни ошибки типов, ни красного теста, а на этой
+ * функции держится корректность переименования.
  */
+interface WalkMode {
+  insideFlow: boolean
+  dnsOnly: boolean
+}
+
 function walkScalars(
   node: unknown,
-  insideFlow: boolean,
-  dnsOnly: boolean,
+  mode: WalkMode,
   skip: Set<unknown>,
-  onScalar: (node: unknown, value: string, insideFlow: boolean, dnsOnly: boolean) => void,
+  onScalar: (node: unknown, value: string, mode: WalkMode) => void,
 ): void {
   if (node === undefined || node === null || skip.has(node)) return
   if (isAlias(node)) return // текст — у объявления, не здесь; см. комментарий выше
   if (isScalar(node)) {
     const value = (node as { value?: unknown }).value
-    if (typeof value === 'string') onScalar(node, value, insideFlow, dnsOnly)
+    if (typeof value === 'string') onScalar(node, value, mode)
     return
   }
   if (isSeq(node)) {
-    const flow = insideFlow || isFlowNode(node)
-    for (const item of node.items) walkScalars(item, flow, dnsOnly, skip, onScalar)
+    const insideFlow = mode.insideFlow || isFlowNode(node)
+    for (const item of node.items) walkScalars(item, { ...mode, insideFlow }, skip, onScalar)
     return
   }
   if (isMap(node)) {
-    const flow = insideFlow || isFlowNode(node)
+    const insideFlow = mode.insideFlow || isFlowNode(node)
     for (const pair of node.items) {
       const key = (pair.key as { value?: unknown } | null)?.value
       if (typeof key === 'string' && EXCLUDED_REFERENCE_KEYS.has(key)) continue
-      const dns = dnsOnly || key === 'dns'
-      walkScalars(pair.value, flow, dns, skip, onScalar)
+      const dnsOnly = mode.dnsOnly || key === 'dns'
+      walkScalars(pair.value, { insideFlow, dnsOnly }, skip, onScalar)
     }
   }
 }
+
+const WALK_ROOT: WalkMode = { insideFlow: false, dnsOnly: false }
 
 /**
  * Значение скаляра ссылается на группу `from` — целиком (кроме `dnsOnly`,
@@ -382,8 +691,8 @@ function referenceReplacement(value: string, from: string, to: string, dnsOnly: 
 /** Есть ли в поддереве хоть один скаляр, всё ещё ссылающийся на `name` (часть Б — постусловие) */
 function hasDanglingReference(node: unknown, name: string): boolean {
   let found = false
-  walkScalars(node, false, false, new Set(), (_node, value, _insideFlow, dnsOnly) => {
-    if (referenceReplacement(value, name, name, dnsOnly) !== null) found = true
+  walkScalars(node, WALK_ROOT, new Set(), (_node, value, mode) => {
+    if (referenceReplacement(value, name, name, mode.dnsOnly) !== null) found = true
   })
   return found
 }
@@ -410,7 +719,7 @@ function hasDanglingReference(node: unknown, name: string): boolean {
  */
 function hasDanglingRuleTarget(node: unknown, from: string): boolean {
   let found = false
-  walkScalars(node, false, false, new Set(), (_node, value) => {
+  walkScalars(node, WALK_ROOT, new Set(), (_node, value) => {
     const rule = parseRule(value)
     if (rule !== null && rule.type !== 'SUB-RULE' && rule.target === from) found = true
   })
@@ -469,6 +778,16 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
   // только первую, вторая осталась бы сиротой без единого способа её
   // адресовать. Лучше не сделать ничего, чем сделать половину.
   if (matches.length !== 1) return []
+  // Симметрично проверке выше, только на стороне ЦЕЛИ (находка ревью, финальный
+  // раунд): переименование в занятое имя САМО создаёт ту неоднозначность, из-за
+  // которой отказывает проверка источника — две группы с одним именем плюс
+  // самоссылка (участник переименованной группы теперь зовётся так же, как она).
+  // Диагностики на это загораются, то есть порча не молчаливая, но откатить
+  // операцию редактором уже нельзя: `matches.length !== 1` теперь отказывает на
+  // любом переименовании обеих групп, и распутывать документ приходится руками.
+  // Форма проверяет только непустоту имени, так что единственное место, где это
+  // можно поймать, — здесь.
+  if (groups.some((g) => g.name === to)) return []
   const target = matches[0]!
 
   const groupOrigin = fieldOrigin(md, target.index, 'name')
@@ -536,10 +855,10 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
   // одним обходом всего документа. Совпадение внутри flow-коллекции (решение А,
   // распространено и на место объявления якоря) правку не получает — вместо
   // этого блокирует всю операцию, чтобы не оставить половинчатое переименование.
-  walkScalars(md.doc.contents, false, false, skip, (node, value, insideFlow, dnsOnly) => {
-    const replacement = referenceReplacement(value, from, to, dnsOnly)
+  walkScalars(md.doc.contents, WALK_ROOT, skip, (node, value, mode) => {
+    const replacement = referenceReplacement(value, from, to, mode.dnsOnly)
     if (replacement === null) return
-    if (insideFlow) {
+    if (mode.insideFlow) {
       blocked = true
       return
     }
@@ -642,4 +961,162 @@ export function addRule(md: MihomoDoc, raw: string, at?: number): TextEdit[] {
     return [{ from: insertAt, to: insertAt, insert: (needsNewline ? '\n' : '') + line }]
   }
   return [{ from: lineStart, to: lineStart, insert: line }]
+}
+
+/**
+ * Новая группа в конец `proxy-groups`. Тип `select` и пустой список участников —
+ * минимум, который ядро примет и который сразу виден в графе. Маркер подстановки
+ * НЕ ставим: где панель подставляет хосты, решает автор шаблона, а угаданный
+ * маркер молча изменил бы состав подписки.
+ */
+export function addGroup(md: MihomoDoc, name: string): TextEdit[] {
+  const printed = scalar(name)
+  if (printed === null) return []
+  const insertion = (indent: string) =>
+    `${indent}- name: ${printed}\n${indent}  type: select\n${indent}  proxies: []\n`
+
+  const section = sectionNode(md, 'proxy-groups')
+  if (isSeq(section)) {
+    // `proxy-groups: [...]` (решение А) — flow-стиль не наш случай, отказ.
+    // Пустой БЛОЧНЫЙ список синтаксически не существует (пустая последовательность
+    // в YAML всегда flow, `[]`) — значит, если мы здесь и не flow, элемент есть
+    if (isFlowNode(section)) return []
+    const last = section.items[section.items.length - 1]
+    const lastRange = rangeOf(last)
+    if (lastRange === null) return []
+    // Есть соседи — берём их отступ и вставляем после последней строки элемента.
+    // Отступ считаем до дефиса и заменяем его пробелами, как в indentOf: колонка
+    // ключа, а не колонка дефиса
+    const lineStart = md.text.lastIndexOf('\n', lastRange.from - 1) + 1
+    const indent = md.text.slice(lineStart, lastRange.from).replace(/-\s*$/, '')
+    const at = afterBlock(md.text, lastRange.to)
+    // Без завершающего перевода строки в исходнике точка вставки — конец
+    // последней НЕЗАВЕРШЁННОЙ строки: свой `\n` обязателен (находка C1 плана 1)
+    const lead = at > 0 && md.text[at - 1] !== '\n' ? '\n' : ''
+    return [{ from: at, to: at, insert: lead + insertion(indent) }]
+  }
+
+  // Не блочный список — заводим ПЕРВУЮ группу только если ключ `proxy-groups`
+  // в документе есть и стоит буквально ПУСТЫМ (`proxy-groups:` без значения —
+  // частый случай, когда список заполняет панель). Находка 4 (ревью раунд 1):
+  // раньше этот фолбэк был НЕДОСТИЖИМ — guard выше (`!isSeq(section)`) отсекал
+  // именно этот случай раньше, чем до фолбэка доходило дело, и он срабатывал
+  // только на патологии (`isSeq(section) === true`, но `lastRange === null`,
+  // что для блочной последовательности не бывает вовсе). Ключа нет в документе
+  // совсем, значение — flow `[]` (уже отфильтровано выше), алиас или что-то ещё
+  // — отказ: заводить секцию с нуля не в этой задаче, а «что-то ещё» — не наш
+  // случай (принцип отказа вместо порчи, как и везде в этом модуле).
+  if (!isMap(md.doc.contents)) return []
+  const keyPair = md.doc.contents.items.find(
+    (p) => (p.key as { value?: unknown } | null)?.value === 'proxy-groups',
+  )
+  if (keyPair === undefined) return []
+  if (!(isScalar(keyPair.value) && keyPair.value.value === null)) return []
+  const keyRange = rangeOf(keyPair.key as unknown)
+  if (keyRange === null) return []
+  const step = detectIndentStep(md.text)
+  const keyLineStart = md.text.lastIndexOf('\n', keyRange.from - 1) + 1
+  const indent = md.text.slice(keyLineStart, keyRange.from) + ' '.repeat(step)
+  const lineEnd = md.text.indexOf('\n', keyRange.from)
+  const at = lineEnd === -1 ? md.text.length : lineEnd + 1
+  const lead = at > 0 && md.text[at - 1] !== '\n' ? '\n' : ''
+  return [{ from: at, to: at, insert: lead + insertion(indent) }]
+}
+
+/**
+ * Удаление группы забирает все её строки: от начала своей строки с дефисом до
+ * начала следующей физической строки. `afterBlock(range.to)` — тот же диапазон
+ * блочной коллекции, что и везде в модуле: он УЖЕ указывает на начало строки,
+ * следующей за собственным содержимым узла, будь то строка следующей группы
+ * ИЛИ строка постороннего комментария перед ней. Находка 6 (ревью раунд 1):
+ * прежняя версия считала конец от начала строки СЛЕДУЮЩЕГО элемента
+ * (`nextRange.from`), а не от конца ТЕКУЩЕГО — если между группами стоит
+ * комментарий («относящийся» к следующей группе, физически лежащий над её
+ * дефисом), такой расчёт включал его в удаляемый диапазон вместе с чужой
+ * группой. `afterBlock` через диапазон ТЕКУЩЕГО элемента останавливается
+ * ровно на границе его собственного содержимого и чужой комментарий не задевает.
+ */
+export function removeGroup(md: MihomoDoc, index: number): TextEdit[] {
+  const section = sectionNode(md, 'proxy-groups')
+  if (!isSeq(section) || isFlowNode(section)) return []
+  const item = section.items[index]
+  const range = rangeOf(item)
+  if (range === null) return []
+  const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
+  return [{ from: lineStart, to: afterBlock(md.text, range.to), insert: '' }]
+}
+
+/**
+ * Диапазон физической строки, на которой лежит `range`, разложенный на
+ * СОДЕРЖИМОЕ (без завершающего `\n`) и ТЕРМИНАТОР (`'\n'`, если он в тексте
+ * есть, иначе `''` — бывает только у самой последней строки файла). Раздельно
+ * они нужны `moveMihomoRule` (находка 5→доп. находка раунда 2): перевод строки
+ * принадлежит МЕСТУ в файле, а не содержимому строки, которое туда переехало
+ * при обмене — если менять местами диапазоны «строка целиком, включая свой
+ * терминатор», перевод строки уедет вместе с содержимым, а не останется на
+ * месте (находка C1 плана 1 в новом обличье: `addRule`/`addGroup` по той же
+ * причине сами дописывают `\n`, когда его в исходнике не было).
+ */
+function lineOf(text: string, range: Range): { from: number; contentTo: number; terminator: '\n' | '' } {
+  const from = text.lastIndexOf('\n', range.from - 1) + 1
+  const nl = text.indexOf('\n', range.to)
+  return { from, contentTo: nl === -1 ? text.length : nl, terminator: nl === -1 ? '' : '\n' }
+}
+
+/**
+ * Перестановка правила: две правки, меняющие местами СОДЕРЖИМОЕ двух физических
+ * строк (без завершающего `\n`), а терминатор каждой строки остаётся НА МЕСТЕ.
+ * Находка 5 (ревью раунд 1): диапазон элемента (`entry.range`) у скаляра
+ * заканчивается ДО хвостового комментария (см. `scalar()`/`rangeOf`) — обмен
+ * одними только этими диапазонами оставлял комментарий на своей физической
+ * строке, то есть приклеивал его к ЧУЖОМУ правилу, которое туда переехало.
+ * Строка могла быть и в кавычках, и с комментарием на конце, и заданной
+ * алиасом — пересборка из полей потеряла бы это молча, поэтому меняется
+ * местами именно СРЕЗ ТЕКСТА строки, а не разобранное правило.
+ *
+ * Доп. находка ревью раунда 2 (сам раунд 1 её и внёс): если ПОСЛЕДНЯЯ строка
+ * файла не оканчивается на `\n`, у нужного правила терминатор — `''`, у
+ * соседнего — `'\n'`. Обмен диапазонами «строка вместе со своим терминатором»
+ * (как было) переносил `\n` вместе с содержимым — перевод строки между двумя
+ * переставленными правилами исчезал, и они слипались в один скаляр, а
+ * `parseMihomo` результата не подавал об этом никакого сигнала (документ
+ * оставался синтаксически валидным, просто терял одно правило). Раздельный
+ * обмен «содержимое ↔ содержимое» и «терминатор остаётся на месте» (см.
+ * `lineOf`) не зависит от того, есть ли у файла завершающий перевод строки.
+ */
+export function moveMihomoRule(md: MihomoDoc, index: number, dir: -1 | 1): TextEdit[] {
+  if (isFlowNode(sectionNode(md, 'rules'))) return []
+  const rules = rulesOf(md)
+  const from = rules.find((r) => r.index === index)
+  const to = rules.find((r) => r.index === index + dir)
+  if (from === undefined || to === undefined) return []
+  const fromLine = lineOf(md.text, from.range)
+  const toLine = lineOf(md.text, to.range)
+  const fromContent = md.text.slice(fromLine.from, fromLine.contentTo)
+  const toContent = md.text.slice(toLine.from, toLine.contentTo)
+  return [
+    {
+      from: fromLine.from,
+      to: fromLine.contentTo + fromLine.terminator.length,
+      insert: toContent + fromLine.terminator,
+    },
+    {
+      from: toLine.from,
+      to: toLine.contentTo + toLine.terminator.length,
+      insert: fromContent + toLine.terminator,
+    },
+  ]
+}
+
+/** Пересборка строки правила целиком — тот же путь печати, что у `addRule` */
+export function replaceRuleText(md: MihomoDoc, index: number, raw: string): TextEdit[] {
+  if (isFlowNode(sectionNode(md, 'rules'))) return []
+  const entry = rulesOf(md).find((r) => r.index === index)
+  if (entry === undefined) return []
+  const rule = parseRule(raw)
+  // Форма не имеет права записать в документ то, чего сама не разбирает
+  if (rule === null) return []
+  const printed = ruleText(rule)
+  if (printed === null) return []
+  return [{ from: entry.range.from, to: entry.range.to, insert: printed }]
 }

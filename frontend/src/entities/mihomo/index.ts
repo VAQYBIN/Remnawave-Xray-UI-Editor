@@ -12,6 +12,9 @@ export * from './groups'
 export * from './resolve'
 export * from './validate'
 export * from './edits'
+export * from './docSchema'
+export * from './locate'
+export * from './search'
 
 // `inject.ts` реэкспортирует `INJECT_MARKER` из `marker.ts` (единственный
 // владелец константы) — исключаем его здесь, чтобы `export *` не столкнул
@@ -19,5 +22,6 @@ export * from './edits'
 export {
   hasRootMarker,
   groupGetsHosts,
+  panelInjectsHosts,
   conflictingKeys,
 } from './inject'

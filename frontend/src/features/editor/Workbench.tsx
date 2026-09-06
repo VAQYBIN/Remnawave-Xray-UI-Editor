@@ -1,11 +1,12 @@
-// Оболочка редактора: всё, что одинаково у профиля и шаблона подписки — вкладки,
-// канвас с инспектором, панель разбора трассы, список проблем и общие диалоги.
+// Сборка редактора Xray поверх хрома `EditorShell`: канвас с топологией,
+// инспектор узла, панель разбора трассы, текстовая вкладка JSON и диалоги,
+// которые есть только у Xray-документа («Настройки конфига», «Geo-базы»).
+// Всё, что одинаково у любого документа — топбар, статус-бар, версии, сброс
+// черновика, — живёт в `EditorShell` и о конфиге не знает.
 // Страница добавляет только своё: заголовок, кнопки топбара, сохранение и рецепты.
 
-import { useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router'
-import { usePanelToken } from '../../shared/api'
-import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
+import type { ReactNode } from 'react'
+import { Button, EmptyState } from '../../shared/ui'
 import { TopologyView } from '../topology/TopologyView'
 import { SearchBox } from '../topology/SearchBox'
 import { NodeInspector } from '../topology/NodeInspector'
@@ -13,12 +14,9 @@ import { TraceBar } from '../diagnostics/TraceBar'
 import { TracePanel } from '../diagnostics/TracePanel'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
 import type { ConfigDraft } from './useConfigDraft'
-import { VersionsDialog } from './VersionsDialog'
+import { EditorShell } from './EditorShell'
 import { ConfigSettingsDialog } from './ConfigSettingsDialog'
-import { IssueList } from './IssueList'
-import { PanelTokenNotice } from './PanelTokenNotice'
 import { JsonView } from './JsonView'
-import { ShortcutsDialog } from './ShortcutsDialog'
 
 export interface WorkbenchProps {
   draft: ConfigDraft
@@ -56,209 +54,119 @@ export function Workbench({
   statusExtra,
   children,
 }: WorkbenchProps) {
-  const navigate = useNavigate()
-  const panelToken = usePanelToken()
   const parsedConfig = draft.parsedConfig
-  // Версии и сброс черновика — целиком дело оболочки: странице о них знать нечего
-  const [versionsOpen, setVersionsOpen] = useState(false)
-  const [resetOpen, setResetOpen] = useState(false)
+
+  // Обе кнопки специфичны для Xray-документа, поэтому приходят в хром слотом.
+  // Порядок в топбаре прежний: «Настройки конфига», кнопки страницы, «Geo-базы»
+  const topbarActions = (
+    <>
+      <Button
+        variant="ghost"
+        disabled={parsedConfig === undefined}
+        onClick={() => draft.setSettingsOpen(true)}
+      >
+        Настройки конфига
+      </Button>
+      {actions}
+      <Button variant="ghost" onClick={() => draft.setGeoOpen(true)}>
+        Geo-базы
+      </Button>
+    </>
+  )
+
+  const canvas =
+    parsedConfig === undefined ? (
+      <div className="wb-canvas wb-canvas-empty">
+        <EmptyState
+          title="Конфиг не проходит валидацию"
+          hint="Исправьте ошибки на вкладке JSON — топология строится по валидному документу."
+        />
+      </div>
+    ) : (
+      <>
+        <div className="wb-canvas">
+          <TopologyView
+            docKey={draft.storageKey}
+            config={parsedConfig}
+            ctx={draft.ctx}
+            selectedId={draft.selectedNode}
+            onSelect={draft.setSelectedNode}
+            onChangeConfig={draft.changeConfig}
+            trace={draft.trace}
+            issues={draft.nodeIssues}
+            focus={draft.focus}
+            onOpenRecipes={onOpenRecipes}
+            allowInject={allowInject}
+            dockExtra={
+              <>
+                <SearchBox
+                  query={draft.searchQuery}
+                  hits={draft.searchHits}
+                  focusSignal={draft.searchFocus}
+                  onQuery={draft.setSearchQuery}
+                  onPick={draft.focusNode}
+                />
+                <Button aria-pressed={draft.traceOpen} onClick={draft.toggleTrace}>
+                  Куда пойдёт трафик
+                </Button>
+              </>
+            }
+            dockRow={
+              draft.traceOpen ? (
+                <TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} />
+              ) : undefined
+            }
+          />
+        </div>
+        {draft.trace && (
+          <TracePanel
+            result={draft.trace}
+            onClose={() => draft.setTraceTarget(null)}
+            onSelectRule={(index) => draft.setSelectedNode(`rule:${index}`)}
+            onOpenGeo={() => draft.setGeoOpen(true)}
+          />
+        )}
+        {draft.selectedNode && (
+          <NodeInspector
+            key={draft.selectedNode}
+            config={parsedConfig}
+            nodeId={draft.selectedNode}
+            inboundSquads={draft.ctx.inboundSquads}
+            onApply={draft.applyNode}
+            onMoveRule={draft.moveSelected}
+            onRemove={draft.removeSelected}
+            onSetupObservatory={draft.setupObservatory}
+            onClose={() => draft.setSelectedNode(null)}
+          />
+        )}
+      </>
+    )
+
+  const textView = (
+    <div className="wb-canvas">
+      <JsonView
+        text={draft.text}
+        reveal={draft.reveal}
+        onChange={(value) => draft.writeDraft(value, { history: false })}
+      />
+    </div>
+  )
 
   return (
-    <div className="workbench">
-      <header className="wb-topbar">
-        <Button variant="ghost" onClick={() => navigate(back.to)}>
-          {back.label}
-        </Button>
-        <div className="wb-title">
-          <h1>{title}</h1>
-          {subtitle && <span className="eyebrow">{subtitle}</span>}
-        </div>
-
-        <div className="wb-iconbar">
-          <Button
-            aria-label="Отменить"
-            title="Отменить (Ctrl+Z)"
-            disabled={!draft.undoAvailable}
-            onClick={draft.doUndo}
-          >
-            ↶
-          </Button>
-          <Button
-            aria-label="Вернуть"
-            title="Вернуть (Ctrl+Shift+Z)"
-            disabled={!draft.redoAvailable}
-            onClick={draft.doRedo}
-          >
-            ↷
-          </Button>
-          <Button
-            aria-label="Горячие клавиши"
-            title="Горячие клавиши (?)"
-            onClick={() => draft.setShortcutsOpen(true)}
-          >
-            ?
-          </Button>
-        </div>
-
-        <div className="segmented">
-          <Button aria-pressed={draft.tab === 'topology'} onClick={draft.openTopologyTab}>
-            Топология
-          </Button>
-          <Button aria-pressed={draft.tab === 'json'} onClick={draft.openJsonTab}>
-            JSON
-          </Button>
-        </div>
-
-        <span className="spacer" />
-        {draft.dirty && <Chip dir="none">черновик</Chip>}
-        <Button variant="ghost" disabled={parsedConfig === undefined} onClick={() => draft.setSettingsOpen(true)}>
-          Настройки конфига
-        </Button>
-        {actions}
-        <Button variant="ghost" onClick={() => draft.setGeoOpen(true)}>
-          Geo-базы
-        </Button>
-        <Button variant="ghost" onClick={() => setVersionsOpen(true)}>
-          Версии
-        </Button>
-        <Button variant="ghost" disabled={!draft.dirty} onClick={() => setResetOpen(true)}>
-          Сбросить к версии панели
-        </Button>
-        {save}
-      </header>
-
-      <div className="wb-stage">
-        {draft.tab === 'json' && (
-          <div className="wb-canvas">
-            <JsonView
-              text={draft.text}
-              reveal={draft.reveal}
-              onChange={(value) => draft.writeDraft(value, { history: false })}
-            />
-          </div>
-        )}
-        {draft.tab === 'topology' && parsedConfig === undefined && (
-          <div className="wb-canvas wb-canvas-empty">
-            <EmptyState
-              title="Конфиг не проходит валидацию"
-              hint="Исправьте ошибки на вкладке JSON — топология строится по валидному документу."
-            />
-          </div>
-        )}
-        {draft.tab === 'topology' && parsedConfig !== undefined && (
-          <>
-            <div className="wb-canvas">
-              <TopologyView
-                docKey={draft.storageKey}
-                config={parsedConfig}
-                ctx={draft.ctx}
-                selectedId={draft.selectedNode}
-                onSelect={draft.setSelectedNode}
-                onChangeConfig={draft.changeConfig}
-                trace={draft.trace}
-                issues={draft.nodeIssues}
-                focus={draft.focus}
-                onOpenRecipes={onOpenRecipes}
-                allowInject={allowInject}
-                dockExtra={
-                  <>
-                    <SearchBox
-                      query={draft.searchQuery}
-                      hits={draft.searchHits}
-                      focusSignal={draft.searchFocus}
-                      onQuery={draft.setSearchQuery}
-                      onPick={draft.focusNode}
-                    />
-                    <Button aria-pressed={draft.traceOpen} onClick={draft.toggleTrace}>
-                      Куда пойдёт трафик
-                    </Button>
-                  </>
-                }
-                dockRow={
-                  draft.traceOpen ? (
-                    <TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} />
-                  ) : undefined
-                }
-              />
-            </div>
-            {draft.trace && (
-              <TracePanel
-                result={draft.trace}
-                onClose={() => draft.setTraceTarget(null)}
-                onSelectRule={(index) => draft.setSelectedNode(`rule:${index}`)}
-                onOpenGeo={() => draft.setGeoOpen(true)}
-              />
-            )}
-            {draft.selectedNode && (
-              <NodeInspector
-                key={draft.selectedNode}
-                config={parsedConfig}
-                nodeId={draft.selectedNode}
-                inboundSquads={draft.ctx.inboundSquads}
-                onApply={draft.applyNode}
-                onMoveRule={draft.moveSelected}
-                onRemove={draft.removeSelected}
-                onSetupObservatory={draft.setupObservatory}
-                onClose={() => draft.setSelectedNode(null)}
-              />
-            )}
-          </>
-        )}
-      </div>
-
-      <footer className="wb-statusbar">
-        <div className="wb-status-head">
-          {draft.validation.issues.length === 0 ? (
-            <span className="muted">Конфиг валиден</span>
-          ) : (
-            <button
-              type="button"
-              className="wb-status-toggle"
-              aria-expanded={draft.issuesOpen}
-              onClick={() => draft.setIssuesOpen(!draft.issuesOpen)}
-            >
-              <span className="collapsible-marker" aria-hidden="true">
-                ▸
-              </span>
-              {draft.errorCount > 0 && <span className="field-error">ошибок: {draft.errorCount}</span>}
-              {draft.errorCount > 0 && draft.warningCount > 0 && <span aria-hidden="true">·</span>}
-              {draft.warningCount > 0 && <span className="field-warning">предупреждений: {draft.warningCount}</span>}
-            </button>
-          )}
-          <span className="spacer" />
-          <PanelTokenNotice status={panelToken.data} />
-          {statusExtra}
-        </div>
-        {draft.issuesOpen && draft.validation.issues.length > 0 && (
-          <div className="wb-status-body">
-            <IssueList
-              issues={draft.validation.issues}
-              onSelect={draft.selectIssue}
-              canSelect={draft.canSelectIssue}
-            />
-          </div>
-        )}
-      </footer>
-
-      <Dialog open={resetOpen} title="Сбросить черновик" onClose={() => setResetOpen(false)}>
-        <p>Отменить все локальные правки и вернуться к версии из панели?</p>
-        <div className="row">
-          <span className="spacer" />
-          <Button variant="ghost" onClick={() => setResetOpen(false)}>
-            Отмена
-          </Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              draft.resetDraft()
-              setResetOpen(false)
-            }}
-          >
-            Сбросить
-          </Button>
-        </div>
-      </Dialog>
-
+    <EditorShell
+      draft={draft}
+      kind={kind}
+      back={back}
+      title={title}
+      subtitle={subtitle}
+      tabs={{ graph: 'Топология' }}
+      validLabel="Конфиг валиден"
+      actions={topbarActions}
+      save={save}
+      statusExtra={statusExtra}
+      canvas={canvas}
+      textView={textView}
+    >
       {parsedConfig !== undefined && (
         <ConfigSettingsDialog
           open={draft.settingsOpen}
@@ -268,30 +176,13 @@ export function Workbench({
         />
       )}
 
-      <ShortcutsDialog open={draft.shortcutsOpen} onClose={() => draft.setShortcutsOpen(false)} />
-
       <GeoDataDialog
         open={draft.geoOpen}
         onClose={() => draft.setGeoOpen(false)}
         onUseKey={draft.appendGeoKeyToRule}
       />
 
-      <VersionsDialog
-        open={versionsOpen}
-        kind={kind}
-        docUuid={draft.docKey}
-        docName={title}
-        currentText={draft.text}
-        onRestore={(configText) => {
-          draft.writeDraft(configText, { history: true })
-          draft.setSelectedNode(null)
-        }}
-        onClose={() => setVersionsOpen(false)}
-      />
-
-      {/* Только модальные <dialog>: .workbench — grid из трёх строк, и узел,
-          оставшийся в потоке, добавит четвёртую и сожмёт сцену */}
       {children}
-    </div>
+    </EditorShell>
   )
 }
