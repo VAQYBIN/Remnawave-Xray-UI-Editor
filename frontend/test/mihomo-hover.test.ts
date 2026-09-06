@@ -69,6 +69,24 @@ describe('наведение на YAML-вкладке', () => {
     expect(hoverAt(DOC, inside(DOC, 'nameserver:'))?.field.doc).toContain('DNS-серверы')
   })
 
+  it('список с нулевым отступом наводится так же, как с отступом', () => {
+    // тот же документ, но дефисы стоят в колонке ключа — валидный и частый стиль
+    const flat = [
+      'proxy-groups:',
+      '- name: A',
+      '  interval: 300',
+      'proxies:',
+      '- name: сервер',
+      '  port: 443',
+      '',
+    ].join('\n')
+    expect(hoverAt(flat, inside(flat, 'name: A'))?.field.doc).toContain('Имя группы')
+    expect(hoverAt(flat, inside(flat, 'interval'))?.field.doc).toContain('проверки живости')
+    // и молчание там же, где при отступе: запись сервера словарь не описывает
+    expect(hoverAt(flat, inside(flat, 'port: 443'))).toBeNull()
+    expect(hoverAt(flat, inside(flat, 'name: сервер'))).toBeNull()
+  })
+
   it('разметка тултипа несёт ключ, описание и значения', () => {
     const found = hoverAt(DOC, inside(DOC, 'enhanced-mode'))
     const dom = renderHoverTooltip(found!.key, found!.field)

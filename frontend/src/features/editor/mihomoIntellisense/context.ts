@@ -32,7 +32,7 @@ export interface MihomoCursor {
 // строка вроде «expected-status: 200/204» пишутся с пробелами
 const VALUE_RE = /^\s*(?:-\s*)?([A-Za-z0-9_-]+)\s*:(?:\s.*)?$/
 // Отступ строки и, если строка заводит элемент списка, его дефис
-const KEY_INDENT_RE = /^(\s*)(-\s+)?/
+const KEY_INDENT_RE = /^(\s*)(-\s*)?/
 
 /**
  * Хвост пути внутри секции. Пусто — это сама секция; единственный сегмент,
@@ -142,6 +142,33 @@ function containerOf(md: MihomoDoc, parts: PathParts, column: number): PathParts
   return parts.slice(0, depth)
 }
 
+/**
+ * Путь до СПИСКА, элемент которого заводит строка с дефисом. Ищется по колонке
+ * самого дефиса: у блочного списка все его дефисы стоят в одной колонке, и она
+ * же — колонка курсора.
+ *
+ * Сравнивать, как в containerOf, с колонкой ключа-родителя нельзя: стиль
+ *
+ *     proxy-groups:
+ *     - name: A
+ *
+ * валиден, и там ключ и дефис стоят в ОДНОЙ колонке — по строгому сравнению
+ * срезался бы весь путь до корня, и подсказки исчезали бы на всех списках с
+ * нулевым отступом. Список — надёжный якорь ещё и потому, что элемента в
+ * тексте может не быть вовсе.
+ *
+ * null — списка с такой колонкой над курсором нет; тогда про место ничего не
+ * известно, и вызывающий молчит.
+ */
+function seqAtColumn(md: MihomoDoc, parts: PathParts, column: number): PathParts | null {
+  for (let depth = parts.length; depth >= 0; depth -= 1) {
+    const node = nodeAt(md, parts.slice(0, depth))
+    const range = isSeq(node) ? rangeOf(node) : null
+    if (range !== null && columnAt(md.text, range.from) === column) return parts.slice(0, depth)
+  }
+  return null
+}
+
 /** Последний непробельный символ до позиции; -1 — выше курсора пусто */
 function lastNonSpaceBefore(text: string, pos: number): number {
   let i = pos - 1
@@ -173,8 +200,10 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
   const mode = value ? 'value' : 'key'
   const key = value?.[1]
   const indent = KEY_INDENT_RE.exec(before)
-  // Дефис на строке означает НОВЫЙ элемент списка: его отображения в тексте ещё
-  // нет, и хозяин строки — сам список, чей дефис стоит левее ключей элемента
+  // Строка с дефисом — это ЭЛЕМЕНТ списка, и хозяин у неё сам список: секцию
+  // элемента задаёт он, а самого элемента в тексте может ещё не быть. Дефис
+  // считается дефисом и без пробела за ним: набравший его заводит элемент, и
+  // ключи секции ему нужны уже сейчас
   const item = indent?.[2] !== undefined
   const column = indent?.[1].length ?? 0
 
@@ -187,11 +216,18 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
     const probe = lastNonSpaceBefore(text, pos)
     if (probe >= 0) parts = pathAt(md, probe)
   }
-  parts = containerOf(md, parts, column)
-  // Страховка на случай, когда отступ ничего не решил: значение вводится ВНУТРИ
-  // пары, а ключами отображения его содержимое считать нельзя
-  if (mode === 'value' && parts.length > 0 && parts[parts.length - 1] === key) {
-    parts = parts.slice(0, -1)
+
+  if (item) {
+    const seq = seqAtColumn(md, parts, column)
+    if (seq === null) return null
+    parts = seq
+  } else {
+    parts = containerOf(md, parts, column)
+    // Страховка на случай, когда отступ ничего не решил: значение вводится
+    // ВНУТРИ пары, а ключами отображения его содержимое считать нельзя
+    if (mode === 'value' && parts.length > 0 && parts[parts.length - 1] === key) {
+      parts = parts.slice(0, -1)
+    }
   }
 
   const section = sectionOf(parts, item)

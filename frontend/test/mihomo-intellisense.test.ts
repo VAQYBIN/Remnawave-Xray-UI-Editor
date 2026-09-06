@@ -86,7 +86,9 @@ describe('отображение, которому принадлежит кур
     expect(parts('proxy-groups:\n  - name: A\n    type: ‸\n')).toEqual(['proxy-groups', 0])
   })
 
-  it('дефис заводит новый элемент, а не продолжает предыдущий', () => {
+  it('хозяин строки с дефисом — список, а не элемент', () => {
+    // ключей у нового элемента ещё нет, и путь ведёт к списку: чей это будет
+    // элемент по счёту, до написания неизвестно
     const next = ctx('proxy-groups:\n  - name: A\n  - ‸\n')
     expect(next?.parts).toEqual(['proxy-groups'])
     expect(next?.existingKeys).toEqual([])
@@ -170,6 +172,43 @@ describe('места, где словарь молчит', () => {
     expect(ctx('dns:\n  enable: true  # включено‸\n')).toBeNull()
     // решётка внутри значения комментария не начинает — там подсказки работают
     expect(ctx('dns:\n  nameserver: https://x/dns-query#VPN‸\n')?.mode).toBe('value')
+  })
+})
+
+// Второй распространённый стиль: дефисы списка стоят в колонке КЛЮЧА, а не с
+// отступом. Все фикстуры репозитория написаны с отступом 2, поэтому весь этот
+// стиль был слеп для суиты — отсюда отдельный блок
+describe('списки с нулевым отступом', () => {
+  const GROUPS = 'proxy-groups:\n- name: A\n  type: select\n'
+
+  it('ключ внутри элемента описан секцией группы', () => {
+    expect(ctx(`${GROUPS}  ‸\n`)?.section).toBe('proxy-group')
+    expect(labels(`${GROUPS}  ‸\n`)).toContain('filter')
+  })
+
+  it('новый элемент получает ключи группы', () => {
+    const next = ctx(`${GROUPS}- ‸\n`)
+    expect(next?.section).toBe('proxy-group')
+    expect(next?.parts).toEqual(['proxy-groups'])
+    expect(next?.existingKeys).toEqual([])
+    expect(labels(`${GROUPS}- ‸\n`)).toContain('name')
+  })
+
+  it('значение ключа элемента подсказывается из словаря', () => {
+    expect(labels('proxy-groups:\n- name: A\n  type: ‸\n')).toEqual(
+      expect.arrayContaining(['select', 'url-test']),
+    )
+  })
+
+  it('дефис без пробела — тоже начало элемента', () => {
+    expect(labels(`${GROUPS}-‸\n`)).toContain('name')
+    expect(labels('proxy-groups:\n  -‸\n')).toContain('name')
+  })
+
+  it('proxies и rules в том же стиле по-прежнему молчат', () => {
+    expect(ctx('proxies:\n- name: сервер\n  port: 443\n  ‸\n')).toBeNull()
+    expect(ctx('proxies:\n- name: сервер\n- ‸\n')).toBeNull()
+    expect(ctx('rules:\n- MATCH,DIRECT\n- ‸\n')).toBeNull()
   })
 })
 
