@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { VersionsDialog } from '../src/features/editor/VersionsDialog'
+import { encodeYaml } from '../src/shared/lib/base64'
 
 const docUuid = 'u1'
 
@@ -22,6 +23,24 @@ const fileData = {
     nodes: [],
     createdAt: '2026-07-20T10:00:00.000Z',
     updatedAt: '2026-07-20T10:00:00.000Z',
+  },
+}
+
+const MIHOMO_YAML = 'proxy-groups:\n  - name: Основная\n    type: select\n'
+
+/**
+ * Бэкап шаблона Mihomo: содержимое — base64 YAML в encodedTemplateYaml, а
+ * templateJson у него `null`. Ровно то, что бэкенд кладёт в файл.
+ */
+const mihomoFileData = {
+  savedAt: '2026-07-20T10:00:00.000Z',
+  template: {
+    uuid: docUuid,
+    viewPosition: 0,
+    name: 'Mihomo',
+    templateType: 'MIHOMO',
+    templateJson: null,
+    encodedTemplateYaml: encodeYaml(MIHOMO_YAML),
   },
 }
 
@@ -63,6 +82,7 @@ function stubFetch(list: unknown[] = backups, data: unknown = fileData) {
 function renderDialog(
   props: Partial<{
     kind: 'profiles' | 'templates'
+    format: 'json' | 'yaml'
     onRestore: (t: string) => void
     onClose: () => void
   }> = {},
@@ -75,6 +95,7 @@ function renderDialog(
       <VersionsDialog
         open
         kind={props.kind ?? 'profiles'}
+        format={props.format ?? 'json'}
         docUuid={docUuid}
         docName="Germany"
         currentText={'{\n  "inbounds": []\n}'}
@@ -168,6 +189,49 @@ describe('VersionsDialog', () => {
     )
     expect(urls).toContain(`/api/templates/${docUuid}/backups`)
     expect(urls).toContain(`/api/templates/${docUuid}/backups/a.json`)
+  })
+
+  /**
+   * Самая дорогая ошибка этой ветки, если её не поймать: у шаблона Mihomo
+   * templateJson === null, и «В черновик» подменяло бы ВЕСЬ YAML-документ
+   * строкой «null». Бэкап при этом цел — данные просто берутся из другого поля.
+   */
+  it('format=yaml берёт документ из encodedTemplateYaml, а не печатает templateJson', async () => {
+    stubFetch(backups, mihomoFileData)
+    const user = userEvent.setup()
+    const { onRestore } = renderDialog({ kind: 'templates', format: 'yaml' })
+    const buttons = await screen.findAllByRole('button', { name: 'В черновик' })
+    await user.click(buttons[0]!)
+    await waitFor(() => expect(onRestore).toHaveBeenCalledWith(MIHOMO_YAML))
+    // Строка «null» — ровно то, что уходило бы в черновик из templateJson
+    expect(onRestore).not.toHaveBeenCalledWith('null')
+  })
+
+  it('format=yaml: нечитаемое содержимое бэкапа объясняется, а не молча портит черновик', async () => {
+    stubFetch(backups, {
+      ...mihomoFileData,
+      template: { ...mihomoFileData.template, encodedTemplateYaml: 'не base64 ¡' },
+    })
+    const user = userEvent.setup()
+    const { onRestore } = renderDialog({ kind: 'templates', format: 'yaml' })
+    const buttons = await screen.findAllByRole('button', { name: 'В черновик' })
+    await user.click(buttons[0]!)
+    expect(await screen.findByText(/не base64/)).toBeInTheDocument()
+    expect(onRestore).not.toHaveBeenCalled()
+  })
+
+  it('format=yaml: файл выгружается YAML-ом, а загрузка принимает сам документ', async () => {
+    stubFetch(backups, mihomoFileData)
+    const user = userEvent.setup()
+    const { onRestore } = renderDialog({ kind: 'templates', format: 'yaml' })
+    await user.click(screen.getByRole('button', { name: 'Файл' }))
+    // Имя кнопки — единственное, что видит человек до того, как файл окажется
+    // у него на диске под чужим расширением
+    expect(screen.getByRole('button', { name: /Скачать YAML/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Скачать JSON/ })).not.toBeInTheDocument()
+    const file = new File([MIHOMO_YAML], 'tpl.yaml', { type: 'application/yaml' })
+    await user.upload(screen.getByLabelText('Файл конфига'), file)
+    await waitFor(() => expect(onRestore).toHaveBeenCalledWith(MIHOMO_YAML))
   })
 
   it('вкладка «Файл»: битый файл показывает ошибку и не трогает черновик', async () => {

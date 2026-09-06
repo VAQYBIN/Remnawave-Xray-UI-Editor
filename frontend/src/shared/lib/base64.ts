@@ -17,3 +17,22 @@ export function decodeYaml(base64: string): string {
   const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0))
   return new TextDecoder().decode(bytes)
 }
+
+/**
+ * То же для содержимого, пришедшего от панели, — но без права уронить страницу.
+ * `atob` бросает `InvalidCharacterError` на всём, что не base64, а поля может не
+ * оказаться вовсе (панель нам ничего не обещала): без ErrorBoundary в приложении
+ * это белый экран вместо документа.
+ *
+ * `null`/`undefined` — не поломка, а пустой шаблон панели: пустая строка.
+ * `null` в ответе означает «содержимое есть, но прочесть его нечем» — что
+ * показать человеку, решает вызывающий.
+ */
+export function decodeYamlOrNull(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return ''
+  try {
+    return decodeYaml(value)
+  } catch {
+    return null
+  }
+}

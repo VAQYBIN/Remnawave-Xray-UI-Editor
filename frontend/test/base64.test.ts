@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decodeYaml, encodeYaml } from '../src/shared/lib/base64'
+import { decodeYaml, decodeYamlOrNull, encodeYaml } from '../src/shared/lib/base64'
 
 describe('base64 для YAML-шаблонов', () => {
   it('круг сохраняет текст', () => {
@@ -22,5 +22,24 @@ describe('base64 для YAML-шаблонов', () => {
   // Панель считает хэш по байтам, и лишний байт здесь — расхождение с ней
   it('кодирует ровно те байты, что даёт utf-8', () => {
     expect(encodeYaml('a: б')).toBe('YTog0LE=')
+  })
+})
+
+describe('decodeYamlOrNull', () => {
+  it('пустой шаблон панели — пустой документ, а не поломка', () => {
+    expect(decodeYamlOrNull(null)).toBe('')
+    // Поля может не прийти вовсе: панель нам его наличия не обещала
+    expect(decodeYamlOrNull(undefined)).toBe('')
+  })
+
+  it('нечитаемое содержимое возвращает null, а не бросает', () => {
+    // atob бросает InvalidCharacterError, а ErrorBoundary в приложении нет —
+    // без этой ветки открытие шаблона давало бы белый экран
+    expect(() => decodeYaml('не base64 ¡')).toThrow()
+    expect(decodeYamlOrNull('не base64 ¡')).toBeNull()
+  })
+
+  it('нормальное содержимое отдаётся как обычно', () => {
+    expect(decodeYamlOrNull(encodeYaml('a: б'))).toBe('a: б')
   })
 })

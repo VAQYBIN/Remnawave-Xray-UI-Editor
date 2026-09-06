@@ -28,6 +28,13 @@ export interface EditorShellProps {
   /** Подписи сегментов: текстовая вкладка у Xray «JSON», у Mihomo «YAML» */
   tabs: { graph: string; text: string }
   /**
+   * Формат СОДЕРЖИМОГО документа — не то же, что подпись вкладки выше. От него
+   * зависит диалог версий: из какого поля бэкапа брать текст, чем выгружать в
+   * файл и что принимать при загрузке. Умолчание `json` оставляет редактор Xray
+   * ровно таким, каким он был.
+   */
+  docFormat?: 'json' | 'yaml'
+  /**
    * Что сказано в статус-баре, когда проблем нет. Обязателен без умолчания:
    * «Конфиг валиден» верно для Xray, но шаблон подписки Mihomo конфигом не
    * является — умолчание спрятало бы это решение от следующей сборки.
@@ -54,6 +61,7 @@ export function EditorShell({
   title,
   subtitle,
   tabs,
+  docFormat = 'json',
   validLabel,
   actions,
   save,
@@ -187,6 +195,7 @@ export function EditorShell({
       <VersionsDialog
         open={versionsOpen}
         kind={kind}
+        format={docFormat}
         docUuid={draft.docKey}
         docName={title}
         currentText={draft.text}

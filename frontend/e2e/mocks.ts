@@ -170,11 +170,22 @@ export async function mockTemplates(
       json: {
         templates: [
           TEMPLATE,
+          // Редактор умеет два типа, и MIHOMO — второй: у него в списке есть
+          // ссылка. Неоткрываемый тип нужен рядом, иначе проверка «ссылки нет»
+          // осталась бы без предмета
           {
             uuid: '44444444-4444-4444-8444-444444444444',
             viewPosition: 1,
             name: 'Mihomo',
             templateType: 'MIHOMO',
+            templateJson: null,
+            encodedTemplateYaml: 'eA==',
+          },
+          {
+            uuid: '55555555-5555-4555-8555-555555555555',
+            viewPosition: 2,
+            name: 'Clash',
+            templateType: 'CLASH',
             templateJson: null,
             encodedTemplateYaml: 'eA==',
           },

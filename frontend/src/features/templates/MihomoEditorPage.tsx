@@ -10,10 +10,11 @@
 // загрузки, поэтому маршрут у обоих редакторов один — /templates/:uuid.
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConflictError, useSaveTemplate, type SubscriptionTemplate } from '../../shared/api'
 import { YAML_SYNTAX_PREFIX } from '../../entities/mihomo'
-import { decodeYaml, encodeYaml } from '../../shared/lib/base64'
+import { decodeYamlOrNull, encodeYaml } from '../../shared/lib/base64'
 import { Button, Dialog, EmptyState } from '../../shared/ui'
 import { EditorShell } from '../editor/EditorShell'
 import { MihomoSectionsDialog } from '../editor/MihomoSectionsDialog'
@@ -30,6 +31,13 @@ interface ConflictState {
   hash: string
 }
 
+/**
+ * Раскодирование содержимого — до всех хуков редактора и отдельной компонентой:
+ * `atob` бросает на строке, которая не base64, а ErrorBoundary в приложении нет,
+ * то есть исключение здесь — белый экран вместо документа. Шаблон, заведённый в
+ * панели и ни разу не заполненный, приходит с `encodedTemplateYaml: null` — это
+ * не поломка, а пустой документ (см. decodeYamlOrNull).
+ */
 export function MihomoEditorPage({
   template,
   hash,
@@ -37,12 +45,36 @@ export function MihomoEditorPage({
   template: SubscriptionTemplate
   hash: string
 }) {
+  const navigate = useNavigate()
+  const panelText = decodeYamlOrNull(template.encodedTemplateYaml)
+  if (panelText === null) {
+    return (
+      <main style={{ padding: 24 }}>
+        <p className="field-error">
+          Содержимое шаблона «{template.name}» не читается: панель вернула
+          encodedTemplateYaml, который не является base64. Открывать его редактором нечем —
+          посмотрите шаблон в панели Remnawave.
+        </p>
+        <Button variant="ghost" onClick={() => navigate('/templates')}>
+          ← Шаблоны
+        </Button>
+      </main>
+    )
+  }
+  return <MihomoEditor template={template} hash={hash} panelText={panelText} />
+}
+
+function MihomoEditor({
+  template,
+  hash,
+  panelText,
+}: {
+  template: SubscriptionTemplate
+  hash: string
+  /** Уже раскодированный документ панели: пустая строка у незаполненного шаблона */
+  panelText: string
+}) {
   const qc = useQueryClient()
-  // Шаблон, заведённый в панели и ни разу не заполненный вторым шагом создания,
-  // приходит с `encodedTemplateYaml: null` — открываем его пустым документом и
-  // говорим об этом в статус-баре, как это делает редактор Xray-шаблона
-  const panelText =
-    template.encodedTemplateYaml === null ? '' : decodeYaml(template.encodedTemplateYaml)
   const draft = useMihomoDraft({ docKey: template.uuid, panelText, baseVersion: hash })
   const save = useSaveTemplate(template.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
@@ -132,6 +164,9 @@ export function MihomoEditorPage({
       title={template.name}
       subtitle={`шаблон ${template.templateType}`}
       tabs={{ graph: 'Топология', text: 'YAML' }}
+      // Содержимое документа — YAML-текст: от этого зависит, из какого поля
+      // бэкапа диалог версий берёт документ и чем выгружает его в файл
+      docFormat="yaml"
       // «Конфиг валиден» здесь соврало бы: документ — клиентская подписка, а не
       // конфиг ядра ноды, и валидность его подтверждает mihomo, а не редактор
       validLabel="Документ разбирается, замечаний нет"
@@ -144,10 +179,23 @@ export function MihomoEditorPage({
           >
             Секции документа
           </Button>
-          <Button variant="ghost" onClick={() => draft.setCheckOpen(true)}>
+          {/* Заперты до задач 13 и 14: диалоги за ними ещё не написаны, а
+              кнопка, которая молча ничего не делает, хуже отсутствующей.
+              Обработчики оставлены — состояние для них в черновике уже есть */}
+          <Button
+            variant="ghost"
+            disabled
+            title="Проверка ядром mihomo появится следующей задачей"
+            onClick={() => draft.setCheckOpen(true)}
+          >
             Проверить ядром
           </Button>
-          <Button variant="ghost" onClick={() => draft.setImportOpen(true)}>
+          <Button
+            variant="ghost"
+            disabled
+            title="Импорт готового шаблона появится следующей задачей"
+            onClick={() => draft.setImportOpen(true)}
+          >
             Импорт
           </Button>
           <Button variant="ghost" onClick={() => draft.setGeoOpen(true)}>

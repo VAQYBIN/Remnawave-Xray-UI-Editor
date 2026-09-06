@@ -8,13 +8,26 @@ import {
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Dialog } from '../../shared/ui'
 import { DiffView } from './DiffView'
-import { downloadJson, exportFileName, parseImported } from './configFile'
+import { decodeYamlOrNull } from '../../shared/lib/base64'
+import {
+  downloadJson,
+  downloadYaml,
+  exportFileName,
+  parseImported,
+  parseImportedYaml,
+} from './configFile'
 
 interface Props {
   open: boolean
   kind: 'profiles' | 'templates'
   docUuid: string
   docName: string
+  /**
+   * Формат СОДЕРЖИМОГО документа, а не подпись вкладки. От него зависит, из
+   * какого поля бэкапа берётся текст, чем и под каким именем он выгружается и
+   * что принимает загрузка. Умолчание `json` — вид, с которого редактор начался.
+   */
+  format?: 'json' | 'yaml'
   /** Текущий текст черновика: он же уходит в файл и стоит справа в сравнении */
   currentText: string
   onRestore: (configText: string) => void
@@ -26,6 +39,7 @@ export function VersionsDialog({
   kind,
   docUuid,
   docName,
+  format = 'json',
   currentText,
   onRestore,
   onClose,
@@ -44,6 +58,18 @@ export function VersionsDialog({
       const data = await apiFetch<BackupFileData | TemplateBackupFileData>(
         `/api/${kind}/${docUuid}/backups/${file}`,
       )
+      // У YAML-документа содержимое — ТЕКСТ в encodedTemplateYaml, и печатать
+      // вместо него templateJson нельзя: у шаблона Mihomo это поле `null`, то
+      // есть «В черновик» подменило бы весь документ строкой «null». Бэкап при
+      // этом цел — бэкенд пишет шаблон целиком, — данные просто лежат в другом поле.
+      if (format === 'yaml') {
+        const text = decodeYamlOrNull((data as TemplateBackupFileData).template.encodedTemplateYaml)
+        if (text === null) {
+          setError('Содержимое бэкапа не читается: encodedTemplateYaml не base64.')
+          return null
+        }
+        return text
+      }
       // У профиля содержимое лежит в profile.config, у шаблона — в template.templateJson
       const config =
         kind === 'profiles'
@@ -69,7 +95,8 @@ export function VersionsDialog({
     // Сбрасываем значение сразу: иначе повторный выбор того же файла не даст change
     event.target.value = ''
     if (!file) return
-    const result = parseImported(await file.text())
+    const result =
+      format === 'yaml' ? parseImportedYaml(await file.text()) : parseImported(await file.text())
     if ('error' in result) {
       setError(result.error)
       return
@@ -153,9 +180,13 @@ export function VersionsDialog({
               </p>
               <div className="row">
                 <Button
-                  onClick={() => downloadJson(currentText, exportFileName(docName, new Date()))}
+                  onClick={() =>
+                    format === 'yaml'
+                      ? downloadYaml(currentText, exportFileName(docName, new Date(), 'yaml'))
+                      : downloadJson(currentText, exportFileName(docName, new Date()))
+                  }
                 >
-                  ↓ Скачать JSON
+                  {format === 'yaml' ? '↓ Скачать YAML' : '↓ Скачать JSON'}
                 </Button>
                 <Button onClick={() => fileRef.current?.click()}>↑ Загрузить из файла</Button>
               </div>
@@ -163,7 +194,9 @@ export function VersionsDialog({
                 ref={fileRef}
                 className="sr-only"
                 type="file"
-                accept="application/json,.json"
+                accept={
+                  format === 'yaml' ? 'application/yaml,.yaml,.yml,.json' : 'application/json,.json'
+                }
                 aria-label="Файл конфига"
                 onChange={onPickFile}
               />
