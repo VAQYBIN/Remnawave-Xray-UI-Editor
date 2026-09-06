@@ -110,12 +110,33 @@ describe('разрыв', () => {
     expect(res.edits).toEqual([])
     expect(res.refusal).toBe('panel-hosts-edge')
     const text = refusalText(res.refusal!)
-    expect(text).toMatch(/LEAVE THIS LINE/)
-    // Формулировка про хосты обязана быть условной: какие хосты подставит
-    // панель и подставит ли вообще, редактор не знает
-    expect(text).toMatch(/если панель подставит/)
+    // Проверяем смысл, а не формулировку: кто создаёт связь и почему её нечем
+    // разорвать. От переписывания текста тест ломаться не должен.
+    expect(text).toMatch(/создаёт панель/)
+    expect(text).toMatch(/разрывать нечего/)
+    // Формулировка про сами хосты обязана быть условной: подставит ли панель
+    // хосты и какие, редактор не знает
+    expect(text).toMatch(/если панель/)
     // Прежний ответ врал про изменившийся документ — узел никуда не девался
     expect(text).not.toMatch(/изменил/)
+    // Оснований у `groupGetsHosts` четыре (маркер, include-all,
+    // select-random-proxy, shuffle-proxies-order). Назвать часть — соврать
+    // остальным: у группы с select-random-proxy маркера в документе нет, и
+    // писатель пойдёт искать то, чего там не лежит. Текст обязан не
+    // перечислять оснований вовсе.
+    expect(text).not.toMatch(/LEAVE THIS LINE|include-all|random|shuffle/)
+  })
+
+  it('та же причина у группы, где хосты заданы не маркером, а select-random-proxy', () => {
+    // Ровно тот случай, на котором ломалось перечисление оснований: маркера и
+    // include-all в документе нет вовсе, а узел подстановки есть
+    const doc =
+      'proxy-groups:\n  - name: VPN\n    remnawave:\n      select-random-proxy: true\n' +
+      '    proxies:\n      - DIRECT\n'
+    expect(doc).not.toMatch(/LEAVE THIS LINE|include-all/)
+    const md = parseMihomo(doc)
+    expect(buildMihomoGraph(md).edges.map((e) => e.id)).toContain('e:group:VPN->hosts:VPN')
+    expect(disconnectMihomo(md, 'e:group:VPN->hosts:VPN').refusal).toBe('panel-hosts-edge')
   })
 
   it('на той же фикстуре с узлом подстановки обычное ребро группы разрывается', () => {
