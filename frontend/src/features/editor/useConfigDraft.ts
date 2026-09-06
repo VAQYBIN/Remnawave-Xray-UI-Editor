@@ -27,7 +27,7 @@ import { type DocKind } from '../../shared/lib/docKey'
 import { useDebounced } from '../../shared/lib/useDebounced'
 import type { Draft } from './draftStore'
 import { useDocumentDraft, type DocumentDraft } from './useDocumentDraft'
-import { xrayAdapter } from './xrayAdapter'
+import { validateCached, xrayAdapter } from './xrayAdapter'
 
 // Escape одинаков для любого документа и живёт в ядре; реэкспорт — чтобы
 // вызывающим не пришлось знать, в каком слое он оказался
@@ -37,6 +37,9 @@ export function formatConfig(config: unknown): string {
   return JSON.stringify(config, null, 2)
 }
 
+// Живых вызывающих в продуктовом коде нет: текст черновика собирает ядро
+// (`resolveDraftText`). Функция осталась ради `test/editor-logic.test.ts`, править
+// который эта задача не имеет права.
 export function resolveEditorText(draft: Draft | undefined, panelConfig: unknown): string {
   return draft ? draft.text : formatConfig(panelConfig)
 }
@@ -175,8 +178,9 @@ export function useConfigDraft({
 
   const parsedConfig = core.model
   // validation остаётся публичной: страницы шлют validation.config в панель,
-  // а SaveDialog показывает validation.issues
-  const validation = useMemo(() => validateXrayConfig(core.text), [core.text])
+  // а SaveDialog показывает validation.issues. Второго разбора здесь нет —
+  // xrayAdapter помнит последний текст, и ядро уже разобрало этот же (validateCached)
+  const validation = useMemo(() => validateCached(core.text), [core.text])
 
   // Считаем и спрашиваем базу, когда ввод затих: иначе каждый символ адреса
   // пересчитывал бы граф и дергал бэкенд, а вердикты мигали бы на полуслове
