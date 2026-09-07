@@ -27,7 +27,7 @@ import { SelectField } from '../inspector/fields'
 /** Ширина колонки со списком записей: правая колонка — предпросмотр */
 const LAYOUT = {
   display: 'grid',
-  gridTemplateColumns: '260px 1fr',
+  gridTemplateColumns: '260px minmax(0, 1fr)',
   gap: 12,
   alignItems: 'start',
 } as const
@@ -133,7 +133,7 @@ export function ImportTemplateDialog({
               }
             />
           ) : (
-            <ul className="check-list">
+            <ul className="check-list import-list">
               {shown.map((entry) => (
                 <EntryRow
                   key={entry.url}

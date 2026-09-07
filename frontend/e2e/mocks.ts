@@ -290,12 +290,23 @@ export const CATALOG_ENTRIES = [
     author: 'community',
     url: 'https://raw.example.test/templates/singbox-legacy.json',
   },
+  {
+    // Длинное имя здесь не для красоты: в настоящем каталоге такие есть
+    // («Xray JSON (RU bundle, category: ads, all)»), и ровно на них карточка
+    // списка вылезала за свою колонку поверх предпросмотра. Укоротить имя —
+    // снять проверку раскладки, ничего при этом не сломав на вид.
+    name: 'Mihomo YAML (RU bundle, category: ads, all)',
+    type: 'MIHOMO',
+    author: 'legiz-ru',
+    url: 'https://raw.example.test/templates/mihomo-ru-bundle.yaml',
+  },
 ]
 
 const CATALOG_CONTENT: Record<string, string> = {
   [CATALOG_ENTRIES[0]!.url]: CATALOG_MIHOMO_YAML,
   [CATALOG_ENTRIES[1]!.url]: JSON.stringify({ outbounds: [{ tag: 'direct', protocol: 'freedom' }] }, null, 2),
   [CATALOG_ENTRIES[2]!.url]: '{"outbounds":[]}',
+  [CATALOG_ENTRIES[3]!.url]: CATALOG_MIHOMO_YAML,
 }
 
 /**

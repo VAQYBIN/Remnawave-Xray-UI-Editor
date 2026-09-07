@@ -1456,6 +1456,21 @@ p { margin: 0 0 10px; }
 .versions-tabs { margin-bottom: 12px; }
 .file-tab .row { margin-top: 12px; }
 
+/* Диалог импорта из каталога */
+/* Список записей стоит в узкой колонке грида, а имена в каталоге длинные
+   («Xray JSON (RU bundle, category: ads, all)»). У `.btn` строка нерушима
+   (`white-space: nowrap`), поэтому карточка не сжималась до ширины колонки и
+   рисовалась поверх предпросмотра справа. Перенос разрешаем ЗДЕСЬ, а не в
+   `.btn`: нерушимая строка верна для кнопки-кнопки и неверна только тут, где
+   кнопка играет роль строки списка. */
+.import-list .check-item { align-items: flex-start; }
+.import-list .check-item .btn {
+  white-space: normal;
+  text-align: left;
+  /* Имя из одного длинного слова переносить больше негде */
+  overflow-wrap: anywhere;
+}
+
 /* История правок и справка в топбаре */
 .wb-iconbar { display: flex; gap: 4px; }
 .wb-iconbar .btn { min-width: 2rem; padding: 6px 8px; font-size: var(--t-md); line-height: 1; }

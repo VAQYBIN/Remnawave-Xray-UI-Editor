@@ -8,6 +8,9 @@ import { CATALOG_MIHOMO_YAML, MIHOMO_UUID, MIHOMO_YAML, mockApi, mockMihomo } fr
 /** Строк в документе панели: столько же строк рисует CodeMirror на вкладке YAML */
 const BASE_LINES = MIHOMO_YAML.split('\n').length
 
+/** Имя записи каталога, на длине которого ломалась раскладка диалога импорта */
+const LONG_CATALOG_NAME = 'Mihomo YAML (RU bundle, category: ads, all)'
+
 test.beforeEach(async ({ page }) => {
   await mockApi(page)
   await mockMihomo(page)
@@ -149,4 +152,27 @@ test('импорт из каталога подставляет содержим
   await expect(page.locator('.react-flow__node[data-id="group:Основная"]')).toBeVisible()
   await expect(page.locator('.react-flow__node[data-id="group:Каталог"]')).toHaveCount(0)
   await expect(page.getByText('черновик', { exact: true })).toHaveCount(0)
+})
+
+test('карточка каталога не наезжает на предпросмотр', async ({ page }) => {
+  await page.getByRole('button', { name: 'Импорт' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Импорт шаблона из каталога' })
+
+  // Выбираем запись с самым длинным именем: предпросмотр появляется только
+  // после выбора, а мерить наложение не на чем, пока справа стоит подсказка
+  await dialog.getByRole('button', { name: LONG_CATALOG_NAME }).click()
+  const preview = dialog.locator('pre')
+  await expect(preview).toContainText('Каталог')
+  // Ширина карточки — метрики текста: до подмены шрифта она другая (см. тот же
+  // приём в dock-layout.spec.ts)
+  await page.evaluate(() => document.fonts.ready)
+
+  const previewBox = (await preview.boundingBox())!
+  for (const card of await dialog.locator('.check-item').all()) {
+    const box = (await card.boundingBox())!
+    // Проверяем не ширину карточки, а само свойство: список живёт в своей
+    // колонке. У кнопки `.btn` строка нерушима, поэтому длинное имя растило
+    // карточку вправо, и она рисовалась поверх содержимого шаблона
+    expect(box.x + box.width).toBeLessThanOrEqual(previewBox.x)
+  }
 })
