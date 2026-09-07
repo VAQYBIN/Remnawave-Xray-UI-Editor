@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -39,6 +39,9 @@ function mockCatalog(over: { list?: { status: number; body: unknown } } = {}) {
 
 /** Шпион закрытия: отдельной переменной, чтобы renderDialog по-прежнему возвращал onImport */
 let onClose = vi.fn()
+
+/** Диалог каталога: подтверждение — отдельное окно, и своя кнопка «Закрыть» есть у каждого */
+const catalogDialog = () => screen.getByRole('dialog', { name: 'Импорт шаблона из каталога' })
 
 function renderDialog(props: Partial<Parameters<typeof ImportTemplateDialog>[0]> = {}) {
   const onImport = vi.fn()
@@ -177,6 +180,32 @@ describe('импорт шаблона из каталога', () => {
   })
 
   /**
+   * Вопрос стоит ПОВЕРХ выбора, а не вместо него. Раньше подтверждение
+   * подменяло собой нижний ряд кнопок: «Импортировать в редактор» на месте
+   * согласия становилась «Затереть и импортировать», и второй клик в ту же
+   * точку экрана означал уже не то же самое, что первый.
+   */
+  it('подтверждение приходит отдельным окном, а не подменой кнопок', async () => {
+    mockCatalog()
+    renderDialog({ dirty: true })
+    await userEvent.click(await screen.findByText('mihomo-default'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Импортировать в редактор' }))
+
+    const confirm = screen.getByRole('dialog', { name: 'Импорт затрёт документ' })
+    expect(within(confirm).getByText(/затрёт ваши правки/)).toBeInTheDocument()
+    expect(
+      within(confirm).getByRole('button', { name: 'Затереть и импортировать' }),
+    ).toBeInTheDocument()
+    // Диалог каталога остался как был — с выбором и своей кнопкой импорта
+    expect(
+      within(catalogDialog()).getByRole('button', { name: 'Импортировать в редактор' }),
+    ).toBeInTheDocument()
+    expect(
+      within(catalogDialog()).queryByRole('button', { name: 'Затереть и импортировать' }),
+    ).toBeNull()
+  })
+
+  /**
    * Пустой список приходит двумя путями, и совет у них разный. Под фильтром
    * типа «переключите на все типы» — рабочий выход; на «всех типах» переключать
    * уже некуда, и тот же совет отправлял бы пользователя туда, где он стоит.
@@ -222,7 +251,7 @@ describe('импорт шаблона из каталога', () => {
     await userEvent.click(await screen.findByText('mihomo-default'))
     await userEvent.click(await screen.findByRole('button', { name: 'Импортировать в редактор' }))
     expect(screen.getByText(/затрёт ваши правки/)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+    await userEvent.click(within(catalogDialog()).getByRole('button', { name: 'Закрыть' }))
     expect(screen.queryByText(/затрёт ваши правки/)).not.toBeInTheDocument()
     expect(screen.queryByText(/MATCH,DIRECT/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Импортировать в редактор' })).toBeDisabled()

@@ -176,3 +176,36 @@ test('карточка каталога не наезжает на предпр�
     expect(box.x + box.width).toBeLessThanOrEqual(previewBox.x)
   }
 })
+
+test('тип шаблона стоит в правом верхнем углу карточки', async ({ page }) => {
+  await page.getByRole('button', { name: 'Импорт' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Импорт шаблона из каталога' })
+  await expect(dialog.locator('.import-item')).toHaveCount(2)
+  await page.evaluate(() => document.fonts.ready)
+
+  // Обе карточки сразу: у короткого имени чип и в потоке вставал справа —
+  // разъезжался он именно на длинном, уезжая под имя на вторую строку
+  for (const card of await dialog.locator('.import-item').all()) {
+    const box = (await card.boundingBox())!
+    const chip = (await card.locator('.chip').boundingBox())!
+    const author = (await card.locator('.muted').boundingBox())!
+    expect(box.x + box.width - (chip.x + chip.width)).toBeLessThan(12)
+    expect(chip.y - box.y).toBeLessThan(12)
+    // Тип выше автора, а не в одной строке с ним
+    expect(chip.y).toBeLessThan(author.y)
+  }
+})
+
+test('предпросмотр занимает высоту области и не выходит за неё', async ({ page }) => {
+  await page.getByRole('button', { name: 'Импорт' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Импорт шаблона из каталога' })
+  await dialog.getByRole('button', { name: LONG_CATALOG_NAME }).click()
+  const preview = dialog.locator('pre')
+  await expect(preview).toContainText('Каталог')
+
+  const area = (await dialog.locator('.import-body').boundingBox())!
+  const box = (await preview.boundingBox())!
+  // Шаблон каталога короткий: по содержимому рамка была бы в разы ниже области
+  expect(box.height).toBeGreaterThanOrEqual(area.height - 2)
+  expect(box.y + box.height).toBeLessThanOrEqual(area.y + area.height + 1)
+})

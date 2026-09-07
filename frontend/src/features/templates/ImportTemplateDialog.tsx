@@ -10,8 +10,11 @@
 //   3. импорт — правка ЧЕРНОВИКА: содержимое уходит наружу через onImport, и
 //      сохранять ли его в панель, решает пользователь. Прямая запись в панель
 //      была бы необратимой операцией по одному клику в диалоге;
-//   4. поверх изменённого черновика спрашиваем подтверждение — документ
-//      затирается целиком, а `dirty` означает, что затирать есть что.
+//   4. поверх изменённого черновика спрашиваем подтверждение ОТДЕЛЬНЫМ окном.
+//      Раньше вопрос подменял собой нижний ряд кнопок: «Импортировать в
+//      редактор» на месте согласия превращалась в «Затереть и импортировать»,
+//      и второй клик в ту же точку экрана означал уже не то же самое. Окно
+//      поверх окна заставляет перевести взгляд и целиться заново.
 
 import { useState } from 'react'
 import {
@@ -23,16 +26,6 @@ import {
 } from '../../shared/api'
 import { Button, Chip, Dialog, EmptyState } from '../../shared/ui'
 import { SelectField } from '../inspector/fields'
-
-/** Ширина колонки со списком записей: правая колонка — предпросмотр */
-const LAYOUT = {
-  display: 'grid',
-  gridTemplateColumns: '260px minmax(0, 1fr)',
-  gap: 12,
-  alignItems: 'start',
-} as const
-
-const PREVIEW = { margin: 0, padding: 8, maxHeight: 320 } as const
 
 /** Тип из каталога — строка: узнать его можно только сверкой со списком панели */
 function isKnownType(type: string): boolean {
@@ -49,7 +42,7 @@ function EntryRow({
   onPick: () => void
 }) {
   return (
-    <li className="check-item">
+    <li className="check-item import-item">
       <Button variant="ghost" aria-pressed={selected} onClick={onPick}>
         <span className="mono">{entry.name}</span>
       </Button>
@@ -111,90 +104,66 @@ export function ImportTemplateDialog({
   const text = content.data
 
   return (
-    <Dialog open={open} title="Импорт шаблона из каталога" onClose={close} wide>
-      <div style={LAYOUT}>
-        <div>
-          {catalog.isPending && open ? (
-            <p className="muted">Читаю каталог…</p>
-          ) : catalog.isError ? (
-            <p className="field-error">{(catalog.error as Error).message}</p>
-          ) : shown.length === 0 ? (
-            <EmptyState
-              title="Ничего не нашлось"
-              // Пустой список приходит двумя разными путями, и совет у них не
-              // общий: под фильтром типа переключение на «все» действительно
-              // помогает, а на «всех типах» переключать уже некуда — пуст сам
-              // ответ каталога. Один текст на оба случая советовал бы уйти туда,
-              // где пользователь и так стоит
-              hint={
-                filter === 'all'
-                  ? 'Каталог не вернул ни одной записи — попробуйте позже.'
-                  : `В каталоге нет шаблонов типа ${filter} — переключите фильтр на «все типы».`
-              }
-            />
-          ) : (
-            <ul className="check-list import-list">
-              {shown.map((entry) => (
-                <EntryRow
-                  key={entry.url}
-                  entry={entry}
-                  selected={entry.url === pickedUrl}
-                  onPick={() => {
-                    setPickedUrl(entry.url)
-                    setConfirming(false)
-                  }}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div>
-          {picked === undefined ? (
-            <p className="muted">Выберите шаблон слева — содержимое покажется здесь.</p>
-          ) : content.isPending ? (
-            <p className="muted">Скачиваю шаблон…</p>
-          ) : content.isError ? (
-            <p className="field-error">{(content.error as Error).message}</p>
-          ) : (
-            <pre className="mono diff-frame" style={PREVIEW}>
-              {text}
-            </pre>
-          )}
-        </div>
-      </div>
-
-      {picked !== undefined && !importable && (
-        <p className="field-warning">
-          {isKnownType(picked.type)
-            ? `Открыт документ ${docType}: импортировать в него можно только шаблон типа ${docType}, а этот — ${picked.type}.`
-            : `Тип ${picked.type} редактор не открывает — такой шаблон можно только посмотреть.`}
-        </p>
-      )}
-
-      {confirming ? (
-        <>
-          {/* Импорт затирает документ целиком, а не дописывает к нему */}
-          <p className="field-warning">
-            Импорт затрёт ваши правки этого документа целиком. Записи в панель не будет — вернуть
-            прежний текст можно через Ctrl+Z.
-          </p>
-          <div className="row">
-            <span className="spacer" />
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
-              Не затирать
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (text !== undefined) doImport(text)
-              }}
-            >
-              Затереть и импортировать
-            </Button>
+    <>
+      <Dialog open={open} title="Импорт шаблона из каталога" onClose={close} wide>
+        <div className="import-body">
+          <div className="import-col import-col-list">
+            {catalog.isPending && open ? (
+              <p className="muted">Читаю каталог…</p>
+            ) : catalog.isError ? (
+              <p className="field-error">{(catalog.error as Error).message}</p>
+            ) : shown.length === 0 ? (
+              <EmptyState
+                title="Ничего не нашлось"
+                // Пустой список приходит двумя разными путями, и совет у них не
+                // общий: под фильтром типа переключение на «все» действительно
+                // помогает, а на «всех типах» переключать уже некуда — пуст сам
+                // ответ каталога. Один текст на оба случая советовал бы уйти туда,
+                // где пользователь и так стоит
+                hint={
+                  filter === 'all'
+                    ? 'Каталог не вернул ни одной записи — попробуйте позже.'
+                    : `В каталоге нет шаблонов типа ${filter} — переключите фильтр на «все типы».`
+                }
+              />
+            ) : (
+              <ul className="check-list">
+                {shown.map((entry) => (
+                  <EntryRow
+                    key={entry.url}
+                    entry={entry}
+                    selected={entry.url === pickedUrl}
+                    onPick={() => {
+                      setPickedUrl(entry.url)
+                      setConfirming(false)
+                    }}
+                  />
+                ))}
+              </ul>
+            )}
           </div>
-        </>
-      ) : (
+
+          <div className="import-col">
+            {picked === undefined ? (
+              <p className="muted">Выберите шаблон слева — содержимое покажется здесь.</p>
+            ) : content.isPending ? (
+              <p className="muted">Скачиваю шаблон…</p>
+            ) : content.isError ? (
+              <p className="field-error">{(content.error as Error).message}</p>
+            ) : (
+              <pre className="mono diff-frame import-preview">{text}</pre>
+            )}
+          </div>
+        </div>
+
+        {picked !== undefined && !importable && (
+          <p className="field-warning">
+            {isKnownType(picked.type)
+              ? `Открыт документ ${docType}: импортировать в него можно только шаблон типа ${docType}, а этот — ${picked.type}.`
+              : `Тип ${picked.type} редактор не открывает — такой шаблон можно только посмотреть.`}
+          </p>
+        )}
+
         <div className="row">
           <SelectField
             label="Тип"
@@ -228,7 +197,38 @@ export function ImportTemplateDialog({
             Импортировать в редактор
           </Button>
         </div>
+      </Dialog>
+
+      {/* Импорт затирает документ целиком, а не дописывает к нему. Отказ здесь
+          возвращает к выбору шаблона, а не в редактор: диалог каталога остаётся
+          открытым под этим окном.
+
+          Монтируется по условию, а не живёт с `open={confirming}`, как прочие
+          диалоги приложения: закрытый `<dialog>` держит содержимое в DOM, и
+          предупреждение «импорт затрёт правки» читалось бы вспомогательными
+          технологиями (и тестами) всё время, пока открыт каталог. */}
+      {confirming && (
+        <Dialog open title="Импорт затрёт документ" onClose={() => setConfirming(false)}>
+          <p className="field-warning">
+            Импорт затрёт ваши правки этого документа целиком. Записи в панель не будет — вернуть
+            прежний текст можно через Ctrl+Z.
+          </p>
+          <div className="row">
+            <span className="spacer" />
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              Не затирать
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                if (text !== undefined) doImport(text)
+              }}
+            >
+              Затереть и импортировать
+            </Button>
+          </div>
+        </Dialog>
       )}
-    </Dialog>
+    </>
   )
 }
