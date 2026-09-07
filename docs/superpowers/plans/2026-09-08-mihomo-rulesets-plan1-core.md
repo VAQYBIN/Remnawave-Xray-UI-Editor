@@ -498,7 +498,7 @@ git commit -m "feat(backend): parse the mihomo .mrs header"
 
 **Файлы:**
 - Создать: `backend/src/ruleset/domainSet.ts`
-- Создать: `backend/test/helpers/domainSetBuilder.ts`
+- Создать: `backend/test/domainSetBuilder.ts`
 - Тест: `backend/test/ruleset-domain-set.test.ts`
 
 **Интерфейсы:**
@@ -534,7 +534,7 @@ git commit -m "feat(backend): parse the mihomo .mrs header"
 готовую структуру, минуя двоичный формат. Живёт **только в тестах**.
 
 ```ts
-// backend/test/helpers/domainSetBuilder.ts
+// backend/test/domainSetBuilder.ts
 import type { DomainSet } from '../../src/ruleset/domainSet.js'
 
 /**
@@ -612,7 +612,7 @@ import { describe, expect, it } from 'vitest'
 import { parseMrs } from '../src/ruleset/mrs.js'
 import { hasDomain, readDomainSet } from '../src/ruleset/domainSet.js'
 import { RuleSetError } from '../src/ruleset/errors.js'
-import { buildDomainSet } from './helpers/domainSetBuilder.js'
+import { buildDomainSet } from './domainSetBuilder.js'
 
 const DIR = join(import.meta.dirname, 'fixtures', 'ruleset')
 const MAX = 32 * 1024 * 1024
@@ -940,7 +940,7 @@ export const domainMatcher = (ds: DomainSet): DomainMatcher => ({
 - [ ] **Шаг 7: коммит**
 
 ```bash
-git add backend/src/ruleset/domainSet.ts backend/test/helpers/domainSetBuilder.ts backend/test/ruleset-domain-set.test.ts
+git add backend/src/ruleset/domainSet.ts backend/test/domainSetBuilder.ts backend/test/ruleset-domain-set.test.ts
 git commit -m "feat(backend): read and query the mihomo domain set"
 ```
 
@@ -1959,23 +1959,28 @@ function matchDomainEntry(entry: string, target: string): boolean {
   return target === entry
 }
 
-/** Текстовый набор подсетей: строка на подсеть в записи CIDR */
-export function ipCidrSetFromLines(lines: string[]): { has(ip: string): boolean } {
-  const nets = lines.map((l) => l.trim()).filter((l) => l !== '')
-  return {
-    has(ip: string): boolean {
-      const bytes = ipToBytes(ip)
-      if (bytes === null) return false
-      return nets.some((cidr) => inCidr(bytes, cidr))
-    },
+/**
+ * Текстовый набор подсетей: строка на подсеть в записи CIDR. Арифметику берём
+ * готовую — `ipMatches` из `geo/match.ts`, — а не пишем вторую копию: разойтись
+ * этим двум было бы очень легко и очень незаметно.
+ */
+export function ipCidrSetFromLines(lines: string[]): IpMatcher {
+  const cidrs: GeoCidr[] = []
+  for (const line of lines) {
+    const [addr, len] = line.trim().split('/')
+    const ip = addr === undefined ? null : ipToBytes(addr)
+    if (ip === null) continue // строку, которую не разобрали, молча пропускаем
+    const prefix = len === undefined ? ip.length * 8 : Number(len)
+    if (!Number.isInteger(prefix) || prefix < 0 || prefix > ip.length * 8) continue
+    cidrs.push({ ip, prefix })
   }
+  return { has: (ip: string) => ipMatches(cidrs, ip) }
 }
 ```
 
-`inCidr` берётся не заново: в `backend/src/geo/match.ts` уже есть арифметика
-подсетей, и вторая её копия разошлась бы с первой. Использовать существующую
-функцию сравнения; если её сигнатура не подходит напрямую — вынести общее, а не
-копировать.
+Импорты этого файла: `ipMatches`, `ipToBytes` из `../geo/match.js`, тип
+`GeoCidr` из `../geo/dat.js` (`{ ip: Uint8Array; prefix: number }`), тип
+`IpMatcher` из `./ipcidrSet.js`, `DomainMatcher` из `./domainSet.js`.
 
 - [ ] **Шаг 5: роут**
 
@@ -2024,19 +2029,43 @@ app.post('/api/tools/ruleset/match', async (req) => {
 
 ```ts
 // backend/test/ruleset-routes.test.ts
-import { describe, expect, it } from 'vitest'
-import { makeApp, login } from './helpers.js'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { FastifyInstance } from 'fastify'
+import { buildServer } from '../src/server.js'
+import { RuleSetService } from '../src/ruleset/service.js'
+import { makeStubRemnawave } from './stub-remnawave.js'
+import { loginCookie, makeTestConfig } from './helpers.js'
+
+let app: FastifyInstance
+let cookie: string
+
+beforeEach(async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'xui-ruleset-routes-'))
+  app = await buildServer(makeTestConfig({ dataDir }), {
+    remnawave: makeStubRemnawave(),
+    // Сеть подменена: тест не ходит наружу даже случайно
+    ruleset: new RuleSetService(dataDir, {
+      lookupImpl: async () => [{ address: '93.184.216.34' }],
+      fetchImpl: async () => new Response('', { status: 404 }),
+    }),
+  })
+  cookie = await loginCookie(app)
+})
+
+afterEach(async () => {
+  await app.close()
+})
 
 describe('POST /api/tools/ruleset/match', () => {
   it('требует авторизации', async () => {
-    const app = await makeApp()
     const res = await app.inject({ method: 'POST', url: '/api/tools/ruleset/match', payload: {} })
     expect(res.statusCode).toBe(401)
   })
 
   it('отвечает по каждому набору', async () => {
-    const app = await makeApp()
-    const cookie = await login(app)
     const res = await app.inject({
       method: 'POST',
       url: '/api/tools/ruleset/match',
@@ -2059,8 +2088,6 @@ describe('POST /api/tools/ruleset/match', () => {
   })
 
   it('кривое тело — 400, а не 500', async () => {
-    const app = await makeApp()
-    const cookie = await login(app)
     const res = await app.inject({
       method: 'POST',
       url: '/api/tools/ruleset/match',
@@ -2072,8 +2099,9 @@ describe('POST /api/tools/ruleset/match', () => {
 })
 ```
 
-Точные формы `makeApp` и `login` взять из `backend/test/helpers.ts` — не
-придумывать: в других тестах роутов они уже используются.
+Обвязка взята из `backend/test/geo-routes.test.ts` — там она уже такая.
+`backend/test/helpers.ts` отдаёт ровно два помощника: `makeTestConfig` и
+`loginCookie`; никаких `makeApp`/`login` в проекте нет.
 
 - [ ] **Шаг 8: всё зелёное**
 
