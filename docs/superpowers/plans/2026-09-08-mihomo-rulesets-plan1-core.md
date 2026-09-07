@@ -154,16 +154,22 @@ describe('fetchExternalBytes: потолок размера', () => {
   })
 
   it('честный content-length отказывает до чтения тела', async () => {
+    // Node сам асинхронно трогает поток тела Response вскоре после конструирования
+    // (внутренняя бухгалтерия рантайма) — засечь это флагом в start()/pull() нельзя,
+    // сигнал ложный. Единственный надёжный признак «код полез в тело» — вызов
+    // ПУБЛИЧНОГО getReader(), которым пользуется сама fetchExternalBytes.
     let bodyTouched = false
-    const res = new Response(
-      new ReadableStream({
-        start(controller) {
-          bodyTouched = true
-          controller.close()
-        },
-      }),
-      { status: 200, headers: { 'content-length': '999' } },
-    )
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.close()
+      },
+    })
+    const originalGetReader = stream.getReader.bind(stream)
+    stream.getReader = ((...args: Parameters<typeof originalGetReader>) => {
+      bodyTouched = true
+      return originalGetReader(...args)
+    }) as typeof stream.getReader
+    const res = new Response(stream, { status: 200, headers: { 'content-length': '999' } })
     await expect(
       fetchExternalBytes('https://example.com/a', {
         fetchImpl: async () => res,
@@ -1330,7 +1336,6 @@ git commit -m "feat(backend): parse yaml and text rule-set payloads"
 - [ ] **Шаг 1: падающий тест**
 
 ```ts
-// backend/test/ruleset-cache.test.ts
 import { mkdtemp, readdir, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1388,11 +1393,55 @@ describe('кэш наборов', () => {
     expect(names[0]).not.toBe(first)
   })
 
-  it('мусор в каталоге не роняет чтение', async () => {
+  it('мусор в каталоге не роняет запись', async () => {
+    // Проверять это на `read` бессмысленно: он не читает каталог, а собирает
+    // путь из хэша, и посторонний файл ему не встретится вовсе. Каталог
+    // обходит только вытеснение, поэтому мусор надо проводить через `write`
     const dir = await newDir()
     await writeFile(join(dir, 'не-хэш.txt'), 'мусор')
     const cache = new RuleSetCache(dir, { totalBytes: 1 << 20 })
-    await expect(cache.read(URL_A, 60_000)).resolves.toBeNull()
+    await expect(cache.write(URL_A, new Uint8Array([7]))).resolves.toBeUndefined()
+    const hit = await cache.read(URL_A, 60_000)
+    expect(hit && [...hit.bytes]).toEqual([7])
+  })
+
+  it('часто читаемый набор переживает давно не читанный', async () => {
+    // Вытеснение идёт по времени ОБРАЩЕНИЯ, а не загрузки: набор с месячным
+    // interval всегда самый старый по mtime, но спрашивают его каждый раз
+    const dir = await newDir()
+    const cache = new RuleSetCache(dir, { totalBytes: 300 })
+    await cache.write('https://example.com/hot', new Uint8Array(100))
+    await cache.write('https://example.com/cold', new Uint8Array(100))
+    const old = new Date(Date.now() - 60_000)
+    for (const name of await readdir(dir)) await utimes(join(dir, name), old, old)
+
+    await cache.read('https://example.com/hot', 10 * 60_000)
+    await cache.write('https://example.com/new', new Uint8Array(150))
+
+    expect(await cache.read('https://example.com/hot', 10 * 60_000)).not.toBeNull()
+    expect(await cache.read('https://example.com/cold', 10 * 60_000)).toBeNull()
+  })
+
+  it('только что записанное не вытесняется, даже если одно больше потолка', async () => {
+    // Иначе `write` завершался бы успехом, а файла бы не было
+    const dir = await newDir()
+    const cache = new RuleSetCache(dir, { totalBytes: 100 })
+    await cache.write(URL_A, new Uint8Array(200))
+    expect(await cache.read(URL_A, 60_000)).not.toBeNull()
+  })
+
+  it('чтение не сбрасывает срок годности', async () => {
+    // Отметка обращения идёт в atime; тронь она mtime — набор с месячным
+    // interval не протух бы никогда
+    const dir = await newDir()
+    const cache = new RuleSetCache(dir, { totalBytes: 1 << 20 })
+    await cache.write(URL_A, new Uint8Array([1]))
+    const [name] = await readdir(dir)
+    const old = new Date(Date.now() - 10 * 60_000)
+    await utimes(join(dir, name!), old, old)
+
+    expect(await cache.read(URL_A, 60 * 60_000)).not.toBeNull() // попадание, atime обновлён
+    expect(await cache.read(URL_A, 60_000)).toBeNull() // срок по-прежнему считается от mtime
   })
 })
 ```
@@ -1405,11 +1454,18 @@ describe('кэш наборов', () => {
 - [ ] **Шаг 3: реализация**
 
 ```ts
-// backend/src/ruleset/cache.ts
 // Файловый кэш скачанных наборов. Ключ — sha256 от ссылки: в самой ссылке
 // бывает что угодно, включая `..` и символы, недопустимые в путях Windows.
+//
+// Две даты у файла значат разное и поэтому обе нужны. `mtime` — когда набор
+// скачали, по нему считается срок годности. `atime` — когда его последний раз
+// спрашивали, по нему выстраивается очередь на вытеснение. Свести их в одну
+// нельзя: запись обращения в `mtime` не дала бы набору протухнуть никогда, а
+// вытеснение по одному только `mtime` выбрасывало бы как раз тот набор, который
+// спрашивают чаще всех, — у `private-ips` в живых шаблонах `interval` месячный,
+// и его файл всегда самый старый в каталоге.
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export interface CachedFile {
@@ -1438,7 +1494,14 @@ export class RuleSetCache {
       // Свежесть меряем по mtime файла, а не по отдельному индексу: индекс
       // разъехался бы с содержимым каталога при любой правке снаружи
       if (Date.now() - info.mtimeMs > ttlMs) return null
-      return { bytes: await readFile(path), loadedAt: info.mtimeMs }
+      const bytes = await readFile(path)
+      try {
+        // Отмечаем обращение, оставляя mtime нетронутым
+        await utimes(path, new Date(), new Date(info.mtimeMs))
+      } catch {
+        // Отметка не проставилась — это не повод терять попадание в кэш
+      }
+      return { bytes, loadedAt: info.mtimeMs }
     } catch {
       return null
     }
@@ -1446,13 +1509,19 @@ export class RuleSetCache {
 
   async write(url: string, bytes: Uint8Array): Promise<void> {
     await mkdir(this.dir, { recursive: true })
-    await writeFile(join(this.dir, this.nameOf(url)), bytes)
-    await this.evict()
+    const path = join(this.dir, this.nameOf(url))
+    await writeFile(path, bytes)
+    await this.evict(path)
   }
 
-  /** Держим каталог в пределах потолка, выбрасывая самое давнее */
-  private async evict(): Promise<void> {
-    let entries: { path: string; size: number; mtimeMs: number }[]
+  /**
+   * Держим каталог в пределах потолка, выбрасывая то, к чему дольше всего не
+   * обращались. `keep` — файл, только что записанный: его не выбрасываем даже
+   * при переполнении. Иначе `write` завершился бы успехом, а файла бы не было,
+   * и вызывающий об этом не узнал бы.
+   */
+  private async evict(keep?: string): Promise<void> {
+    let entries: { path: string; size: number; atimeMs: number }[]
     try {
       const names = await readdir(this.dir)
       entries = []
@@ -1460,7 +1529,7 @@ export class RuleSetCache {
         const path = join(this.dir, name)
         try {
           const info = await stat(path)
-          if (info.isFile()) entries.push({ path, size: info.size, mtimeMs: info.mtimeMs })
+          if (info.isFile()) entries.push({ path, size: info.size, atimeMs: info.atimeMs })
         } catch {
           // Файл исчез между readdir и stat — не наша забота
         }
@@ -1472,9 +1541,10 @@ export class RuleSetCache {
     let total = entries.reduce((sum, e) => sum + e.size, 0)
     if (total <= this.limits.totalBytes) return
 
-    entries.sort((a, b) => a.mtimeMs - b.mtimeMs)
+    entries.sort((a, b) => a.atimeMs - b.atimeMs)
     for (const entry of entries) {
       if (total <= this.limits.totalBytes) break
+      if (entry.path === keep) continue
       try {
         await rm(entry.path)
         total -= entry.size
@@ -1498,8 +1568,13 @@ export class RuleSetCache {
 2. `nameOf` → возвращать `encodeURIComponent(url)` — падает «имя файла не
    содержит частей ссылки».
 3. Убрать вызов `evict()` из `write` — падает «переполнение вытесняет».
-4. `entries.sort((a, b) => a.mtimeMs - b.mtimeMs)` → обратный порядок — падает
+4. `entries.sort((a, b) => a.atimeMs - b.atimeMs)` → обратный порядок — падает
    «переполнение вытесняет самое старое» (удалится новое).
+5. `atimeMs: info.atimeMs` → `info.mtimeMs` вместе со снятой отметкой обращения
+   — падает «часто читаемый набор переживает давно не читанный».
+6. Убрать `if (entry.path === keep) continue` — падает «только что записанное не
+   вытесняется».
+7. Отметку обращения писать в mtime — падает «чтение не сбрасывает срок годности».
 
 - [ ] **Шаг 6: коммит**
 
