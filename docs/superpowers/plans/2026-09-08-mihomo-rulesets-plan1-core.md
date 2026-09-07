@@ -46,6 +46,10 @@ React 19, vitest.
   остальное, что вылетело, — наша ошибка, и она не должна выглядеть как
   состояние набора.
 - Никаких `doc.toString()` во фронтенде: модель Mihomo производна от текста.
+- **Тест на отказ проверяет ТЕКСТ сообщения, а не только класс ошибки.** Все
+  отказы здесь одного класса `RuleSetError`, поэтому `toThrow(RuleSetError)` не
+  отличает сработавшую ветку от соседней и остаётся зелёным при перепутанных
+  условиях. При исполнении этого плана так уже трижды проходила мутация.
 
 ---
 
@@ -1207,7 +1211,6 @@ git commit -m "feat(backend): read and query the mihomo ipcidr set"
 - [ ] **Шаг 1: падающий тест**
 
 ```ts
-// backend/test/ruleset-payload.test.ts
 import { describe, expect, it } from 'vitest'
 import { parsePayload } from '../src/ruleset/payload.js'
 import { RuleSetError } from '../src/ruleset/errors.js'
@@ -1227,12 +1230,22 @@ describe('формат yaml', () => {
     expect(parsePayload('payload: []\n', 'yaml')).toEqual([])
   })
 
-  it('без ключа payload — отказ', () => {
+  it('без ключа payload — отказ, и он говорит именно про ключ', () => {
+    // Проверяем ТЕКСТ, а не класс: соседняя ветка «не список» бросает тот же
+    // класс, и на одном `toThrow(RuleSetError)` перепутанные ветки прошли бы
     expect(() => parsePayload('other: 1\n', 'yaml')).toThrow(RuleSetError)
+    expect(() => parsePayload('other: 1\n', 'yaml')).toThrow(/нет ключа payload/)
+  })
+
+  it('payload не списком — отказ, и он говорит именно про список', () => {
+    expect(() => parsePayload('payload: строка\n', 'yaml')).toThrow(/не список/)
   })
 
   it('битый YAML — RuleSetError, а не исключение библиотеки', () => {
     expect(() => parsePayload('payload:\n  - [a\n', 'yaml')).toThrow(RuleSetError)
+    // Текст обязан быть наш и русский: сообщение библиотеки английское и про
+    // синтаксис YAML, а пользователь читает его как состояние набора
+    expect(() => parsePayload('payload:\n  - [a\n', 'yaml')).toThrow(/не разбирается как YAML/)
   })
 
   it('нестроковые записи пропускаются, а не превращаются в «null»', () => {
