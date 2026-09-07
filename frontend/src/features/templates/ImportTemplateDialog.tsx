@@ -41,16 +41,19 @@ function EntryRow({
   selected: boolean
   onPick: () => void
 }) {
+  // Кнопка — вся карточка, а не имя внутри неё: целиться в строку текста в
+  // узкой колонке пользователю незачем, а тип и автор — такая же часть записи.
+  // Внутрь идут только span'ы (Chip — тоже span), кнопка в кнопку не вложена
   return (
-    <li className="check-item import-item">
-      <Button variant="ghost" aria-pressed={selected} onClick={onPick}>
+    <li>
+      <Button className="import-card" aria-pressed={selected} onClick={onPick}>
         <span className="mono">{entry.name}</span>
+        <Chip dir="none">{entry.type}</Chip>
+        <span className="muted">{entry.author}</span>
+        {!isKnownType(entry.type) && (
+          <span className="field-warning">тип не поддерживается редактором</span>
+        )}
       </Button>
-      <Chip dir="none">{entry.type}</Chip>
-      <span className="muted">{entry.author}</span>
-      {!isKnownType(entry.type) && (
-        <span className="field-warning">тип не поддерживается редактором</span>
-      )}
     </li>
   )
 }

@@ -126,6 +126,22 @@ describe('импорт шаблона из каталога', () => {
     expect(urls.some((u) => u === `/api/catalog/template?url=${encodeURIComponent(MIHOMO_URL)}`)).toBe(true)
   })
 
+  // Нажимается вся карточка, а не имя внутри неё: целиться в строку текста в
+  // узкой колонке пользователю незачем, а тип и автор — такая же часть записи
+  it('выбирает шаблон клик по любой части карточки', async () => {
+    mockCatalog()
+    renderDialog()
+    await screen.findByText('mihomo-default')
+    // Автор — самая дальняя от имени часть карточки
+    await userEvent.click(screen.getByText('remnawave'))
+    expect(await screen.findByText(/MATCH,DIRECT/)).toBeInTheDocument()
+    // И выбор отмечен на самой карточке, а не только предпросмотром справа
+    expect(screen.getByRole('button', { name: /mihomo-default/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('импорт отдаёт содержимое наружу, а не сохраняет в панель', async () => {
     mockCatalog()
     const onImport = renderDialog()

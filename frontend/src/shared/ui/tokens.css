@@ -1477,28 +1477,48 @@ p { margin: 0 0 10px; }
 .import-col-list { overflow: auto; }
 .import-preview { height: 100%; margin: 0; padding: 8px; box-sizing: border-box; }
 
-/* Тип шаблона стоит в правом верхнем углу карточки и не зависит от длины
-   имени: в потоке flex он у короткого имени вставал рядом, а у длинного
-   уезжал на вторую строку — колонка типов читалась зигзагом. */
-.import-item {
+/* Карточка записи — сама кнопка: нажимается вся, а не имя внутри неё.
+   Тип стоит в правом верхнем углу и не зависит от длины имени: в потоке flex
+   он у короткого имени вставал рядом, а у длинного уезжал на вторую строку —
+   колонка типов читалась зигзагом. */
+.import-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 4px 8px;
-}
-.import-item .chip { grid-column: 2; grid-row: 1; }
-.import-item .muted,
-.import-item .field-warning { grid-column: 1 / -1; }
-/* У `.btn` строка нерушима (`white-space: nowrap`), а имена в каталоге длинные
-   («Xray JSON (RU bundle, category: ads, all)»): карточка не сжималась до
-   ширины колонки и рисовалась поверх предпросмотра справа. Перенос разрешаем
-   ЗДЕСЬ, а не в `.btn`: нерушимая строка верна для кнопки-кнопки и неверна
-   только тут, где кнопка играет роль строки списка. */
-.import-item .btn {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  /* Левое ребро толще: на нём и держится отметка выбора (тот же приём, что у
+     уровней в `.check-item`) */
+  border-left-width: 3px;
+  /* У `.btn` строка нерушима (`white-space: nowrap`), а имена в каталоге
+     длинные («Xray JSON (RU bundle, category: ads, all)»): карточка не
+     сжималась до ширины колонки и рисовалась поверх предпросмотра справа.
+     Перенос разрешаем ЗДЕСЬ, а не в `.btn`: нерушимая строка верна для
+     кнопки-кнопки и неверна только тут, где кнопка играет роль карточки. */
   white-space: normal;
   text-align: left;
   /* Имя из одного длинного слова переносить больше негде */
   overflow-wrap: anywhere;
+}
+.import-card .chip { grid-column: 2; grid-row: 1; }
+.import-card .muted,
+.import-card .field-warning { grid-column: 1 / -1; }
+
+/* Выбранная запись: до этого выбор был виден только по предпросмотру справа —
+   в списке из пяти похожих строк вспомнить, какую открыл, было нечем.
+   Правило под hover'ом `.btn`, поэтому наведение на выбранную описано
+   отдельно: иначе оно возвращало бы карточке вид невыбранной. */
+.import-card[aria-pressed='true'] {
+  border-color: var(--flux-line);
+  border-left-color: var(--flux);
+  background: var(--flux-soft);
+}
+.import-card[aria-pressed='true']:hover:not(:disabled) {
+  border-color: var(--flux-line);
+  border-left-color: var(--flux);
+  background: color-mix(in srgb, var(--flux) 26%, transparent);
 }
 
 /* История правок и справка в топбаре */

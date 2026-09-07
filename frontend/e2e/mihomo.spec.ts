@@ -168,7 +168,7 @@ test('карточка каталога не наезжает на предпр�
   await page.evaluate(() => document.fonts.ready)
 
   const previewBox = (await preview.boundingBox())!
-  for (const card of await dialog.locator('.check-item').all()) {
+  for (const card of await dialog.locator('.import-card').all()) {
     const box = (await card.boundingBox())!
     // Проверяем не ширину карточки, а само свойство: список живёт в своей
     // колонке. У кнопки `.btn` строка нерушима, поэтому длинное имя растило
@@ -180,12 +180,12 @@ test('карточка каталога не наезжает на предпр�
 test('тип шаблона стоит в правом верхнем углу карточки', async ({ page }) => {
   await page.getByRole('button', { name: 'Импорт' }).click()
   const dialog = page.getByRole('dialog', { name: 'Импорт шаблона из каталога' })
-  await expect(dialog.locator('.import-item')).toHaveCount(2)
+  await expect(dialog.locator('.import-card')).toHaveCount(2)
   await page.evaluate(() => document.fonts.ready)
 
   // Обе карточки сразу: у короткого имени чип и в потоке вставал справа —
   // разъезжался он именно на длинном, уезжая под имя на вторую строку
-  for (const card of await dialog.locator('.import-item').all()) {
+  for (const card of await dialog.locator('.import-card').all()) {
     const box = (await card.boundingBox())!
     const chip = (await card.locator('.chip').boundingBox())!
     const author = (await card.locator('.muted').boundingBox())!
@@ -208,4 +208,24 @@ test('предпросмотр занимает высоту области и �
   // Шаблон каталога короткий: по содержимому рамка была бы в разы ниже области
   expect(box.height).toBeGreaterThanOrEqual(area.height - 2)
   expect(box.y + box.height).toBeLessThanOrEqual(area.y + area.height + 1)
+})
+
+test('выбранная запись отличается на вид от остальных', async ({ page }) => {
+  await page.getByRole('button', { name: 'Импорт' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Импорт шаблона из каталога' })
+  const cards = dialog.locator('.import-card')
+  const bg = (card: typeof cards) =>
+    card.evaluate((el) => getComputedStyle(el).backgroundColor)
+
+  const idle = await bg(cards.nth(1))
+  await cards.nth(1).click()
+  // Уводим курсор: под ним карточка подсвечена наведением, и сравнение
+  // сравнивало бы hover с покоем, а не выбор с невыбранным
+  await page.mouse.move(0, 0)
+  await expect(cards.nth(1)).toHaveAttribute('aria-pressed', 'true')
+
+  const chosen = await bg(cards.nth(1))
+  expect(chosen).not.toBe(idle)
+  // И от соседа тоже: выбор виден в самом списке, а не только в предпросмотре
+  expect(chosen).not.toBe(await bg(cards.nth(0)))
 })
