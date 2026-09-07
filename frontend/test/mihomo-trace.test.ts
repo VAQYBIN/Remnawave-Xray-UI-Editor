@@ -466,3 +466,73 @@ describe('оговорки трассировки Mihomo', () => {
     expect(res.caveats.join(' ')).toMatch(/geosite:ads/)
   })
 })
+
+// Ядро при `no-resolve` не резолвит домен по прямому указанию документа, и
+// правило по IP остаётся с невалидным `DstIP`. Это ОПРЕДЕЛЁННЫЙ промах, а не
+// неизвестность: `rules/common/ipcidr.go` возвращает
+// `ip.IsValid() && i.ipnet.Contains(...)`, у `geoip.go` — явное
+// `if !ip.IsValid() { return false, "" }`, а `rules/provider/rule_set.go` при
+// `noResolveIP` зануляет сам колбэк резолва (`helper.ResolveIP = nil`).
+describe('трассировка Mihomo: модификатор no-resolve', () => {
+  const providers = (...lines: string[]): string =>
+    ['rule-providers:', ...lines, ''].join('\n')
+
+  it('IP-CIDR с no-resolve без IP в цели не совпадает, а не останавливает проход', () => {
+    const res = traceMihomo(doc('IP-CIDR,::/0,REJECT-DROP,no-resolve', 'MATCH,D'), T(), NO_GEO)
+    expect(res.verdicts[0]!.state).toBe('no')
+    expect(res.stopped).toBeUndefined()
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+  })
+
+  it('без no-resolve то же правило по-прежнему останавливает проход', () => {
+    // Ядро здесь домен как раз резолвит — какой выйдет IP, редактор не знает
+    const res = traceMihomo(doc('IP-CIDR,::/0,REJECT-DROP', 'MATCH,D'), T(), NO_GEO)
+    expect(res.verdicts[0]!.state).toBe('unknown')
+    expect(res.stopped?.index).toBe(0)
+  })
+
+  it('GEOIP с no-resolve без IP не совпадает даже при незагруженных базах', () => {
+    // Ответ не зависит от базы: смотреть в ней нечего, IP нет
+    const res = traceMihomo(doc('GEOIP,private,DIRECT,no-resolve', 'MATCH,D'), T(), NO_GEO)
+    expect(res.verdicts[0]!.state).toBe('no')
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+  })
+
+  it('RULE-SET с behavior ipcidr и no-resolve не совпадает: скачивать набор незачем', () => {
+    const text = [
+      providers('  private-ips:', '    behavior: ipcidr', '    format: mrs'),
+      doc('RULE-SET,private-ips,DIRECT,no-resolve', 'MATCH,D').text,
+    ].join('')
+    const res = traceMihomo(parseMihomo(text), T(), NO_GEO)
+    expect(res.verdicts[0]!.state).toBe('no')
+    expect(res.stopped).toBeUndefined()
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+  })
+
+  it('RULE-SET с behavior domain и no-resolve по-прежнему останавливает проход', () => {
+    // Набор про домены: резолв ему не нужен, и без содержимого файла сказать нечего
+    const text = [
+      providers('  private-domains:', '    behavior: domain', '    format: mrs'),
+      doc('RULE-SET,private-domains,DIRECT,no-resolve', 'MATCH,D').text,
+    ].join('')
+    const res = traceMihomo(parseMihomo(text), T(), NO_GEO)
+    expect(res.verdicts[0]!.state).toBe('unknown')
+    expect(res.stopped?.index).toBe(0)
+  })
+
+  it('RULE-SET на провайдера, которого нет в документе, останавливает проход', () => {
+    // behavior взять неоткуда — предполагать ipcidr значило бы соврать «не совпало»
+    const res = traceMihomo(doc('RULE-SET,ghost,DIRECT,no-resolve', 'MATCH,D'), T(), NO_GEO)
+    expect(res.verdicts[0]!.state).toBe('unknown')
+    expect(res.stopped?.index).toBe(0)
+  })
+
+  it('при заданном IP назначения no-resolve ничего не меняет', () => {
+    const res = traceMihomo(
+      doc('IP-CIDR,10.0.0.0/8,VPN,no-resolve', 'MATCH,D'),
+      T({ ip: '10.1.2.3' }),
+      NO_GEO,
+    )
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+})

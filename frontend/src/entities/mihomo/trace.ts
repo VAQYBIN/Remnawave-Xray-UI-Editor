@@ -28,7 +28,7 @@ import {
   type MatchState,
   type TraceTarget,
 } from '../xray/traceMatch'
-import { subRuleEntries } from './groups'
+import { ruleProvidersOf, subRuleEntries } from './groups'
 import type { MihomoDoc } from './parse'
 import { resolveTarget } from './resolve'
 import { parseRule, rulesOf, splitTopLevel, RULE_TYPES, type MihomoRule } from './rules'
@@ -197,6 +197,39 @@ interface Ctx {
   md: MihomoDoc
   target: TraceTarget
   geo: GeoAnswers
+  /** Имена наборов правил, чьё содержимое — только подсети (`behavior: ipcidr`) */
+  ipcidrProviders: Set<string>
+}
+
+/**
+ * Правила, которые смотрят ТОЛЬКО на IP назначения. При `no-resolve` и цели без
+ * адреса ядро отвечает по ним определённым «нет», а не «не знаю»:
+ *   `rules/common/ipcidr.go` — `return ip.IsValid() && i.ipnet.Contains(...)`;
+ *   `rules/common/geoip.go`  — `if !ip.IsValid() { return false, "" }`.
+ * Список закрытый и короткий намеренно: сюда попадает только то, чей `Match`
+ * прочитан в исходниках ядра. `IP-SUFFIX`/`IP-ASN` в него не входят — они
+ * остаются в `NO_DATA_TYPES` и по-прежнему останавливают проход.
+ */
+const IP_ONLY_TYPES = new Set(['IP-CIDR', 'IP-CIDR6', 'GEOIP'])
+
+/**
+ * Правило по IP, которому `no-resolve` запретил резолв, а IP в цели нет, —
+ * определённый промах. Домен ядро в этом случае не разрешает по прямому указанию
+ * документа, `DstIP` остаётся невалидным, и `Match` возвращает false. Для
+ * `RULE-SET` это верно ровно при `behavior: ipcidr`: набор целиком про подсети,
+ * и содержимое файла на ответ не влияет (`rules/provider/rule_set.go` при
+ * `noResolveIP` зануляет сам колбэк резолва). При `behavior: domain` и
+ * `classical` резолв набору не нужен вовсе, и ответить без файла нечем; у
+ * провайдера, которого в документе нет, `behavior` взять неоткуда — обоих
+ * случаев здесь нет, и проход на них останавливается, как раньше.
+ */
+function missesWithoutResolve(ctx: Ctx, rule: MihomoRule): boolean {
+  if (!rule.modifiers.includes('no-resolve')) return false
+  if (ctx.target.ip !== undefined) return false
+  if (IP_ONLY_TYPES.has(rule.type)) return true
+  return (
+    rule.type === 'RULE-SET' && rule.payload !== undefined && ctx.ipcidrProviders.has(rule.payload)
+  )
 }
 
 function evalCondition(ctx: Ctx, cond: Cond): CondResult {
@@ -365,6 +398,7 @@ function judgeRule(ctx: Ctx, rule: MihomoRule | null, seen: Set<string>): Judged
       reason: `модификатор src разворачивает «${rule.type}» на источник соединения — таких данных в цели трассировки нет`,
     }
   }
+  if (missesWithoutResolve(ctx, rule)) return NO
   if (rule.type === 'SUB-RULE') {
     if (rule.payload === undefined) {
       return { state: 'unknown', reason: 'у правила SUB-RULE нет условия' }
@@ -431,7 +465,18 @@ export function traceMihomo(
     isIpAddress(target.address) && target.ip === undefined
       ? { ...target, ip: target.address }
       : target
-  const ctx: Ctx = { md, target: effective, geo }
+  const ctx: Ctx = {
+    md,
+    target: effective,
+    geo,
+    // Регистр не значит ничего: живые шаблоны пишут behavior строчными, а на
+    // документе с иным написанием ядро всё равно не поднимется
+    ipcidrProviders: new Set(
+      ruleProvidersOf(md)
+        .filter((p) => p.behavior?.trim().toLowerCase() === 'ipcidr')
+        .map((p) => p.name),
+    ),
+  }
 
   const verdicts: MihomoRuleVerdict[] = []
   let winner: MihomoTraceResult['winner']
