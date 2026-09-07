@@ -38,7 +38,9 @@ export function readIpCidrSet(body: Buffer): IpCidrSet {
   if (body.length < 9) throw new RuleSetError('Испорченный набор подсетей: обрыв на длине')
   const n = Number(body.readBigInt64BE(1))
   if (n < 1) throw new RuleSetError('Испорченный набор подсетей: пустой список')
-  if (9 + n * 32 > body.length) {
+  // Ровно до конца, а не «влезает»: zstd не проверяет целостность кадра, и
+  // обрубок с целым заголовком иначе сошёл бы за исправный набор
+  if (9 + n * 32 !== body.length) {
     throw new RuleSetError('Испорченный набор подсетей: список выходит за границу файла')
   }
 

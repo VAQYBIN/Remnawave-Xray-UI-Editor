@@ -4,4 +4,12 @@
  * показывать её как состояние набора нельзя: пользователь решит, что дело в
  * его документе.
  */
-export class RuleSetError extends Error {}
+export class RuleSetError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    // Без этого в логах и JSON.stringify отказ выглядит обычным Error, а при
+    // разборе инцидента различить «состояние набора» и «наша ошибка» — первое,
+    // что нужно
+    this.name = 'RuleSetError'
+  }
+}

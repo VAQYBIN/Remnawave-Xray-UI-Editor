@@ -29,6 +29,10 @@ export interface MrsFile {
  * Прочитано в `rules/provider/mrs_reader.go`; документации на формат нет.
  */
 export function parseMrs(raw: Uint8Array, maxPlainBytes: number): MrsFile {
+  // Осознанно НЕ RuleSetError: это промах вызывающего, и выдать его за
+  // испорченный набор — отправить пользователя чинить чужой файл вместо нас
+  if (!(raw instanceof Uint8Array)) throw new TypeError('parseMrs ждёт Uint8Array')
+
   let buf: Buffer
   try {
     buf = zstdDecompressSync(raw, { maxOutputLength: maxPlainBytes })
@@ -40,6 +44,7 @@ export function parseMrs(raw: Uint8Array, maxPlainBytes: number): MrsFile {
       code === 'ERR_BUFFER_TOO_LARGE'
         ? `Распакованный набор больше ${maxPlainBytes} байт`
         : 'Набор не распаковывается: это не zstd или файл испорчен',
+      { cause: err },
     )
   }
 
@@ -59,6 +64,11 @@ export function parseMrs(raw: Uint8Array, maxPlainBytes: number): MrsFile {
   }
 
   const count = Number(buf.readBigInt64BE(5))
+  // Ядро это поле не проверяет, но у ядра оно и не уходит ни в интерфейс, ни в
+  // счётчик цикла. «Набор из 4.6·10^18 правил» — не то, что стоит показывать
+  if (count < 0 || !Number.isSafeInteger(count)) {
+    throw new RuleSetError(`Испорченный заголовок MRS: число записей ${count}`)
+  }
   const extraLen = Number(buf.readBigInt64BE(13))
   if (extraLen < 0 || HEADER_BYTES + extraLen > buf.length) {
     throw new RuleSetError('Испорченный заголовок MRS: неверная длина запаса')

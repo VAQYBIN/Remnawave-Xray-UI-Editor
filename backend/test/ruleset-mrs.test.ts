@@ -26,18 +26,23 @@ describe('заголовок .mrs', () => {
     const file = parseMrs(fixture('faceit.mrs'), MAX)
     expect(file.behavior).toBe('domain')
     expect(file.count).toBe(2)
-    expect(file.body.length).toBeGreaterThan(0)
+    // Точная длина, а не «больше нуля»: без неё чтение extraLen со смещения 14
+    // вместо 13 сдвигало тело на байт и НЕ роняло ни одного теста
+    expect(file.body.length).toBe(69)
   })
 
   it('читает настоящий набор подсетей', () => {
     const file = parseMrs(fixture('geoip-private.mrs'), MAX)
     expect(file.behavior).toBe('ipcidr')
     expect(file.count).toBe(17)
+    expect(file.body.length).toBe(553)
   })
 
   it('версия формата, кроме первой, — отказ с указанием версии', () => {
     expect(() => parseMrs(madeUp('MRS', 2, 0, 1n), MAX)).toThrow(RuleSetError)
-    expect(() => parseMrs(madeUp('MRS', 2, 0, 1n), MAX)).toThrow(/версия/i)
+    // Номер версии обязан быть в тексте: без него на новом формате ядра
+    // пользователь не поймёт, что именно пришло
+    expect(() => parseMrs(madeUp('MRS', 2, 0, 1n), MAX)).toThrow(/версия формата MRS 2/i)
   })
 
   it('чужая подпись — отказ, и не про версию', () => {
@@ -50,6 +55,34 @@ describe('заголовок .mrs', () => {
 
   it('не-zstd мусор — RuleSetError, а не исключение распаковщика', () => {
     expect(() => parseMrs(new Uint8Array([1, 2, 3, 4]), MAX)).toThrow(RuleSetError)
+    expect(() => parseMrs(new Uint8Array([1, 2, 3, 4]), MAX)).toThrow(/не распаковывается/)
+  })
+
+  it('чужой тип аргумента — наша ошибка, а не испорченный набор', () => {
+    // Иначе промах вызывающего читается как «ваш файл битый», и пользователь
+    // идёт чинить чужой .mrs вместо нас
+    expect(() => parseMrs(null as unknown as Uint8Array, MAX)).toThrow(TypeError)
+    expect(() => parseMrs(null as unknown as Uint8Array, MAX)).not.toThrow(RuleSetError)
+  })
+
+  it('причина отказа распаковщика не теряется', () => {
+    try {
+      parseMrs(new Uint8Array([1, 2, 3, 4]), MAX)
+      expect.unreachable('должно было бросить')
+    } catch (err) {
+      expect((err as Error).name).toBe('RuleSetError')
+      expect((err as Error).cause).toBeDefined()
+    }
+  })
+
+  it('отрицательное число записей — отказ', () => {
+    expect(() => parseMrs(madeUp('MRS', 1, 0, -1n), MAX)).toThrow(/число записей/)
+  })
+
+  it('число записей за пределом точности — отказ', () => {
+    // 2^63-1 после Number() уже не то число, что записано; крутить по нему цикл
+    // чтения означало бы повесить бэкенд на одном скачанном файле
+    expect(() => parseMrs(madeUp('MRS', 1, 0, 2n ** 63n - 1n), MAX)).toThrow(/число записей/)
   })
 
   it('обрезанный заголовок — отказ, а не чтение за границей буфера', () => {

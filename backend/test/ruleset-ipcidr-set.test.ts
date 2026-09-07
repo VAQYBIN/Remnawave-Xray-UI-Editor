@@ -57,3 +57,16 @@ describe('набор подсетей из настоящего .mrs', () => {
     expect(() => readIpCidrSet(body)).toThrow(RuleSetError)
   })
 })
+
+describe('оборванная загрузка не сходит за исправный набор подсетей', () => {
+  const body = () => parseMrs(readFileSync(join(DIR, 'geoip-private.mrs')), 1 << 20).body
+
+  it('лишние байты в хвосте — отказ', () => {
+    const withTail = Buffer.concat([body(), Buffer.from([0])])
+    expect(() => readIpCidrSet(withTail)).toThrow(RuleSetError)
+  })
+
+  it('усечённое тело — отказ', () => {
+    expect(() => readIpCidrSet(body().subarray(0, body().length - 1))).toThrow(RuleSetError)
+  })
+})

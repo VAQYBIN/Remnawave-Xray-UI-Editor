@@ -348,18 +348,23 @@ describe('заголовок .mrs', () => {
     const file = parseMrs(fixture('faceit.mrs'), MAX)
     expect(file.behavior).toBe('domain')
     expect(file.count).toBe(2)
-    expect(file.body.length).toBeGreaterThan(0)
+    // Точная длина, а не «больше нуля»: без неё чтение extraLen со смещения 14
+    // вместо 13 сдвигало тело на байт и НЕ роняло ни одного теста
+    expect(file.body.length).toBe(69)
   })
 
   it('читает настоящий набор подсетей', () => {
     const file = parseMrs(fixture('geoip-private.mrs'), MAX)
     expect(file.behavior).toBe('ipcidr')
     expect(file.count).toBe(17)
+    expect(file.body.length).toBe(553)
   })
 
   it('версия формата, кроме первой, — отказ с указанием версии', () => {
     expect(() => parseMrs(madeUp('MRS', 2, 0, 1n), MAX)).toThrow(RuleSetError)
-    expect(() => parseMrs(madeUp('MRS', 2, 0, 1n), MAX)).toThrow(/версия/i)
+    // Номер версии обязан быть в тексте: без него на новом формате ядра
+    // пользователь не поймёт, что именно пришло
+    expect(() => parseMrs(madeUp('MRS', 2, 0, 1n), MAX)).toThrow(/версия формата MRS 2/i)
   })
 
   it('чужая подпись — отказ, и не про версию', () => {
@@ -372,6 +377,34 @@ describe('заголовок .mrs', () => {
 
   it('не-zstd мусор — RuleSetError, а не исключение распаковщика', () => {
     expect(() => parseMrs(new Uint8Array([1, 2, 3, 4]), MAX)).toThrow(RuleSetError)
+    expect(() => parseMrs(new Uint8Array([1, 2, 3, 4]), MAX)).toThrow(/не распаковывается/)
+  })
+
+  it('чужой тип аргумента — наша ошибка, а не испорченный набор', () => {
+    // Иначе промах вызывающего читается как «ваш файл битый», и пользователь
+    // идёт чинить чужой .mrs вместо нас
+    expect(() => parseMrs(null as unknown as Uint8Array, MAX)).toThrow(TypeError)
+    expect(() => parseMrs(null as unknown as Uint8Array, MAX)).not.toThrow(RuleSetError)
+  })
+
+  it('причина отказа распаковщика не теряется', () => {
+    try {
+      parseMrs(new Uint8Array([1, 2, 3, 4]), MAX)
+      expect.unreachable('должно было бросить')
+    } catch (err) {
+      expect((err as Error).name).toBe('RuleSetError')
+      expect((err as Error).cause).toBeDefined()
+    }
+  })
+
+  it('отрицательное число записей — отказ', () => {
+    expect(() => parseMrs(madeUp('MRS', 1, 0, -1n), MAX)).toThrow(/число записей/)
+  })
+
+  it('число записей за пределом точности — отказ', () => {
+    // 2^63-1 после Number() уже не то число, что записано; крутить по нему цикл
+    // чтения означало бы повесить бэкенд на одном скачанном файле
+    expect(() => parseMrs(madeUp('MRS', 1, 0, 2n ** 63n - 1n), MAX)).toThrow(/число записей/)
   })
 
   it('обрезанный заголовок — отказ, а не чтение за границей буфера', () => {
@@ -409,18 +442,24 @@ describe('заголовок .mrs', () => {
 - [ ] **Шаг 3: реализация**
 
 ```ts
-// backend/src/ruleset/errors.ts
 /**
  * Отказ, о котором пользователю говорят словами: набор не скачался, формат не
  * тот, размер не влез. Всё, что вылетело НЕ этим классом, — наша ошибка, и
  * показывать её как состояние набора нельзя: пользователь решит, что дело в
  * его документе.
  */
-export class RuleSetError extends Error {}
+export class RuleSetError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    // Без этого в логах и JSON.stringify отказ выглядит обычным Error, а при
+    // разборе инцидента различить «состояние набора» и «наша ошибка» — первое,
+    // что нужно
+    this.name = 'RuleSetError'
+  }
+}
 ```
 
 ```ts
-// backend/src/ruleset/mrs.ts
 import { zstdDecompressSync } from 'node:zlib'
 import { RuleSetError } from './errors.js'
 
@@ -452,6 +491,10 @@ export interface MrsFile {
  * Прочитано в `rules/provider/mrs_reader.go`; документации на формат нет.
  */
 export function parseMrs(raw: Uint8Array, maxPlainBytes: number): MrsFile {
+  // Осознанно НЕ RuleSetError: это промах вызывающего, и выдать его за
+  // испорченный набор — отправить пользователя чинить чужой файл вместо нас
+  if (!(raw instanceof Uint8Array)) throw new TypeError('parseMrs ждёт Uint8Array')
+
   let buf: Buffer
   try {
     buf = zstdDecompressSync(raw, { maxOutputLength: maxPlainBytes })
@@ -463,6 +506,7 @@ export function parseMrs(raw: Uint8Array, maxPlainBytes: number): MrsFile {
       code === 'ERR_BUFFER_TOO_LARGE'
         ? `Распакованный набор больше ${maxPlainBytes} байт`
         : 'Набор не распаковывается: это не zstd или файл испорчен',
+      { cause: err },
     )
   }
 
@@ -482,6 +526,11 @@ export function parseMrs(raw: Uint8Array, maxPlainBytes: number): MrsFile {
   }
 
   const count = Number(buf.readBigInt64BE(5))
+  // Ядро это поле не проверяет, но у ядра оно и не уходит ни в интерфейс, ни в
+  // счётчик цикла. «Набор из 4.6·10^18 правил» — не то, что стоит показывать
+  if (count < 0 || !Number.isSafeInteger(count)) {
+    throw new RuleSetError(`Испорченный заголовок MRS: число записей ${count}`)
+  }
   const extraLen = Number(buf.readBigInt64BE(13))
   if (extraLen < 0 || HEADER_BYTES + extraLen > buf.length) {
     throw new RuleSetError('Испорченный заголовок MRS: неверная длина запаса')
@@ -511,6 +560,13 @@ export function parseMrs(raw: Uint8Array, maxPlainBytes: number): MrsFile {
    нечем, пока ядро не начнёт писать запас. Выдумывать `.mrs` с ненулевым
    запасом ради покрытия не нужно — тест на собранном нами файле проверял бы
    нас же.
+6. `buf.readBigInt64BE(13)` меняем на `(14)` — падают оба теста «читает
+   настоящий набор». БЕЗ точных длин тела эта мутация проходила все восемь
+   тестов: во всех фикстурах байт на позиции 21 равен единице, тело съезжало
+   на байт, приёмка была зелёной, а декодер бора потом уверенно отвечал
+   «домена в наборе нет». Это нашло ревью, а не приёмка задачи.
+7. Убрать проверку числа записей — падают оба теста про него.
+8. Убрать отбой чужого типа аргумента — падает «чужой тип аргумента».
 
 - [ ] **Шаг 6: коммит**
 
@@ -560,8 +616,7 @@ git commit -m "feat(backend): parse the mihomo .mrs header"
 готовую структуру, минуя двоичный формат. Живёт **только в тестах**.
 
 ```ts
-// backend/test/domainSetBuilder.ts
-import type { DomainSet } from '../../src/ruleset/domainSet.js'
+import type { DomainSet } from '../src/ruleset/domainSet.js'
 
 /**
  * Порт `DomainTrie.NewDomainSet` из `component/trie/domain_set.go` — ровно
@@ -631,7 +686,6 @@ function popcount(x: number): number {
 проверены на настоящих файлах ядра.
 
 ```ts
-// backend/test/ruleset-domain-set.test.ts
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -739,6 +793,30 @@ describe('испорченный набор доменов', () => {
     expect(() => readDomainSet(body)).toThrow(RuleSetError)
   })
 })
+
+describe('оборванная загрузка не сходит за исправный набор', () => {
+  const body = () => parseMrs(readFileSync(join(DIR, 'faceit.mrs')), MAX).body
+
+  it('лишние байты в хвосте — отказ', () => {
+    // Разбор обязан потребить тело ровно до конца: хвост означает, что мы
+    // прочитали его не так, как записывало ядро
+    const withTail = Buffer.concat([body(), Buffer.from([0])])
+    expect(() => readDomainSet(withTail)).toThrow(/разобрано/)
+  })
+
+  it('усечённое тело — отказ', () => {
+    expect(() => readDomainSet(body().subarray(0, body().length - 1))).toThrow(RuleSetError)
+  })
+
+  // Тест «усечь сам zstd-поток» здесь СОЗНАТЕЛЬНО отсутствует. Ради него
+  // пришлось бы собирать многомегабайтный файл: у наших фикстур срез 1–4 байт
+  // отнимает только эпилог кадра и отдаёт тело целиком, а срез 8 байт не
+  // оставляет ничего — промежуточного «заголовок цел, тело неполное» на них не
+  // получить. Опасность настоящая (распаковщик zstd целостность кадра не
+  // проверяет, это показало ревью на файле в 4 МБ), но ловит её ровно проверка
+  // выше: неполное тело не разбирается до конца. Тест на обрубке, который
+  // отказал бы и без этой проверки, доказывал бы не то.
+})
 ```
 
 - [ ] **Шаг 3: убедиться, что тест падает**
@@ -749,7 +827,6 @@ describe('испорченный набор доменов', () => {
 - [ ] **Шаг 4: реализация**
 
 ```ts
-// backend/src/ruleset/domainSet.ts
 // Сжатый префиксный бор (succinct trie) из `.mrs` с `behavior: domain`.
 // Формат — `component/trie/domain_set_bin.go`, поиск — построчный порт
 // `DomainSet.Has` из `component/trie/domain_set.go`. Документации на это нет,
@@ -860,6 +937,15 @@ export function readDomainSet(body: Buffer): DomainSet {
     throw new RuleSetError('Испорченный набор доменов: метки выходят за границу файла')
   }
 
+  // Тело обязано разобраться РОВНО до конца. Распаковщик zstd не проверяет
+  // целостность кадра: у оборванной на середине загрузки заголовок цел, и без
+  // этой проверки обрубок лёг бы в кэш как исправный набор
+  if (at + labelsLen !== body.length) {
+    throw new RuleSetError(
+      `Испорченный набор доменов: разобрано ${at + labelsLen} байт из ${body.length}`,
+    )
+  }
+
   const words = bitmap.words
   const ranks = new Int32Array(words.length + 1)
   for (let i = 0; i < words.length; i++) ranks[i + 1] = ranks[i]! + popcount(words[i]!)
@@ -962,6 +1048,9 @@ export const domainMatcher = (ds: DomainSet): DomainMatcher => ({
    почти всё: карта читается наоборот.
 7. В `selectIthOne` двоичный поиск заменить на `lo = 0` — падают тесты на
    настоящих наборах (на маленьких построенных может и уцелеть).
+8. Убрать сверку `at + labelsLen !== body.length` — падает «лишние байты в
+   хвосте». Эта проверка и закрывает оборванную загрузку: распаковщик zstd
+   целостность кадра не проверяет, и у обрубка заголовок остаётся целым.
 
 - [ ] **Шаг 7: коммит**
 
@@ -997,7 +1086,6 @@ IPv6. В фикстуре `geoip-private.mrs` это видно прямо: `::1
 - [ ] **Шаг 1: падающий тест**
 
 ```ts
-// backend/test/ruleset-ipcidr-set.test.ts
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -1057,6 +1145,19 @@ describe('набор подсетей из настоящего .mrs', () => {
     expect(() => readIpCidrSet(body)).toThrow(RuleSetError)
   })
 })
+
+describe('оборванная загрузка не сходит за исправный набор подсетей', () => {
+  const body = () => parseMrs(readFileSync(join(DIR, 'geoip-private.mrs')), 1 << 20).body
+
+  it('лишние байты в хвосте — отказ', () => {
+    const withTail = Buffer.concat([body(), Buffer.from([0])])
+    expect(() => readIpCidrSet(withTail)).toThrow(RuleSetError)
+  })
+
+  it('усечённое тело — отказ', () => {
+    expect(() => readIpCidrSet(body().subarray(0, body().length - 1))).toThrow(RuleSetError)
+  })
+})
 ```
 
 - [ ] **Шаг 2: убедиться, что тест падает**
@@ -1067,7 +1168,6 @@ describe('набор подсетей из настоящего .mrs', () => {
 - [ ] **Шаг 3: реализация**
 
 ```ts
-// backend/src/ruleset/ipcidrSet.ts
 // Набор подсетей из `.mrs` с `behavior: ipcidr`. Формат —
 // `component/cidr/ipcidr_set_bin.go`: версия, число диапазонов, затем пары
 // адресов по 16 байт (начало и конец включительно).
@@ -1108,7 +1208,9 @@ export function readIpCidrSet(body: Buffer): IpCidrSet {
   if (body.length < 9) throw new RuleSetError('Испорченный набор подсетей: обрыв на длине')
   const n = Number(body.readBigInt64BE(1))
   if (n < 1) throw new RuleSetError('Испорченный набор подсетей: пустой список')
-  if (9 + n * 32 > body.length) {
+  // Ровно до конца, а не «влезает»: zstd не проверяет целостность кадра, и
+  // обрубок с целым заголовком иначе сошёл бы за исправный набор
+  if (9 + n * 32 !== body.length) {
     throw new RuleSetError('Испорченный набор подсетей: список выходит за границу файла')
   }
 
@@ -1183,6 +1285,7 @@ export const ipMatcher = (set: IpCidrSet): IpMatcher => ({ has: (ip) => hasIp(se
 4. У IPv4 не подставлять `V4_MAPPED_PREFIX` — падают «ловит приватные
    диапазоны IPv4».
 5. `if (bytes === null) return false` → `throw` — падает «неразбираемый адрес».
+6. Сверку длины вернуть с `!==` на `>` — падает «лишние байты в хвосте».
 
 - [ ] **Шаг 6: коммит**
 

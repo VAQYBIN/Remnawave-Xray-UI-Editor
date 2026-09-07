@@ -108,6 +108,15 @@ export function readDomainSet(body: Buffer): DomainSet {
     throw new RuleSetError('Испорченный набор доменов: метки выходят за границу файла')
   }
 
+  // Тело обязано разобраться РОВНО до конца. Распаковщик zstd не проверяет
+  // целостность кадра: у оборванной на середине загрузки заголовок цел, и без
+  // этой проверки обрубок лёг бы в кэш как исправный набор
+  if (at + labelsLen !== body.length) {
+    throw new RuleSetError(
+      `Испорченный набор доменов: разобрано ${at + labelsLen} байт из ${body.length}`,
+    )
+  }
+
   const words = bitmap.words
   const ranks = new Int32Array(words.length + 1)
   for (let i = 0; i < words.length; i++) ranks[i + 1] = ranks[i]! + popcount(words[i]!)
