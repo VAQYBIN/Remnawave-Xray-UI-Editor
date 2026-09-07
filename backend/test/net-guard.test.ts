@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { assertPublicHost, fetchExternal, isPrivateAddress } from '../src/net/guard.js'
+import { assertPublicHost, fetchExternal, fetchExternalBytes, isPrivateAddress } from '../src/net/guard.js'
 
 describe('assertPublicHost', () => {
   it('подсказка добавляется только когда её передали', async () => {
@@ -192,5 +192,91 @@ describe('fetchExternal', () => {
         init: { method: 'POST' },
       }),
     ).rejects.toThrow(/внутренн/i)
+  })
+})
+
+/** Ответ с телом из кусков; считает, сколько кусков реально прочитали */
+function streamResponse(chunks: Uint8Array[], headers: Record<string, string> = {}) {
+  const read: number[] = []
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const [i, c] of chunks.entries()) {
+        read.push(i)
+        controller.enqueue(c)
+      }
+      controller.close()
+    },
+  })
+  return { res: new Response(body, { status: 200, headers }), read }
+}
+
+describe('fetchExternalBytes: потолок размера', () => {
+  it('в пределах потолка отдаёт тело целиком', async () => {
+    const { res } = streamResponse([new Uint8Array([1, 2, 3]), new Uint8Array([4, 5])])
+    const out = await fetchExternalBytes('https://example.com/a', {
+      fetchImpl: async () => res,
+      lookupImpl: PUBLIC_LOOKUP,
+      maxBytes: 1024,
+    })
+    expect([...out]).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('обрывает чтение, когда тело переросло потолок', async () => {
+    const { res } = streamResponse([new Uint8Array(10), new Uint8Array(10)])
+    await expect(
+      fetchExternalBytes('https://example.com/a', {
+        fetchImpl: async () => res,
+        lookupImpl: PUBLIC_LOOKUP,
+        maxBytes: 15,
+      }),
+    ).rejects.toThrow(/больше 15 байт/)
+  })
+
+  it('врущий content-length не спасает: отказ идёт по факту', async () => {
+    // Сервер объявил 5 байт, прислал 20 — верим прочитанному, а не заголовку
+    const { res } = streamResponse([new Uint8Array(20)], { 'content-length': '5' })
+    await expect(
+      fetchExternalBytes('https://example.com/a', {
+        fetchImpl: async () => res,
+        lookupImpl: PUBLIC_LOOKUP,
+        maxBytes: 15,
+      }),
+    ).rejects.toThrow(/больше 15 байт/)
+  })
+
+  it('честный content-length отказывает до чтения тела', async () => {
+    // Node сам асинхронно трогает поток тела Response вскоре после конструирования
+    // (внутренняя бухгалтерия рантайма) — засечь это флагом в start()/pull() нельзя,
+    // сигнал ложный. Единственный надёжный признак «код полез в тело» — вызов
+    // ПУБЛИЧНОГО getReader(), которым пользуется сама fetchExternalBytes.
+    let bodyTouched = false
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.close()
+      },
+    })
+    const originalGetReader = stream.getReader.bind(stream)
+    stream.getReader = ((...args: Parameters<typeof originalGetReader>) => {
+      bodyTouched = true
+      return originalGetReader(...args)
+    }) as typeof stream.getReader
+    const res = new Response(stream, { status: 200, headers: { 'content-length': '999' } })
+    await expect(
+      fetchExternalBytes('https://example.com/a', {
+        fetchImpl: async () => res,
+        lookupImpl: PUBLIC_LOOKUP,
+        maxBytes: 15,
+      }),
+    ).rejects.toThrow(/сервер объявил 999/)
+    expect(bodyTouched).toBe(false)
+  })
+
+  it('не-2xx отказывает с кодом', async () => {
+    await expect(
+      fetchExternalBytes('https://example.com/a', {
+        fetchImpl: async () => new Response('', { status: 404 }),
+        lookupImpl: PUBLIC_LOOKUP,
+      }),
+    ).rejects.toThrow(/404/)
   })
 })

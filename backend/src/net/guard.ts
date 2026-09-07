@@ -17,6 +17,12 @@ export interface FetchGuardOptions {
   timeoutMs?: number
   /** Метод, заголовки и тело для не-GET запросов; проверка хостов и ручные редиректы не меняются */
   init?: { method?: string; headers?: Record<string, string>; body?: string }
+  /**
+   * Потолок размера тела в байтах. Читаем потоком и обрываем на пороге:
+   * проверка после `arrayBuffer()` опаздывает — к этому моменту ответ уже
+   * целиком в памяти, а ссылку задаёт чужой документ.
+   */
+  maxBytes?: number
 }
 
 function v4Private(b: Uint8Array): boolean {
@@ -121,4 +127,49 @@ export async function fetchExternal(url: string, opts: FetchGuardOptions = {}): 
   }
 
   throw new Error(`Слишком много редиректов (больше ${maxHops})`)
+}
+
+/**
+ * Скачивание с потолком размера тела: читаем потоком и обрываем на пороге,
+ * не давая огромному ответу лечь в память целиком.
+ */
+export async function fetchExternalBytes(
+  url: string,
+  opts: FetchGuardOptions = {},
+): Promise<Uint8Array> {
+  const max = opts.maxBytes ?? Number.POSITIVE_INFINITY
+  const res = await fetchExternal(url, opts)
+  if (!res.ok) throw new Error(`Сервер ответил ${res.status}`)
+
+  // Заголовок — только ранний отказ: он может и соврать, и вовсе отсутствовать,
+  // поэтому решает всё равно счётчик прочитанного ниже
+  const declared = Number(res.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > max) {
+    throw new Error(`Ответ больше ${max} байт (сервер объявил ${declared})`)
+  }
+  if (res.body === null) return new Uint8Array(0)
+
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > max) throw new Error(`Ответ больше ${max} байт`)
+      chunks.push(value)
+    }
+  } finally {
+    // Отказ на середине обязан закрыть соединение, а не оставить его висеть
+    await reader.cancel().catch(() => {})
+  }
+
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const chunk of chunks) {
+    out.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return out
 }

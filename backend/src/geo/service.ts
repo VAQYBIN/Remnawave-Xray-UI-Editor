@@ -9,7 +9,7 @@ import {
   type GeoDomain,
 } from './dat.js'
 import { domainMatches, formatCidr, ipMatches, parseKey } from './match.js'
-import { fetchExternal, type FetchGuardOptions } from '../net/guard.js'
+import { fetchExternalBytes, type FetchGuardOptions } from '../net/guard.js'
 
 // Дефолты — канонические списки v2fly. Альтернатива с расширенными категориями:
 // https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
@@ -298,12 +298,10 @@ export class GeoService {
     for (const kind of kinds) {
       const url = this.urlFor(kind, settings)
       // Ссылку задаёт пользователь: fetchExternal проверяет, что и исходный адрес,
-      // и каждый редирект ведут во внешнюю сеть, а не к внутренним сервисам
-      const res = await fetchExternal(url, this.net)
-      if (!res.ok) throw new Error(`Не удалось скачать ${kind}: сервер ответил ${res.status}`)
-      const body = new Uint8Array(await res.arrayBuffer())
+      // и каждый редирект ведут во внешнюю сеть, а не к внутренним сервисам, а
+      // потолок обрывает чтение, не дав огромному ответу лечь в память целиком
+      const body = await fetchExternalBytes(url, { ...this.net, maxBytes: MAX_BYTES })
       if (body.byteLength === 0) throw new Error(`Пустой ответ при загрузке ${kind}`)
-      if (body.byteLength > MAX_BYTES) throw new Error(`Файл ${kind} больше 64 МБ — отказываюсь`)
       if (indexEntries(body).size === 0) {
         throw new Error(`Файл ${kind} не похож на geo-базу: ни одной категории`)
       }
