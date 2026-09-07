@@ -1,7 +1,15 @@
 // Файловый кэш скачанных наборов. Ключ — sha256 от ссылки: в самой ссылке
 // бывает что угодно, включая `..` и символы, недопустимые в путях Windows.
+//
+// Две даты у файла значат разное и поэтому обе нужны. `mtime` — когда набор
+// скачали, по нему считается срок годности. `atime` — когда его последний раз
+// спрашивали, по нему выстраивается очередь на вытеснение. Свести их в одну
+// нельзя: запись обращения в `mtime` не дала бы набору протухнуть никогда, а
+// вытеснение по одному только `mtime` выбрасывало бы как раз тот набор, который
+// спрашивают чаще всех, — у `private-ips` в живых шаблонах `interval` месячный,
+// и его файл всегда самый старый в каталоге.
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export interface CachedFile {
@@ -30,7 +38,14 @@ export class RuleSetCache {
       // Свежесть меряем по mtime файла, а не по отдельному индексу: индекс
       // разъехался бы с содержимым каталога при любой правке снаружи
       if (Date.now() - info.mtimeMs > ttlMs) return null
-      return { bytes: await readFile(path), loadedAt: info.mtimeMs }
+      const bytes = await readFile(path)
+      try {
+        // Отмечаем обращение, оставляя mtime нетронутым
+        await utimes(path, new Date(), new Date(info.mtimeMs))
+      } catch {
+        // Отметка не проставилась — это не повод терять попадание в кэш
+      }
+      return { bytes, loadedAt: info.mtimeMs }
     } catch {
       return null
     }
@@ -38,13 +53,19 @@ export class RuleSetCache {
 
   async write(url: string, bytes: Uint8Array): Promise<void> {
     await mkdir(this.dir, { recursive: true })
-    await writeFile(join(this.dir, this.nameOf(url)), bytes)
-    await this.evict()
+    const path = join(this.dir, this.nameOf(url))
+    await writeFile(path, bytes)
+    await this.evict(path)
   }
 
-  /** Держим каталог в пределах потолка, выбрасывая самое давнее */
-  private async evict(): Promise<void> {
-    let entries: { path: string; size: number; mtimeMs: number }[]
+  /**
+   * Держим каталог в пределах потолка, выбрасывая то, к чему дольше всего не
+   * обращались. `keep` — файл, только что записанный: его не выбрасываем даже
+   * при переполнении. Иначе `write` завершился бы успехом, а файла бы не было,
+   * и вызывающий об этом не узнал бы.
+   */
+  private async evict(keep?: string): Promise<void> {
+    let entries: { path: string; size: number; atimeMs: number }[]
     try {
       const names = await readdir(this.dir)
       entries = []
@@ -52,7 +73,7 @@ export class RuleSetCache {
         const path = join(this.dir, name)
         try {
           const info = await stat(path)
-          if (info.isFile()) entries.push({ path, size: info.size, mtimeMs: info.mtimeMs })
+          if (info.isFile()) entries.push({ path, size: info.size, atimeMs: info.atimeMs })
         } catch {
           // Файл исчез между readdir и stat — не наша забота
         }
@@ -64,9 +85,10 @@ export class RuleSetCache {
     let total = entries.reduce((sum, e) => sum + e.size, 0)
     if (total <= this.limits.totalBytes) return
 
-    entries.sort((a, b) => a.mtimeMs - b.mtimeMs)
+    entries.sort((a, b) => a.atimeMs - b.atimeMs)
     for (const entry of entries) {
       if (total <= this.limits.totalBytes) break
+      if (entry.path === keep) continue
       try {
         await rm(entry.path)
         total -= entry.size
