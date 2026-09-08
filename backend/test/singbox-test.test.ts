@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { withDummyOutbounds } from '../src/singbox/dummyOutbounds.js'
+import { SingboxService } from '../src/singbox/service.js'
+import type { SpawnRunner } from '../src/proc/spawn.js'
 
 type Doc = {
   outbounds: { type: string; tag: string; outbounds?: string[]; remnawave?: unknown }[]
@@ -68,5 +72,60 @@ describe('достройка sing-box перед проверкой ядром',
   it('документ без outbounds не роняет достройку', () => {
     const doc = withDummyOutbounds({ route: { rules: [] } }) as Doc
     expect(Array.isArray(doc.outbounds)).toBe(true)
+  })
+})
+
+const TEMPLATE = JSON.stringify({
+  outbounds: [{ type: 'selector', tag: 'g', outbounds: null }],
+  route: { rules: [], final: 'g' },
+})
+
+describe('проверка шаблона sing-box ядром', () => {
+  it('нет бинаря — инструмент недоступен, а не ошибка', async () => {
+    const run: SpawnRunner = async () => ({
+      code: null,
+      output: '',
+      error: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }),
+    })
+    const res = await new SingboxService('sing-box', tmpdir(), run).test(TEMPLATE)
+    expect(res).toEqual({ available: false, ok: false, errors: [] })
+  })
+
+  it('код 0 — вердикт принят', async () => {
+    const run: SpawnRunner = async () => ({ code: 0, output: '' })
+    const res = await new SingboxService('sing-box', tmpdir(), run).test(TEMPLATE)
+    expect(res.ok).toBe(true)
+    expect(res.available).toBe(true)
+  })
+
+  it('ненулевой код отдаёт строки ядра, а не пустоту', async () => {
+    const run: SpawnRunner = async () => ({
+      code: 1,
+      output: 'FATAL[0000] decode config at index 0: json: unknown field "oops"\n\n',
+      })
+    const res = await new SingboxService('sing-box', tmpdir(), run).test(TEMPLATE)
+    expect(res.ok).toBe(false)
+    expect(res.errors).toEqual(['FATAL[0000] decode config at index 0: json: unknown field "oops"'])
+  })
+
+  it('ядру уходит достроенный документ, и файл удаляется', async () => {
+    let seen: unknown
+    let path = ''
+    const run: SpawnRunner = async (_bin, args) => {
+      path = args.at(-1)!
+      seen = JSON.parse(await readFile(path, 'utf8'))
+      return { code: 0, output: '' }
+    }
+    await new SingboxService('sing-box', tmpdir(), run).test(TEMPLATE)
+    const doc = seen as { outbounds: { tag: string; outbounds?: string[] }[] }
+    // Пустая группа ядру не годится: панель заполнила бы её тегами серверов
+    expect(doc.outbounds[0]!.outbounds!.length).toBeGreaterThan(0)
+    await expect(readFile(path, 'utf8')).rejects.toThrow()
+  })
+
+  it('вердикт без объяснения всё равно объясняется по-русски', async () => {
+    const run: SpawnRunner = async () => ({ code: 1, output: '   \n\n' })
+    const res = await new SingboxService('sing-box', tmpdir(), run).test(TEMPLATE)
+    expect(res.errors).toEqual(['Ядро отклонило шаблон без объяснения'])
   })
 })
