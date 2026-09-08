@@ -107,6 +107,34 @@ describe('ядро черновика', () => {
     expect(result.current.reveal?.parts).toEqual(['lines', 0])
   })
 
+  it('в тексте ведёт и туда, где путь пуст, но место известно', () => {
+    // Такова синтаксическая ошибка разбора: «что за ключ» она сказать не может,
+    // «где» — может. Прежде список требовал непустой путь, и клик по ней
+    // молчал: единственная проблема документа была и единственной, по которой
+    // некуда пойти
+    const { result } = draft()
+    const issue = {
+      parts: [],
+      path: '',
+      message: 'Синтаксис YAML: сломано',
+      level: 'error' as const,
+      at: { from: 12, to: 20 },
+    }
+    act(() => result.current.openTextTab())
+    expect(result.current.canSelectIssue(issue)).toBe(true)
+    act(() => result.current.selectIssue(issue))
+    expect(result.current.reveal?.at).toEqual({ from: 12, to: 20 })
+  })
+
+  it('пустой путь без места по-прежнему никуда не ведёт', () => {
+    // Отказ обязан оставаться отказом: диагностика, у которой нет ни пути, ни
+    // места, кликом бы просто ничего не делала — и это читалось бы как поломка
+    const { result } = draft()
+    const issue = { parts: [], path: '', message: 'ниоткуда', level: 'error' as const }
+    act(() => result.current.openTextTab())
+    expect(result.current.canSelectIssue(issue)).toBe(false)
+  })
+
   // Одним действием, потому что порознь не собирается: `selectIssue` читает
   // `tab` из замыкания, и сразу после `openTextTab()` там ещё вкладка графа —
   // прокрутка ушла бы в ветку выбора узла.

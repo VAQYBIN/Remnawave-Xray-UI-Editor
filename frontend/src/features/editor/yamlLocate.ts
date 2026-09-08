@@ -13,16 +13,15 @@ import type { ValidationIssue } from '../../entities/xray'
 
 /** Ошибки разбора YAML — на своих местах в тексте */
 function syntaxDiagnostics(md: MihomoDoc): Diagnostic[] {
-  return md.doc.errors.map((error, index): Diagnostic => {
-    // Формулировка живёт в parse.ts и приходит сюда готовой: md.issues строятся
-    // из md.doc.errors один в один и в том же порядке, так что своего шаблона
-    // сообщения здесь нет — иначе он разошёлся бы с тамошним
-    const { message } = md.issues[index]
-    const [from, to] = error.pos
-    const start = Math.min(Math.max(from, 0), md.text.length)
-    const end = Math.min(Math.max(to, start), md.text.length)
-    return { from: start, to: end, severity: 'error', message }
-  })
+  // И текст, и место приходят с самой диагностикой. Раньше место брали у
+  // `md.doc.errors` по индексу, полагаясь на то, что диагностики построены из
+  // ошибок один в один и в том же порядке; связь двух списков держалась на
+  // порядке и молчала бы, если бы он разошёлся
+  return md.issues.flatMap((issue): Diagnostic[] =>
+    issue.at === undefined
+      ? []
+      : [{ from: issue.at.from, to: issue.at.to, severity: 'error', message: issue.message }],
+  )
 }
 
 /** Разбор приходит готовым: линтеру он нужен и для проверок, второй раз документ

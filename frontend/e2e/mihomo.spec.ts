@@ -51,6 +51,36 @@ test('правка группы правит документ точечно и 
   await expect(lines.nth(9)).toHaveText('# LEAVE THIS LINE!')
 })
 
+test('клик по синтаксической ошибке ведёт к её месту, а не в начало', async ({ page }) => {
+  await page.getByRole('button', { name: 'YAML', exact: true }).click()
+  const lines = page.locator('.cm-line')
+
+  // Ломаем документ в самом конце: незакрытая flow-последовательность даёт
+  // ошибку разбора с точным местом и без всякого пути — путь у неё назвать
+  // нечем, документ на этом месте и не разобрался
+  await lines.last().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('broken: [')
+  // Редактор закрывает скобку сам — снимаем закрывающую, иначе документ
+  // остаётся валидным и проверять было бы нечего
+  await page.keyboard.press('Delete')
+  const broken = lines.filter({ hasText: 'broken: [' })
+  await expect(broken).toHaveCount(1)
+
+  // Уводим каретку в начало: иначе она осталась бы на месте ошибки и тест
+  // проходил бы, ничего не проверив
+  await lines.first().click()
+  await expect(page.locator('.cm-activeLine')).toHaveText('mode: rule')
+
+  await page.locator('.wb-status-toggle').click()
+  await page.getByRole('button', { name: /Синтаксис YAML/ }).first().click()
+
+  // Каретка уехала на сломанную строку. Прежде клик по этой диагностике не
+  // делал ничего: список навигирует по пути, а путь у неё пуст — место
+  // терялось в разборе, хотя библиотека его и отдавала
+  await expect(page.locator('.cm-activeLine')).toContainText('broken: [')
+})
+
 test('сохранение шлёт encodedTemplateYaml, конфликт по хэшу предлагает выбор', async ({ page }) => {
   const patches: string[] = []
   await page.route('**/api/templates/*', async (route) => {

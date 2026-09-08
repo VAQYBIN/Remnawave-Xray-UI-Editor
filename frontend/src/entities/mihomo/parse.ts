@@ -34,8 +34,23 @@ export function parseMihomo(text: string): MihomoDoc {
     path: '',
     message: `${YAML_SYNTAX_PREFIX}: ${e.message}`,
     level: 'error' as const,
+    // Путь у синтаксической ошибки назвать нечем — документ на этом месте и
+    // не разобрался, — зато место известно точно. Берём его здесь, у самой
+    // ошибки: читающей стороне взять его больше неоткуда, а сопоставление
+    // «i-я диагностика ↔ i-я ошибка документа» держалось бы на порядке
+    at: clampRange(e.pos, text.length),
   }))
   return { text, doc, issues }
+}
+
+/**
+ * Смещения ошибки — в границы текста. Библиотека ставит конец ошибки за
+ * последним символом на незакрытой конструкции, а CodeMirror на диапазоне
+ * вне документа бросает.
+ */
+function clampRange([from, to]: [number, number], length: number): Range {
+  const start = Math.min(Math.max(from, 0), length)
+  return { from: start, to: Math.min(Math.max(to, start), length) }
 }
 
 /**

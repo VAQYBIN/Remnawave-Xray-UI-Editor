@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseMihomo, rangeOf, sectionNode } from '../src/entities/mihomo/parse'
+import {
+  parseMihomo,
+  rangeOf,
+  sectionNode,
+  YAML_SYNTAX_PREFIX,
+} from '../src/entities/mihomo/parse'
 import { mihomoFixture } from './helpers'
 
 describe('разбор шаблона Mihomo', () => {
@@ -23,6 +28,43 @@ describe('разбор шаблона Mihomo', () => {
     const slice = md.text.slice(range!.from, range!.to)
     expect(slice).toBe('MATCH,DIRECT')
     expect(slice).not.toContain('хвост')
+  })
+
+  it('у синтаксической ошибки есть место, хотя пути нет', () => {
+    // Путь у неё пуст и быть иным не может — документ на этом месте и не
+    // разобрался. Раньше из ошибки брали только текст, и клик по ней в списке
+    // проблем не вёл никуда: список навигирует по пути
+    const text = 'mode: rule\ndns:\n  enable: [\nlog-level: info\n'
+    const md = parseMihomo(text)
+    const syntax = md.issues.filter((i) => i.message.startsWith(YAML_SYNTAX_PREFIX))
+    expect(syntax.length).toBeGreaterThan(0)
+    for (const issue of syntax) {
+      expect(issue.parts).toEqual([])
+      expect(issue.at).toBeDefined()
+      // Не начало документа: именно это и было прежним поведением списка
+      expect(issue.at!.from).toBeGreaterThan(0)
+      expect(issue.at!.to).toBeLessThanOrEqual(text.length)
+      expect(issue.at!.to).toBeGreaterThanOrEqual(issue.at!.from)
+    }
+  })
+
+  it('смещения ошибки не выходят за текст: за концом их отвергает редактор', () => {
+    // Библиотека ставит конец ошибки за последним символом на незакрытой
+    // конструкции, а CodeMirror на диапазоне вне документа бросает
+    const text = 'proxy-groups: ['
+    const md = parseMihomo(text)
+    const syntax = md.issues.filter((i) => i.at !== undefined)
+    expect(syntax.length).toBeGreaterThan(0)
+    for (const issue of syntax) {
+      expect(issue.at!.to).toBeLessThanOrEqual(text.length)
+    }
+  })
+
+  it('у смысловой проверки места нет: его ищет резолвер по пути', () => {
+    // Поле не «на всякий случай»: оно ровно для тех диагностик, которым путь
+    // назвать нечем. У остальных второе описание места разошлось бы с первым
+    const md = parseMihomo('mode: rule\n')
+    expect(md.issues).toEqual([])
   })
 
   it('синтаксическая ошибка становится диагностикой, а не исключением', () => {

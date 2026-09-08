@@ -114,7 +114,12 @@ export interface DocumentDraft<TModel> extends EditorShellDraft {
   /** Принять версию панели при конфликте: документ меняется целиком */
   adoptPanelVersion: () => void
 
-  reveal: { parts: PathParts; nonce: number } | null
+  /**
+   * Куда прокрутить в тексте. `at` заполнен там, где место известно точно, а
+   * пути нет, — у синтаксической ошибки разбора; текстовая вкладка
+   * предпочитает его резолверу по пути.
+   */
+  reveal: { parts: PathParts; at?: { from: number; to: number }; nonce: number } | null
   /**
    * Перейти в текст и прокрутить к месту пути ОДНИМ действием. Порознь это не
    * собирается: `selectIssue` смотрит на `tab` из замыкания, и сразу после
@@ -185,7 +190,7 @@ export function useDocumentDraft<TModel>({
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   // Прокрутка к месту проблемы в тексте; nonce делает повторный клик рабочим
-  const [reveal, setReveal] = useState<{ parts: PathParts; nonce: number } | null>(null)
+  const [reveal, setReveal] = useState<DocumentDraft<TModel>['reveal']>(null)
   const revealNonce = useRef(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocus, setSearchFocus] = useState(0)
@@ -203,15 +208,19 @@ export function useDocumentDraft<TModel>({
 
   // Переход зависит от вкладки: на графе ведём к узлу, в тексте — к месту.
   // Вкладку не переключаем: у части путей узла нет, и прыжок увёл бы в никуда.
+  //
+  // В тексте пустой путь ещё не значит «вести некуда»: у синтаксической ошибки
+  // разбора пути нет и быть не может, зато есть точное место — оно приходит
+  // прямо в диагностике.
   function canSelectIssue(issue: ValidationIssue): boolean {
-    if (tab === 'text') return issue.parts.length > 0
+    if (tab === 'text') return issue.parts.length > 0 || issue.at !== undefined
     return model !== undefined && adapter.nodeIdForPath(issue.parts, model) !== null
   }
 
   function selectIssue(issue: ValidationIssue) {
     if (tab === 'text') {
       revealNonce.current += 1
-      setReveal({ parts: issue.parts, nonce: revealNonce.current })
+      setReveal({ parts: issue.parts, at: issue.at, nonce: revealNonce.current })
       return
     }
     const id = model === undefined ? null : adapter.nodeIdForPath(issue.parts, model)
