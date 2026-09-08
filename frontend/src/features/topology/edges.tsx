@@ -17,6 +17,10 @@ export function edgeHues(id: string): [string, string] {
   if (id.includes('->bal:')) return [STEEL, STEEL]
   if (id.startsWith('e:rule:')) return [STEEL, EMBER]
   if (id.startsWith('e:in:')) return [FLUX, id.includes('->out:') ? EMBER : STEEL]
+  // Sing-box: та же метафора, что у Xray, — индиго на входе, сталь у правила и
+  // у группы (оба переключатели, а не источники), янтарь на выходе
+  if (id.startsWith('e:sbin:')) return [FLUX, STEEL]
+  if (id.startsWith('e:sbrule:') || id.startsWith('e:sbgroup:')) return [STEEL, EMBER]
   return [STEEL, STEEL]
 }
 

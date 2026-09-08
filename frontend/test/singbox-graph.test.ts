@@ -102,6 +102,17 @@ describe('граф sing-box', () => {
       .toEqual(['out:a'])
   })
 
+  it('незаполненное условие в сводку правила не попадает', () => {
+    // Так выглядит правило, только что заведённое кнопкой «+ Правило»: поле есть,
+    // значения нет. Назвать его в сводке — сказать, что правило чем-то ограничено
+    const d = doc('{"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[{"domain":[],"outbound":"direct"},{"domain":["a.com"],"outbound":"direct"}]}}')
+    const nodes = buildSingboxGraph(d).nodes
+    const summaryAt = (i: number) =>
+      (nodes.find((n) => n.id === `rule:${i}`)!.data as { summary: string[] }).summary
+    expect(summaryAt(0)).toEqual([])
+    expect(summaryAt(1)).toEqual(['domain: a.com'])
+  })
+
   it('дублирующийся тег не теряет узел, а схлопывается в один', () => {
     // React Flow на дубликате id не падает, а тихо теряет узел с холста
     const d = doc('{"outbounds":[{"type":"direct","tag":"d"},{"type":"direct","tag":"d"}]}')

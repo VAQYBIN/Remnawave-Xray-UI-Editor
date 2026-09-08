@@ -94,6 +94,10 @@ function summaryOf(rule: Record<string, unknown>): string[] {
   const out: string[] = []
   for (const key of conditionKeysOf(rule)) {
     const raw = rule[key]
+    // Пустой список — не условие, а незаполненное поле: так выглядит правило,
+    // только что заведённое кнопкой «+ Правило». Назвать его в сводке значит
+    // сказать, что правило чем-то ограничено, — а оно совпадает со всем
+    if (Array.isArray(raw) && raw.length === 0) continue
     const value = Array.isArray(raw) ? raw.join(', ') : String(raw)
     out.push(value === '' ? key : `${key}: ${value}`)
   }
