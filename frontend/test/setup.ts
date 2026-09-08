@@ -1,8 +1,21 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach } from 'vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 
 afterEach(() => cleanup())
+
+/*
+ * Потолок ожидания у `findBy*`/`waitFor` — свой, и `testTimeout` его НЕ
+ * покрывает: он срабатывает раньше и сообщает «элемент не найден», а не
+ * «тест не уложился». Умолчание в 1000 мс стоит ниже честной цены здешних
+ * ожиданий — «имя профиля — ссылка на редактор» в обычном прогоне идёт
+ * 1066 мс, то есть уже за пределом, и под нагрузкой проигрывал стабильно.
+ *
+ * 5 с — выше разброса машины и заведомо НИЖЕ общего потолка теста (30 с):
+ * так падение остаётся внятным («элемента нет»), а не превращается в
+ * «тест не уложился», из которого причина не читается.
+ */
+configure({ asyncUtilTimeout: 5_000 })
 
 // React Flow требует ResizeObserver; в jsdom его нет
 class ResizeObserverStub {
