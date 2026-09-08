@@ -358,3 +358,17 @@ describe('просмотр категорий', () => {
     expect(cache.get('geosite')!.domains.size).toBe(8)
   })
 })
+
+describe('GeoService: тексты отказов при загрузке', () => {
+  it('отказ называет, какая из двух баз не скачалась', async () => {
+    // `update()` идёт по обоим видам подряд, и без имени пользователь не поймёт,
+    // какую ссылку чинить. Имя однажды уже пропало при переводе на общую
+    // загрузку — и ни один тест этого не заметил
+    const svc = new GeoService(dataDir, {
+      lookupImpl: async () => [{ address: '93.184.216.34' }],
+      fetchImpl: (async () => new Response('', { status: 404 })) as unknown as typeof fetch,
+    })
+    await expect(svc.update(['geosite'])).rejects.toThrow(/geosite/)
+    await expect(svc.update(['geoip'])).rejects.toThrow(/geoip/)
+  })
+})

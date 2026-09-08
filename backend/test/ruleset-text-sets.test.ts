@@ -82,3 +82,29 @@ describe('текстовый набор доменов', () => {
     expect(set.has('a.example.com')).toBe(false)
   })
 })
+
+describe('текстовый набор доменов: подстановка на любой метке', () => {
+  it('«*» в середине совпадает, как в ядре', () => {
+    // Прежняя редакция знала только ведущую «*.», и запись ниже не совпадала ни
+    // с чем: ядро отвечало «да», редактор — уверенное «нет»
+    const set = domainSetFromLines(['www.*.example.com'])
+    expect(set.has('www.a.example.com')).toBe(true)
+    expect(set.has('www.b.example.com')).toBe(true)
+    expect(set.has('www.a.b.example.com')).toBe(false)
+    expect(set.has('www.example.com')).toBe(false)
+  })
+
+  it('«*» — ровно одна метка, а не любой остаток', () => {
+    const set = domainSetFromLines(['*.example.com'])
+    expect(set.has('a.example.com')).toBe(true)
+    expect(set.has('a.b.example.com')).toBe(false)
+  })
+
+  it('«+.» после подстановки по-прежнему любой глубины', () => {
+    const set = domainSetFromLines(['+.*.example.com'])
+    expect(set.has('x.a.example.com')).toBe(true)
+    expect(set.has('y.z.a.example.com')).toBe(true)
+    expect(set.has('a.example.com')).toBe(true)
+    expect(set.has('example.com')).toBe(false)
+  })
+})

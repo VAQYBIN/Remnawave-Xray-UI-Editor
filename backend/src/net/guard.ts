@@ -13,6 +13,8 @@ export interface FetchGuardOptions {
   lookupImpl?: (host: string) => Promise<{ address: string }[]>
   /** Осознанное разрешение внутренних адресов — для зеркала в локальной сети */
   allowPrivate?: boolean
+  /** Что посоветовать, когда адрес оказался внутренним; без неё — только факт */
+  privateHint?: string
   maxHops?: number
   timeoutMs?: number
   /** Метод, заголовки и тело для не-GET запросов; проверка хостов и ручные редиректы не меняются */
@@ -107,11 +109,10 @@ export async function fetchExternal(url: string, opts: FetchGuardOptions = {}): 
       throw new Error('Ссылка должна начинаться с http:// или https://')
     }
     if (!opts.allowPrivate) {
-      await assertPublicHost(
-        parsed.hostname,
-        opts,
-        'Если это ваше зеркало, включите GEO_ALLOW_PRIVATE_URLS=true',
-      )
+      // Подсказку даёт вызывающий: совет про GEO_ALLOW_PRIVATE_URLS верен для
+      // geo-баз, чей адрес задаёт администратор, и бесполезен для набора правил
+      // — тому флаг намеренно не передаётся, и включать его незачем
+      await assertPublicHost(parsed.hostname, opts, opts.privateHint)
     }
 
     const res = await doFetch(current, {

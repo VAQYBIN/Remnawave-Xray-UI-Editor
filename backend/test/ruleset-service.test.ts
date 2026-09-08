@@ -384,3 +384,74 @@ describe('RuleSetService', () => {
     expect(reasonOf(answer.faceit)).toMatch(/внутреннюю сеть/)
   })
 })
+
+// Пределы из таблицы плана, которые до финального ревью не проверялись ничем:
+// боевые значения потребовали бы фикстур в десятки мегабайт, поэтому сервис
+// принимает их параметром, а тест ставит маленькие
+describe('RuleSetService: пределы', () => {
+  it('файл больше потолка на проводе не читается', async () => {
+    const big = Buffer.from('payload:\n' + '  - a.com\n'.repeat(200))
+    const { opts } = net({ 'https://example.com/c.yaml': big })
+    const svc = new RuleSetService(await newDir(), opts, { wireBytes: 100 })
+    const answer = await svc.match({ address: 'x' }, [
+      http({ name: 'c', url: 'https://example.com/c.yaml', behavior: 'domain', format: 'yaml' }),
+    ])
+    expect(answer.c).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.c)).toMatch(/больше 100 байт/)
+  })
+
+  it('разобранное вытесняется по объёму, а не копится вечно', async () => {
+    const { opts } = net({
+      'https://example.com/a.mrs': FACEIT,
+      'https://example.com/b.mrs': PRIVATE_IPS,
+    })
+    const svc = new RuleSetService(await newDir(), opts, { parsedBytes: 1 })
+    await svc.match({ address: 'faceit.com', ip: '10.0.0.1' }, [
+      http({ name: 'a', url: 'https://example.com/a.mrs' }),
+      http({ name: 'b', url: 'https://example.com/b.mrs', behavior: 'ipcidr' }),
+    ])
+    // Оба разобраны, но в памяти остался один: потолок в один байт перебит
+    // любым набором, и вытеснение обязано сработать
+    expect(svc.parsedCount).toBe(1)
+  })
+
+  it('наборы качаются не все разом', async () => {
+    let inFlight = 0
+    let peak = 0
+    const svc = new RuleSetService(
+      await newDir(),
+      {
+        lookupImpl: PUBLIC_LOOKUP,
+        fetchImpl: (async () => {
+          inFlight++
+          peak = Math.max(peak, inFlight)
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          inFlight--
+          return new Response(new Uint8Array(FACEIT), { status: 200 })
+        }) as unknown as typeof fetch,
+      },
+      { concurrentDownloads: 3 },
+    )
+    const many = Array.from({ length: 12 }, (_, i) =>
+      http({ name: `n${i}`, url: `https://example.com/${i}.mrs` }),
+    )
+    const answer = await svc.match({ address: 'faceit.com' }, many)
+    expect(Object.keys(answer)).toHaveLength(12)
+    expect(peak).toBeLessThanOrEqual(3)
+    expect(peak).toBeGreaterThan(1)
+  })
+})
+
+describe('RuleSetService: тексты отказов', () => {
+  it('отказ по внутреннему адресу не советует флаг, который тут не поможет', async () => {
+    // GEO_ALLOW_PRIVATE_URLS этому сервису намеренно не передаётся, поэтому
+    // совет «включите его» был бы советом, который по построению не работает
+    const svc = new RuleSetService(await newDir(), {
+      lookupImpl: async () => [{ address: '127.0.0.1' }],
+      fetchImpl: (async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+    })
+    const answer = await svc.match({ address: 'x' }, [http({ url: 'https://internal/a.mrs' })])
+    expect(reasonOf(answer.faceit)).toMatch(/внутреннюю сеть/)
+    expect(reasonOf(answer.faceit)).not.toMatch(/GEO_ALLOW_PRIVATE_URLS/)
+  })
+})

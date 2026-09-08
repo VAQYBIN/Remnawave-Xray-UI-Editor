@@ -685,6 +685,22 @@ function usesGeo(md: MihomoDoc): boolean {
   return geoKeysOfMihomo(md).length > 0
 }
 
+/**
+ * Цель, какой её видит разбор: адрес, который САМ является IP, заодно служит
+ * адресом назначения — требовать вписать его второй раз незачем.
+ *
+ * Экспортируется потому, что вывод обязан произойти ДО запросов на бэкенд, а не
+ * только внутри трассировки. Иначе выходит расхождение: правило `IP-CIDR` из
+ * документа на цели `10.1.2.3` совпадает, а набор подсетей отвечает «в цели нет
+ * IP назначения», потому что в запрос поле не попало. Один и тот же вопрос —
+ * два разных ответа.
+ */
+export function effectiveTarget(target: TraceTarget): TraceTarget {
+  return isIpAddress(target.address) && target.ip === undefined
+    ? { ...target, ip: target.address }
+    : target
+}
+
 export function traceMihomo(
   md: MihomoDoc,
   target: TraceTarget,
@@ -693,11 +709,7 @@ export function traceMihomo(
   // наборы правил не нужны, и трогать их в этой задаче незачем
   ruleSets: RuleSetAnswers = NO_RULE_SETS,
 ): MihomoTraceResult {
-  // Цель-адрес и есть IP назначения: требовать вписать его второй раз незачем
-  const effective: TraceTarget =
-    isIpAddress(target.address) && target.ip === undefined
-      ? { ...target, ip: target.address }
-      : target
+  const effective = effectiveTarget(target)
   const ctx: Ctx = {
     md,
     target: effective,

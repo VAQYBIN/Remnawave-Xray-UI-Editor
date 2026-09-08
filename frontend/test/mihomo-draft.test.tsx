@@ -388,6 +388,17 @@ describe('трассировка спрашивает наборы правил'
     })
   })
 
+  it('адрес-IP уезжает на бэкенд как адрес назначения', async () => {
+    // Иначе выходит расхождение на ровном месте: правило IP-CIDR из документа
+    // на цели 10.1.2.3 совпадает, а набор подсетей отвечает «в цели нет IP
+    // назначения», потому что поле не попало в запрос. Вывод цели обязан
+    // произойти ДО запроса, а не только внутри трассировки
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget({ ...target, address: '10.1.2.3' }))
+    await waitFor(() => expect(setBodies).toHaveLength(1), { timeout: 3000 })
+    expect(setBodies[0]!.target).toEqual({ address: '10.1.2.3', ip: '10.1.2.3' })
+  })
+
   it('набор из файла клиента останавливает проход и называет причину без сети', async () => {
     const { result } = draft(SET_DOC('RULE-SET,net,A', 'RULE-SET,local,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))

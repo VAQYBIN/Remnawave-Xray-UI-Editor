@@ -23,7 +23,15 @@ export const LIMITS = {
   parsedBytes: 64 * 1024 * 1024,
   classicalLines: 10_000,
   minTtlMs: 60 * 60 * 1000,
+  /**
+   * Сколько наборов качаем разом. Требование спеки: без него документ с
+   * шестьюдесятью четырьмя провайдерами при пустом кэше открывает столько же
+   * исходящих соединений сразу, каждое со своим таймаутом
+   */
+  concurrentDownloads: 8,
 }
+
+export type RuleSetLimits = typeof LIMITS
 
 export interface RuleSetDescriptor {
   name: string
@@ -80,11 +88,29 @@ export class RuleSetService {
   private readonly loading = new Map<string, Promise<Parsed>>()
   private parsedBytes = 0
 
+  /**
+   * Сколько наборов лежит разобранными. Существует ради теста на вытеснение:
+   * иначе предел объёма памяти нельзя отличить от его отсутствия — наружу он
+   * никак не проявляется, и потому не проверялся ничем.
+   */
+  get parsedCount(): number {
+    return this.parsed.size
+  }
+
+  private readonly limits: RuleSetLimits
+
   constructor(
     dataDir: string,
     private readonly net: FetchGuardOptions = {},
+    // Пределы переопределяются только в тестах: проверять их боевыми значениями
+    // значило бы держать в репозитории фикстуры в десятки мегабайт, и ровно
+    // поэтому два из семи не проверялись ничем
+    limits: Partial<RuleSetLimits> = {},
   ) {
-    this.cache = new RuleSetCache(join(dataDir, 'rulesets'), { totalBytes: LIMITS.cacheBytes })
+    this.limits = { ...LIMITS, ...limits }
+    this.cache = new RuleSetCache(join(dataDir, 'rulesets'), {
+      totalBytes: this.limits.cacheBytes,
+    })
   }
 
   async match(
@@ -94,19 +120,23 @@ export class RuleSetService {
     const answers: Record<string, RuleSetAnswer> = {}
     // Предел режет лишние наборы, а не весь запрос: документ с 65 наборами
     // обязан получить ответ по первым 64 и честную причину по остальным
-    const allowed = sets.slice(0, LIMITS.setsPerDocument)
-    for (const set of sets.slice(LIMITS.setsPerDocument)) {
+    const allowed = sets.slice(0, this.limits.setsPerDocument)
+    for (const set of sets.slice(this.limits.setsPerDocument)) {
       answers[set.name] = {
         state: 'unavailable',
-        reason: `в документе больше ${LIMITS.setsPerDocument} наборов — этот не проверялся`,
+        reason: `в документе больше ${this.limits.setsPerDocument} наборов — этот не проверялся`,
       }
     }
 
-    // Ни одна из этих задач не отклоняется: иначе Promise.all завершился бы на
-    // первом же отказе, не дождавшись соседей, и часть наборов осталась бы без
-    // ответа вовсе
-    await Promise.all(
-      allowed.map(async (set) => {
+    // Ни одна из этих задач не отклоняется: иначе обход завершился бы на первом
+    // же отказе, не дождавшись соседей, и часть наборов осталась бы без ответа
+    // вовсе. И идут они не все разом: документ с шестьюдесятью четырьмя
+    // провайдерами при пустом кэше открыл бы столько же соединений сразу
+    let next = 0
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const set = allowed[next++]
+        if (set === undefined) return
         try {
           answers[set.name] = this.answer(await this.load(set), target)
         } catch (err) {
@@ -118,7 +148,10 @@ export class RuleSetService {
             reason: err instanceof RuleSetError ? err.message : 'не удалось прочитать набор',
           }
         }
-      }),
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(this.limits.concurrentDownloads, allowed.length) }, worker),
     )
 
     return answers
@@ -182,7 +215,7 @@ export class RuleSetService {
   private async loadUncached(set: RuleSetDescriptor, cacheKey: string): Promise<Parsed> {
     if (set.url === undefined) throw new RuleSetError('У набора не указана ссылка')
 
-    const ttl = Math.max(LIMITS.minTtlMs, (set.intervalSec ?? 0) * 1000)
+    const ttl = Math.max(this.limits.minTtlMs, (set.intervalSec ?? 0) * 1000)
     const cached = await this.cache.read(set.url, ttl)
 
     let bytes: Uint8Array
@@ -193,7 +226,7 @@ export class RuleSetService {
     } else {
       bytes = await fetchExternalBytes(set.url, {
         ...this.net,
-        maxBytes: LIMITS.wireBytes,
+        maxBytes: this.limits.wireBytes,
       }).catch((err: unknown) => {
         throw new RuleSetError(`не удалось скачать: ${downloadReason(err)}`, { cause: err })
       })
@@ -213,7 +246,7 @@ export class RuleSetService {
     let size = bytes.byteLength
 
     if (set.format === 'mrs') {
-      const file = parseMrs(bytes, LIMITS.plainBytes)
+      const file = parseMrs(bytes, this.limits.plainBytes)
       size = file.body.length
       if (file.behavior !== set.behavior) {
         // Документ обещал одно, файл содержит другое: считать по файлу — значит
@@ -246,8 +279,8 @@ export class RuleSetService {
   /** Разбор общий для текстового файла и для встроенного в документ списка */
   private fromLines(set: RuleSetDescriptor, lines: string[], size: number): Parsed {
     if (set.behavior === 'classical') {
-      if (lines.length > LIMITS.classicalLines) {
-        throw new RuleSetError(`в наборе больше ${LIMITS.classicalLines} строк`)
+      if (lines.length > this.limits.classicalLines) {
+        throw new RuleSetError(`в наборе больше ${this.limits.classicalLines} строк`)
       }
       return { kind: 'classical', lines, count: lines.length, bytes: size }
     }
@@ -276,7 +309,7 @@ export class RuleSetService {
     this.parsed.delete(key)
     this.parsed.set(key, { parsed, expiresAt })
     this.parsedBytes += parsed.bytes
-    while (this.parsedBytes > LIMITS.parsedBytes && this.parsed.size > 1) {
+    while (this.parsedBytes > this.limits.parsedBytes && this.parsed.size > 1) {
       const oldest = this.parsed.keys().next().value as string
       this.parsedBytes -= this.parsed.get(oldest)?.parsed.bytes ?? 0
       this.parsed.delete(oldest)

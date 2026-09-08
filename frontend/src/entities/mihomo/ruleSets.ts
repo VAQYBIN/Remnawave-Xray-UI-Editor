@@ -34,7 +34,17 @@ const FORMATS = new Set<string>(['mrs', 'yaml', 'text'])
 export function ruleSetDescriptors(md: MihomoDoc): RuleSetDescriptor[] {
   const out: RuleSetDescriptor[] = []
   for (const ref of ruleProvidersOf(md)) {
-    const type = ref.type?.trim() ?? 'http'
+    const type = ref.type?.trim().toLowerCase() ?? 'http'
+    if (type !== 'http' && type !== 'inline' && type !== 'file') {
+      // Молчаливо считать незнакомый вид сетевым — значит скачать то, чего
+      // документ не просил. Ядро такой документ вовсе отвергает при разборе
+      out.push({
+        name: ref.name,
+        kind: 'unsupported',
+        reason: `вид провайдера «${ref.type}» редактору незнаком`,
+      })
+      continue
+    }
     if (type === 'file') {
       out.push({ name: ref.name, kind: 'file' })
       continue

@@ -84,6 +84,12 @@ describe('дескрипторы наборов', () => {
     expect(d).toMatchObject({ kind: 'unsupported' })
   })
 
+  it('незнакомый вид провайдера не считается сетевым', () => {
+    // Иначе редактор скачал бы то, чего документ не просил
+    const md = doc('  a:', '    type: htpt', '    behavior: domain', '    url: https://e.com/a')
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({ kind: 'unsupported' })
+  })
+
   it('на документе без секции возвращает пусто', () => {
     expect(ruleSetDescriptors(parseMihomo('rules:\n  - MATCH,DIRECT\n'))).toEqual([])
   })

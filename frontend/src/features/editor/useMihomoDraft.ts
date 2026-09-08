@@ -20,7 +20,7 @@ import {
   type TextEdit,
 } from '../../entities/mihomo'
 import { groupsOf } from '../../entities/mihomo/groups'
-import {
+import { effectiveTarget,
   geoKeysOfMihomo,
   traceMihomo,
   type MihomoTraceResult,
@@ -114,7 +114,11 @@ export function useMihomoDraft({
 
   // Считаем и спрашиваем базу, когда ввод затих: иначе каждый символ адреса
   // пересчитывал бы вердикты и дергал бэкенд
-  const settledTarget = useDebounced(core.traceTarget, TRACE_DEBOUNCE_MS)
+  const settled = useDebounced(core.traceTarget, TRACE_DEBOUNCE_MS)
+  // Оба запроса спрашивают по ВЫВЕДЕННОЙ цели, а не по сырой: адрес-IP обязан
+  // доехать до бэкенда как адрес назначения, иначе набор подсетей и правило
+  // IP-CIDR из документа ответят на один вопрос по-разному
+  const settledTarget = useMemo(() => (settled ? effectiveTarget(settled) : settled), [settled])
   // Спрашиваем базу только по тем ключам, что реально есть в правилах
   const geoKeys = useMemo(() => (md ? geoKeysOfMihomo(md) : []), [md])
   const geoQuery = useGeoMatch(

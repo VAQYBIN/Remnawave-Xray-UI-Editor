@@ -23,19 +23,36 @@ export function domainSetFromLines(lines: string[]): DomainMatcher {
   }
 }
 
+/**
+ * Сравнение идёт ПО МЕТКАМ, а не по суффиксам строки, потому что так устроен
+ * поиск в ядре (`component/trie/domain.go`, `DomainTrie.search`): на каждом
+ * уровне пробуется точная метка, затем `*` как ЛЮБАЯ ОДНА метка, и лишь потом
+ * ветка «любой остаток», которую заводит `+`.
+ *
+ * Прежняя редакция знала только ведущие `*.` и `+.`, поэтому запись вида
+ * `www.*.example.com` не совпадала ни с чем: ядро отвечало «да», редактор —
+ * уверенное «нет», и трассировка уходила к чужому правилу. Формат набора на
+ * семантику ядра не влияет, так что текстовый набор обязан отвечать так же, как
+ * скомпилированный.
+ */
 function matchDomainEntry(entry: string, target: string): boolean {
-  if (entry.startsWith('+.')) {
-    const base = entry.slice(2)
-    return target === base || target.endsWith(`.${base}`)
+  const t = target.split('.')
+  let e = entry.split('.')
+
+  // `+.` совпадает и с самим доменом, ведущая точка — только с поддоменами
+  const complex = e[0] === '+'
+  const leadingDot = e[0] === ''
+  if (complex || leadingDot) e = e.slice(1)
+
+  if (complex || leadingDot) {
+    if (t.length < e.length) return false
+    if (leadingDot && t.length === e.length) return false
+    const tail = t.slice(t.length - e.length)
+    return e.every((label, i) => label === '*' || label === tail[i])
   }
-  if (entry.startsWith('*.')) {
-    const base = entry.slice(2)
-    if (!target.endsWith(`.${base}`)) return false
-    // Ровно одна метка: в остатке точек быть не должно
-    return !target.slice(0, target.length - base.length - 1).includes('.')
-  }
-  if (entry.startsWith('.')) return target.endsWith(entry)
-  return target === entry
+
+  if (t.length !== e.length) return false
+  return e.every((label, i) => label === '*' || label === t[i])
 }
 
 /**

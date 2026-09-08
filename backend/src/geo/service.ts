@@ -300,7 +300,16 @@ export class GeoService {
       // Ссылку задаёт пользователь: fetchExternal проверяет, что и исходный адрес,
       // и каждый редирект ведут во внешнюю сеть, а не к внутренним сервисам, а
       // потолок обрывает чтение, не дав огромному ответу лечь в память целиком
-      const body = await fetchExternalBytes(url, { ...this.net, maxBytes: MAX_BYTES })
+      // Имя базы обязано быть в тексте отказа: update() идёт по обоим видам
+      // подряд, и без него пользователь не поймёт, какая из двух ссылок сломана
+      const body = await fetchExternalBytes(url, {
+        ...this.net,
+        maxBytes: MAX_BYTES,
+        privateHint: 'Если это ваше зеркало, включите GEO_ALLOW_PRIVATE_URLS=true',
+      }).catch((err: unknown) => {
+        const reason = err instanceof Error ? err.message : String(err)
+        throw new Error(`Не удалось скачать ${kind}: ${reason}`)
+      })
       if (body.byteLength === 0) throw new Error(`Пустой ответ при загрузке ${kind}`)
       if (indexEntries(body).size === 0) {
         throw new Error(`Файл ${kind} не похож на geo-базу: ни одной категории`)
