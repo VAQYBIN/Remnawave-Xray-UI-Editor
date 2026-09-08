@@ -1,0 +1,170 @@
+{
+  "log": {
+    "level": "fatal",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns-remote",
+        "type": "tls",
+        "server": "1.1.1.1",
+        "detour": "default"
+      },
+      {
+        "tag": "dns-local",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": [
+          "geosite-whatsapp",
+          "geosite-telegram",
+          "geosite-tiktok",
+          "ru-bundle"
+        ],
+        "server": "dns-remote"
+      }
+    ],
+    "final": "dns-local"
+  },
+  "http_clients": [
+    {
+      "tag": "rule-set-client",
+      "detour": "default"
+    }
+  ],
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "freedom",
+      "stack": "system",
+      "address": "172.19.0.1/28",
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "selector",
+      "tag": "default",
+      "outbounds": [
+        "⚡️ Auto",
+        "<all-proxy-tags>"
+      ]
+    },
+    {
+      "tag": "⚡️ Auto",
+      "type": "urltest",
+      "url": "https://cp.cloudflare.com/generate_204",
+      "outbounds": [
+        "<all-proxy-tags>"
+      ]
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "clash_mode": "Direct",
+        "outbound": "direct"
+      },
+      {
+        "clash_mode": "Global",
+        "outbound": "default"
+      },
+      {
+        "rule_set": [
+          "geosite-whatsapp",
+          "geosite-telegram",
+          "geoip-telegram",
+          "geosite-tiktok",
+          "ru-bundle",
+          "discord-voice-ip-list",
+          "viber_aws_ip",
+          "geoip-facebook",
+          "rknasnblock"
+        ],
+        "outbound": "default"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "geosite-tiktok",
+        "url": "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/tiktok.srs",
+        "type": "remote",
+        "format": "binary"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-whatsapp",
+        "format": "binary",
+        "url": "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/whatsapp.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-telegram",
+        "format": "binary",
+        "url": "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/telegram.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-telegram",
+        "format": "binary",
+        "url": "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geoip/telegram.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "geoip-facebook",
+        "format": "binary",
+        "url": "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geoip/facebook.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "rknasnblock",
+        "format": "binary",
+        "url": "https://github.com/legiz-ru/sb-rule-sets/raw/main/rknasnblock.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "ru-bundle",
+        "format": "binary",
+        "url": "https://github.com/legiz-ru/sb-rule-sets/raw/main/ru-bundle.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "discord-voice-ip-list",
+        "format": "binary",
+        "url": "https://github.com/legiz-ru/sb-rule-sets/raw/main/discord-voice-ip-list.srs"
+      },
+      {
+        "type": "remote",
+        "tag": "viber_aws_ip",
+        "format": "binary",
+        "url": "https://github.com/legiz-ru/sb-rule-sets/raw/main/viber_aws_ip.srs"
+      }
+    ],
+    "default_domain_resolver": {
+      "server": "dns-local"
+    },
+    "default_http_client": "rule-set-client",
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  }
+}
