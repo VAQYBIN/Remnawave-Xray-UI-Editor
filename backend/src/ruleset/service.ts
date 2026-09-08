@@ -241,15 +241,7 @@ export class RuleSetService {
     // не раз. Без этой карты каждый её экземпляр качал бы файл сам и писал бы
     // в один и тот же путь кэша одновременно с соседями: лишний трафик кратно
     // числу повторов и чтение поверх недописанного файла
-    const inFlight = this.loading.get(cacheKey)
-    if (inFlight !== undefined) return inFlight
-    const started = this.loadUncached(set, cacheKey)
-    this.loading.set(cacheKey, started)
-    try {
-      return await started
-    } finally {
-      this.loading.delete(cacheKey)
-    }
+    return this.once(cacheKey, () => this.loadUncached(set, cacheKey))
   }
 
   /**
@@ -259,9 +251,31 @@ export class RuleSetService {
    * работающую трассировку в остановку. Кэш и разобранное заменяются только
    * после успеха — на отказе всё остаётся как было (находка финального ревью).
    */
-  /** Перекачать набор заново, не трогая прежнюю копию до успеха */
+  /**
+   * Перекачать набор заново, не трогая прежнюю копию до успеха.
+   *
+   * Ключ «в полёте» СВОЙ (`fresh:`), а не общий с обычной загрузкой: одна
+   * ссылка встречается в документе не раз, и без склейки «Обновить» качало бы
+   * её столько раз, сколько раз она в нём есть, — все разом и все в один файл
+   * кэша. Но и делить очередь с обычной загрузкой нельзя: та вправе ответить
+   * из кэша, а здесь просят именно свежее.
+   */
   private async reload(set: RuleSetDescriptor): Promise<Parsed> {
-    return this.loadUncached(set, `${set.url}|${set.behavior}|${set.format}`, true)
+    const cacheKey = `${set.url}|${set.behavior}|${set.format}`
+    return this.once(`fresh:${cacheKey}`, () => this.loadUncached(set, cacheKey, true))
+  }
+
+  /** Склейка одинаковых загрузок: вторая ждёт первую, а не качает сама */
+  private async once(key: string, start: () => Promise<Parsed>): Promise<Parsed> {
+    const inFlight = this.loading.get(key)
+    if (inFlight !== undefined) return inFlight
+    const started = start()
+    this.loading.set(key, started)
+    try {
+      return await started
+    } finally {
+      this.loading.delete(key)
+    }
   }
 
   private async loadUncached(
@@ -287,10 +301,15 @@ export class RuleSetService {
         throw new RuleSetError(`не удалось скачать: ${downloadReason(err)}`, { cause: err })
       })
       loadedAt = Date.now()
-      await this.cache.write(set.url, bytes)
     }
 
+    // Разбор ПЕРЕД записью в кэш, и это не перестановка ради красоты. Сервер
+    // отвечает 200 и телом страницы ошибки CDN чаще, чем хотелось бы; записав
+    // такой ответ раньше разбора, мы затирали бы рабочую копию мусором — тем
+    // же способом, каким её терял прежний порядок «выбросить, потом качать».
+    // Заменяем только то, что разобралось (находка повторного ревью)
     const parsed: Parsed = { ...this.build(set, bytes), loadedAt }
+    if (cached === null) await this.cache.write(set.url, bytes)
     this.remember(cacheKey, parsed, loadedAt + ttl)
     return parsed
   }

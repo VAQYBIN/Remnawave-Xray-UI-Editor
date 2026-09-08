@@ -23,11 +23,14 @@ function makeService(body: Buffer = FACEIT) {
   const dataDir = mkdtempSync(join(tmpdir(), 'xui-rs-status-'))
   let downloads = 0
   let offline = false
+  /** Сервер отвечает 200, но телом не того формата — страница ошибки провайдера */
+  let garbage = false
   const service = new RuleSetService(dataDir, {
     lookupImpl: async () => [{ address: '93.184.216.34' }],
     fetchImpl: (async () => {
       downloads++
       if (offline) return new Response('', { status: 503 })
+      if (garbage) return new Response('<html>502 Bad Gateway</html>')
       // Копия ради типа: Buffer из readFileSync — Uint8Array<ArrayBufferLike>,
       // а телу ответа нужен Uint8Array<ArrayBuffer> (как в ruleset-service.test.ts)
       return new Response(new Uint8Array(body))
@@ -39,6 +42,9 @@ function makeService(body: Buffer = FACEIT) {
     downloads: () => downloads,
     goOffline: () => {
       offline = true
+    },
+    goGarbage: () => {
+      garbage = true
     },
   }
 }
@@ -219,6 +225,39 @@ describe('refresh', () => {
     expect(await service.match({ address: 'faceit.com' }, [set])).toMatchObject({
       faceit: { state: 'yes' },
     })
+  })
+
+  it('неразбираемый ответ не затирает рабочую копию в кэше', async () => {
+    // Сервер отдал 200 и страницу ошибки провайдера. Прежний порядок писал её
+    // в кэш ДО разбора, и рабочая копия пропадала: в этом процессе её ещё
+    // держала память, а следующий запуск читал с диска мусор
+    const { service, dataDir, goGarbage } = makeService()
+    const set = httpSet()
+    await service.match({ address: 'faceit.com' }, [set])
+
+    goGarbage()
+    const items = await service.refresh([set])
+    expect(items[0]).toMatchObject({ state: 'error' })
+
+    // Спрашиваем ДРУГИМ сервисом на том же каталоге — это и есть перезапуск:
+    // память пуста, отвечает только то, что лежит на диске
+    const afterRestart = await new RuleSetService(dataDir, {}).status([set])
+    expect(afterRestart[0]).toMatchObject({ state: 'ready', count: 2 })
+  })
+
+  it('одна ссылка в документе дважды — одна загрузка, а не две', async () => {
+    // Без склейки «Обновить» качало бы ссылку столько раз, сколько раз она
+    // есть в документе, и все копии писали бы в один файл кэша разом
+    const { service, downloads } = makeService()
+    const twice = [
+      httpSet({ name: 'a' }),
+      httpSet({ name: 'b' }),
+    ]
+    await service.match({ address: 'faceit.com' }, twice)
+    expect(downloads()).toBe(1)
+
+    await service.refresh(twice)
+    expect(downloads()).toBe(2)
   })
 
   it('неудача загрузки доезжает причиной, а не молчаливым «не загружен»', async () => {

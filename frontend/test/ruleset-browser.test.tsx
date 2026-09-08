@@ -55,6 +55,32 @@ describe('просмотрщик содержимого набора', () => {
     expect(screen.getByText(/в заголовке набора: 2/)).toBeInTheDocument()
   })
 
+  it('у подсетей расхождение чисел объясняется так же, как у доменов', async () => {
+    // Один диапазон распадается на несколько CIDR — числа расходятся и здесь.
+    // Прежде подпись показывалась только при behavior: 'domain', и у набора
+    // подсетей диалог показывал одно число, просмотрщик другое, без объяснения
+    reply = () =>
+      new Response(JSON.stringify({ total: 3, offset: 0, count: 1, items: ['10.0.0.1/32'] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    render(<RuleSetBrowser descriptor={{ ...SET, behavior: 'ipcidr' }} onBack={() => {}} />, {
+      wrapper,
+    })
+    expect(await screen.findByText(/в заголовке набора: 1/)).toBeInTheDocument()
+  })
+
+  it('когда числа совпадают, подписи нет: объяснять нечего', async () => {
+    reply = () =>
+      new Response(JSON.stringify({ total: 2, offset: 0, count: 2, items: ['a.com', 'b.com'] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    render(<RuleSetBrowser descriptor={SET} onBack={() => {}} />, { wrapper })
+    await screen.findByText('a.com')
+    expect(screen.queryByText(/в заголовке набора/)).toBeNull()
+  })
+
   it('поиск уходит на сервер и сбрасывает страницу', async () => {
     // total намного больше страницы: «Вперёд» должна быть доступна, иначе
     // offset никогда не отойдёт от 0 и сброс поиском нечем будет подтвердить
