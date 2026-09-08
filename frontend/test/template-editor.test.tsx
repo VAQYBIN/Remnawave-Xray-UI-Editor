@@ -294,9 +294,7 @@ describe('редактор шаблона', () => {
     expect(bodies[0]!.expectedHash).toBe(HASH1)
     expect(bodies[1]!.expectedHash).toBe(HASH2)
     expect((bodies[1]!.templateJson as { log: { loglevel: string } }).log.loglevel).toBe('info')
-    // Дважды смонтированный MergeView в SaveDialog не укладывается в дефолтные 5 с,
-    // когда полный прогон идёт под нагрузкой
-  }, 30_000)
+  })
 
   // Ловушка формы данных: у шаблона в кэше лежит пара {template, hash}, а не голый
   // шаблон, как у профиля. Ошибка здесь уронила бы страницу на undefined
@@ -314,7 +312,7 @@ describe('редактор шаблона', () => {
     expect(await screen.findByRole('heading', { name: 'Версия из панели' })).toBeInTheDocument()
     // Черновик отброшен вместе с конфликтом: осталась версия панели
     expect(screen.queryByText('черновик')).not.toBeInTheDocument()
-  }, 30_000)
+  })
 
   // Шаблон, заведённый в панели и ни разу не заполненный вторым шагом создания:
   // templateJson === null. Редактор обязан открыть пустой документ, а не текст
@@ -380,7 +378,7 @@ describe('редактор шаблона', () => {
     // Сообщение о пустом шаблоне исчезает: панель после сохранения отдаёт
     // уже заполненный templateJson
     expect(screen.queryByText(/Шаблон в панели пуст/)).not.toBeInTheDocument()
-  }, 30_000)
+  })
 })
 
 /**
@@ -479,7 +477,7 @@ describe('импорт из каталога в редакторе Xray-шабл
 
     expect(await screen.findByText('xray-default')).toBeInTheDocument()
     expect(screen.queryByText('mihomo-default')).not.toBeInTheDocument()
-  }, 30_000)
+  })
 
   it('импорт кладёт скачанное в черновик, а в панель ничего не шлёт', async () => {
     const calls = mockPanelWithCatalog()
@@ -500,7 +498,7 @@ describe('импорт из каталога в редакторе Xray-шабл
     )
     // Решение сохранять остаётся за пользователем: ни одного PATCH
     expect(calls.some((c) => c.init?.method === 'PATCH')).toBe(false)
-  }, 30_000)
+  })
 
   // `dirty` обязан приходить из черновика: с зашитым `false` импорт молча затёр
   // бы чужую работу, с зашитым `true` спрашивал бы там, где затирать нечего
@@ -534,7 +532,7 @@ describe('импорт из каталога в редакторе Xray-шабл
         IMPORTED_XRAY,
       ),
     )
-  }, 30_000)
+  })
 
   // Импорт кладётся в историю (`{ history: true }`): диалог подтверждения прямо
   // обещает возврат через Ctrl+Z, и обещание обязано быть проверено
@@ -566,7 +564,7 @@ describe('импорт из каталога в редакторе Xray-шабл
     await waitFor(() =>
       expect(useDraftStore.getState().drafts[docStorageKey('template', UUID)]?.text).toBe(before),
     )
-  }, 30_000)
+  })
 
   // Документ заменяется целиком, а id узлов считаются по тегам и позициям
   // правил. Выбор берём не с канваса, а из списка проблем в статус-баре
@@ -598,5 +596,5 @@ describe('импорт из каталога в редакторе Xray-шабл
       ),
     )
     expect(screen.queryByRole('button', { name: 'Удалить узел' })).not.toBeInTheDocument()
-  }, 30_000)
+  })
 })

@@ -199,7 +199,7 @@ describe('страница редактора Mihomo', () => {
     expect(within(sections()!).getByLabelText('port')).toHaveValue('7890')
     // И это именно секции: у диалога geo-баз таких разделов нет
     expect(within(sections()!).getByRole('button', { name: 'DNS' })).toBeInTheDocument()
-  }, 30_000)
+  })
 
   // Ядру уходит ТЕКСТ черновика: печатать документ модели обратно нельзя, а
   // проверять что-то, кроме того, что уедет в панель, бессмысленно
@@ -220,7 +220,7 @@ describe('страница редактора Mihomo', () => {
     expect(JSON.parse(String(call?.init?.body)).encodedTemplateYaml).toBe(
       encodeYaml(`${YAML}mode: rule\n`),
     )
-  }, 30_000)
+  })
 
   // Импорт правит ЧЕРНОВИК: в панель ничего не уходит, решение сохранять
   // остаётся за пользователем
@@ -259,7 +259,7 @@ describe('страница редактора Mihomo', () => {
     )
     expect(patchBodies()).toHaveLength(0)
     expect(screen.queryByText('rule:0')).not.toBeInTheDocument()
-  }, 30_000)
+  })
 
   // Импорт кладётся в историю (`{ history: true }`): диалог подтверждения прямо
   // обещает, что вернуть прежний текст можно через Ctrl+Z, и обещание обязано
@@ -307,7 +307,7 @@ describe('страница редактора Mihomo', () => {
     await waitFor(() =>
       expect(useDraftStore.getState().drafts['template:u-1']?.text).toBe(before),
     )
-  }, 30_000)
+  })
 
   // Каталог живёт на GitHub и ходят к нему через наш бэкенд: пока диалог не
   // открыли, запроса быть не должно
@@ -347,7 +347,7 @@ describe('страница редактора Mihomo', () => {
     await waitFor(() => expect(patchBody().expectedHash).toBe(HASH))
     expect(patchBody().templateJson).toBeUndefined()
     expect(String(patchBody().encodedTemplateYaml)).toBe(encodeYaml(`${YAML}mode: rule\n`))
-  }, 30_000)
+  })
 
   it('конфликт по хэшу предлагает загрузить версию панели или перезаписать', async () => {
     mockApi({
@@ -365,7 +365,7 @@ describe('страница редактора Mihomo', () => {
     expect(await screen.findByText('Конфликт версий')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Загрузить версию панели' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Перезаписать' })).toBeInTheDocument()
-  }, 30_000)
+  })
 
   it('битый YAML блокирует сохранение, а предупреждения — нет', async () => {
     renderPage()
@@ -439,7 +439,7 @@ describe('страница редактора Mihomo', () => {
     // повтори он первый — конфликт не разрешился бы уже НИКОГДА
     expect(patchBodies()[0]!.expectedHash).toBe(HASH)
     expect(patchBodies()[1]!.expectedHash).toBe(PANEL_HASH)
-  }, 30_000)
+  })
 
   it('«Загрузить версию панели» отбрасывает черновик и возвращает документ панели', async () => {
     mockApi({
@@ -463,7 +463,7 @@ describe('страница редактора Mihomo', () => {
     expect(screen.queryByText('черновик')).not.toBeInTheDocument()
     // И повторных PATCH после отказа от своей версии нет
     expect(patchBodies()).toHaveLength(1)
-  }, 30_000)
+  })
 
   // Ошибка у Mihomo сохранение не блокирует (см. тест выше), поэтому диалог
   // обязан её показать: спрятав ошибки и оставив только предупреждения, он
@@ -485,7 +485,7 @@ describe('страница редактора Mihomo', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Сохранить в панель' }))
     expect(await screen.findByText(/Имя группы «A» повторяется/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Сохранить всё равно' })).toBeInTheDocument()
-  }, 30_000)
+  })
 
   /**
    * Диалог версий монтирует хром, и формат документа доходит до него пропом.
@@ -499,7 +499,7 @@ describe('страница редактора Mihomo', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Файл' }))
     expect(screen.getByRole('button', { name: /Скачать YAML/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Скачать JSON/ })).not.toBeInTheDocument()
-  }, 30_000)
+  })
 
   /**
    * ErrorBoundary в приложении нет: исключение из рендера — белый экран. Панель
