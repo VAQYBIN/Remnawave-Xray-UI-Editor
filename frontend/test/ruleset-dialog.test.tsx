@@ -122,8 +122,11 @@ describe('диалог «Наборы правил»', () => {
     expect(screen.getByLabelText('Поиск по набору')).toBeInTheDocument()
   })
 
-  it('имя набора из файла кнопкой не становится: смотреть нечего', async () => {
+  it('имя недостижимого набора кнопкой не становится: смотреть нечего', async () => {
     render(<RuleSetsDialog open onClose={() => {}} sets={SETS} asked={ASKED} />, { wrapper })
+    // Оба недостижимых вида, а не один: у набора из файла содержимого нет у
+    // сервера, у незнакомого вида его нет и у нас — открывать нечего в обоих
     expect(screen.queryByRole('button', { name: 'local' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'weird' })).toBeNull()
   })
 })

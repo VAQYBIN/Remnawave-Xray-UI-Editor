@@ -87,6 +87,9 @@ describe('просмотрщик содержимого набора', () => {
       })
     render(<RuleSetBrowser descriptor={SET} onBack={() => {}} />, { wrapper })
     await waitFor(() => expect(screen.getByText(/404/)).toBeInTheDocument())
+    // Отказ не смеет выглядеть как пустой набор: «Ничего не найдено» рядом с
+    // причиной — это два взаимоисключающих утверждения об одном и том же
+    expect(screen.queryByText(/Ничего не найдено/)).toBeNull()
   })
 
   it('без выбранного набора запроса нет', () => {

@@ -62,13 +62,19 @@ export function RuleSetBrowser({
       </ul>
 
       <div className="rs-pager">
-        <span className="muted">
-          {total === 0
-            ? page.isPending
-              ? 'Загружаю…'
-              : 'Ничего не найдено'
-            : `показаны ${page.data!.offset + 1}–${page.data!.offset + shown} из ${groupDigits(total)}`}
-        </span>
+        {/* На отказе счётчик молчит: сказать «Ничего не найдено» значило бы
+            выдать несостоявшуюся загрузку за пустой набор — причина стоит
+            строкой выше, и второго, противоречащего ей текста тут быть не
+            должно (находка ревью) */}
+        {!page.isError && (
+          <span className="muted">
+            {total === 0
+              ? page.isPending
+                ? 'Загружаю…'
+                : 'Ничего не найдено'
+              : `показаны ${page.data!.offset + 1}–${page.data!.offset + shown} из ${groupDigits(total)}`}
+          </span>
+        )}
         {page.data !== undefined && descriptor.behavior === 'domain' && (
           // Строк вдвое больше записей: на каждый домен ядро кладёт и его
           // самого, и форму «+.». Промолчать значило бы оставить пользователя с
