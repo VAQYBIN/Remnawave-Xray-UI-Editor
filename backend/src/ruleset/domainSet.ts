@@ -37,13 +37,19 @@ function popcount(x: number): number {
   return (x * 0x01010101) >>> 24
 }
 
-const getBit = (words: Uint32Array, i: number): number => {
+/**
+ * Хелперы бора экспортируются ради перечислителя (`enumerate.ts`): обход
+ * пользуется ровно теми же rank/select, что и поиск. Вторая их копия разошлась
+ * бы с первой на первом же нестандартном наборе — в плане 1 две реализации
+ * одной функции ядра уже разъехались и были пойманы ревью.
+ */
+export const getBit = (words: Uint32Array, i: number): number => {
   const w = words[i >>> 5]
   return w === undefined ? 0 : (w >>> (i & 31)) & 1
 }
 
 /** Сколько нулей в карте меток до i-го бита, не включая его */
-function countZeros(ds: DomainSet, i: number): number {
+export function countZeros(ds: DomainSet, i: number): number {
   const w = i >>> 5
   const rest = i & 31
   const whole = ds.ranks[Math.min(w, ds.ranks.length - 1)] ?? 0
@@ -52,7 +58,7 @@ function countZeros(ds: DomainSet, i: number): number {
 }
 
 /** Позиция k-й единицы в карте меток; нумерация с нуля */
-function selectIthOne(ds: DomainSet, k: number): number {
+export function selectIthOne(ds: DomainSet, k: number): number {
   const words = ds.labelBitmap
   let lo = 0
   let hi = words.length - 1
