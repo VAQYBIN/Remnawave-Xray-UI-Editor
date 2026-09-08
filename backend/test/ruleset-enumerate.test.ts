@@ -37,7 +37,7 @@ describe('перечисление бора доменов', () => {
     expect(file.count).toBe(2)
   })
 
-  it('eft и twitch-ads совпадают по числу ключей', () => {
+  it('eft и twitch-ads дают столько ключей, сколько выписано в README', () => {
     expect([...domainKeys(readDomainSet(body('eft').body))]).toHaveLength(8)
     const twitch = [...domainKeys(readDomainSet(body('twitch-ads').body))]
     expect(twitch).toHaveLength(10)
