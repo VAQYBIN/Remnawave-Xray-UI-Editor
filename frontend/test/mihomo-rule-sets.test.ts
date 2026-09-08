@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest'
+import { parseMihomo } from '../src/entities/mihomo'
+import { ruleSetDescriptors } from '../src/entities/mihomo/ruleSets'
+
+const doc = (...lines: string[]) => parseMihomo(['rule-providers:', ...lines, ''].join('\n'))
+
+describe('дескрипторы наборов', () => {
+  it('читает набор по ссылке целиком', () => {
+    const md = doc(
+      '  ads:',
+      '    type: http',
+      '    behavior: domain',
+      '    format: mrs',
+      '    url: https://example.com/ads.mrs',
+      '    interval: 86400',
+    )
+    expect(ruleSetDescriptors(md)).toEqual([
+      {
+        name: 'ads',
+        kind: 'http',
+        url: 'https://example.com/ads.mrs',
+        behavior: 'domain',
+        format: 'mrs',
+        intervalSec: 86400,
+      },
+    ])
+  })
+
+  it('пустой format означает yaml — так его понимает ядро', () => {
+    const md = doc('  a:', '    type: http', '    behavior: classical', '    url: https://e.com/a')
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({ format: 'yaml' })
+  })
+
+  it('inline берёт payload из документа и не имеет ссылки', () => {
+    const md = doc(
+      '  local:',
+      '    type: inline',
+      '    behavior: domain',
+      '    payload:',
+      '      - "+.example.com"',
+    )
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({
+      name: 'local',
+      kind: 'inline',
+      payload: ['+.example.com'],
+    })
+  })
+
+  it('type: file недоступен редактору и помечается этим, а не пропадает', () => {
+    const md = doc('  f:', '    type: file', '    behavior: domain', '    path: ./x.mrs')
+    const [d] = ruleSetDescriptors(md)
+    expect(d).toMatchObject({ name: 'f', kind: 'file' })
+  })
+
+  it('поле proxy сохраняется — на нём держится оговорка трассы', () => {
+    const md = doc(
+      '  a:',
+      '    type: http',
+      '    behavior: domain',
+      '    url: https://e.com/a',
+      '    proxy: Авто',
+    )
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({ proxy: 'Авто' })
+  })
+
+  it('незнакомый behavior или format не выдумывается', () => {
+    const md = doc('  a:', '    type: http', '    behavior: странное', '    url: https://e.com/a')
+    const [d] = ruleSetDescriptors(md)
+    // Подставить «domain» значило бы ответить не на тот вопрос
+    expect(d).toMatchObject({ kind: 'unsupported' })
+  })
+
+  it('на документе без секции возвращает пусто', () => {
+    expect(ruleSetDescriptors(parseMihomo('rules:\n  - MATCH,DIRECT\n'))).toEqual([])
+  })
+})

@@ -39,6 +39,11 @@ function bool(md: MihomoDoc, map: unknown, key: string): boolean | undefined {
   return isScalar(node) && typeof node.value === 'boolean' ? node.value : undefined
 }
 
+function num(md: MihomoDoc, map: unknown, key: string): number | undefined {
+  const node = dealias(md, mergedNode(md, map, key))
+  return isScalar(node) && typeof node.value === 'number' ? node.value : undefined
+}
+
 function strings(md: MihomoDoc, map: unknown, key: string): string[] {
   // `get()` разворачивает в JS-значение только скаляр (см. YAMLMap.get в yaml@2):
   // список остаётся узлом YAMLSeq, поэтому Array.isArray на нём всегда даст false —
@@ -119,7 +124,14 @@ export function providersOf(md: MihomoDoc): MihomoProvider[] {
 
 export interface RuleProviderRef {
   name: string
+  type?: string
   behavior?: string
+  format?: string
+  url?: string
+  proxy?: string
+  intervalSec?: number
+  /** Список скаляров у `type: inline`; для остальных видов пуст */
+  payload: string[]
   range: Range
 }
 
@@ -131,7 +143,17 @@ export function ruleProvidersOf(md: MihomoDoc): RuleProviderRef[] {
     const name = (pair.key as { value?: unknown } | null)?.value
     const range = rangeOf(pair.value)
     if (typeof name !== 'string' || range === null) continue
-    out.push({ name, behavior: str(md, pair.value, 'behavior'), range })
+    out.push({
+      name,
+      type: str(md, pair.value, 'type'),
+      behavior: str(md, pair.value, 'behavior'),
+      format: str(md, pair.value, 'format'),
+      url: str(md, pair.value, 'url'),
+      proxy: str(md, pair.value, 'proxy'),
+      intervalSec: num(md, pair.value, 'interval'),
+      payload: strings(md, pair.value, 'payload'),
+      range,
+    })
   }
   return out
 }
