@@ -115,6 +115,14 @@ function downloadReason(err: unknown): string {
   return message
 }
 
+/**
+ * Отказ, который обязаны давать ОБА пути — и `load`, и `status`. Литерал в
+ * двух местах однажды поправят в одном: пользователь получил бы разный текст на
+ * один и тот же отказ, а тест на текст остался бы зелёным на разъехавшихся
+ * сообщениях.
+ */
+const INLINE_MRS_REFUSAL = 'Формат mrs не бывает встроенным в документ'
+
 export class RuleSetService {
   private readonly cache: RuleSetCache
   /** Разобранное держим в памяти: набор подсетей крупной страны разбирается заметно */
@@ -221,7 +229,7 @@ export class RuleSetService {
 
   private async load(set: RuleSetDescriptor): Promise<Parsed> {
     if (set.kind === 'inline') {
-      if (set.format === 'mrs') throw new RuleSetError('Формат mrs не бывает встроенным в документ')
+      if (set.format === 'mrs') throw new RuleSetError(INLINE_MRS_REFUSAL)
       // Встроенный набор не запоминаем: ключом было бы имя, а содержимое
       // правится вместе с документом — запомненное отвечало бы за прошлую
       // редакцию. Разбор списка строк и не стоит того, чтобы его беречь.
@@ -364,8 +372,11 @@ export class RuleSetService {
 
   /**
    * Прогнать задачи с пределом одновременности, сохраняя порядок результатов.
-   * Ни одна задача не отклоняется наружу: иначе обход завершился бы на первом
-   * же отказе, не дождавшись соседей, и часть наборов осталась бы без ответа.
+   *
+   * Отказ ОДНОЙ задачи обрывает весь обход: соседи не дождутся своей очереди, и
+   * часть наборов останется без ответа. Поэтому `fn` обязана ловить свои
+   * исключения сама и возвращать отказ значением — хелпер этого за неё не
+   * делает. Все три нынешних вызывающих так и устроены.
    */
   private async pool<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
     const out: R[] = new Array(items.length)
@@ -404,10 +415,10 @@ export class RuleSetService {
 
   private async statusOf(set: RuleSetDescriptor): Promise<RuleSetStatusItem> {
     if (set.kind === 'inline') {
-      // Тот же запрет, что в load: набор mrs не бывает встроенным в документ.
+      // Тот же запрет, что в load.
       // Без этой проверки status ответил бы «готов» по набору, который match
       // тут же назовёт недоступным, — два разных ответа на один вопрос.
-      if (set.format === 'mrs') throw new RuleSetError('Формат mrs не бывает встроенным в документ')
+      if (set.format === 'mrs') throw new RuleSetError(INLINE_MRS_REFUSAL)
       const lines = set.payload ?? []
       const parsed = this.fromLines(set, lines, lines.join('\n').length)
       return { name: set.name, state: 'ready', count: parsed.count, bytes: parsed.bytes }

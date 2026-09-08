@@ -110,6 +110,34 @@ describe('status', () => {
 })
 
 describe('refresh', () => {
+  it('обновление не раздувает счётчик памяти', async () => {
+    // Забыть вычесть байты выброшенного набора — значит растить счётчик на
+    // каждое нажатие «Обновить». Память при этом не растёт, а вытеснение
+    // начинает выбрасывать соседей, которые её и не занимали.
+    //
+    // Предел выставлен под РОВНО два набора: тело faceit.mrs — 69 байт, два
+    // укладываются в 150, три (69 + 69 + лишние 69 от несписанного) — уже нет
+    const dataDir = mkdtempSync(join(tmpdir(), 'xui-rs-forget-'))
+    const service = new RuleSetService(
+      dataDir,
+      {
+        lookupImpl: async () => [{ address: '93.184.216.34' }],
+        fetchImpl: (async () => new Response(new Uint8Array(FACEIT))) as unknown as typeof fetch,
+      },
+      { parsedBytes: 150 },
+    )
+    const a = httpSet({ name: 'a', url: 'https://example.com/a.mrs' })
+    const b = httpSet({ name: 'b', url: 'https://example.com/b.mrs' })
+
+    await service.match({ address: 'faceit.com' }, [a, b])
+    expect(service.parsedCount).toBe(2)
+
+    await service.refresh([a, b], ['a'])
+    // Сосед на месте: счётчик после обновления показывает те же два набора,
+    // а не три
+    expect(service.parsedCount).toBe(2)
+  })
+
   it('качает заново даже при свежем кэше', async () => {
     const { service, downloads } = makeService()
     await service.match({ address: 'faceit.com' }, [httpSet()])
