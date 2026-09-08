@@ -117,6 +117,74 @@ function looksLikeXray(value: unknown): boolean {
 }
 
 /**
+ * Похож ли документ на sing-box. Признак — раздел МАРШРУТИЗАЦИИ, а не корень
+ * целиком: `inbounds`/`outbounds` есть у обоих JSON-форматов (sing-box и Xray),
+ * и по ним они неразличимы. У sing-box маршрут лежит в `route` (плюс свой
+ * `experimental`).
+ *
+ * Признак — не обязанность: документ без `route` и без `experimental` валиден
+ * для sing-box (оба поля опциональны), и отказывать по их отсутствию значило
+ * бы отвергать законный файл. Отказ строится только на признаке ЧУЖОГО
+ * формата — см. `parseImportedJson`.
+ */
+export function looksLikeSingbox(value: unknown): boolean {
+  if (!isObject(value)) return false
+  return isObject(value['route']) || isObject(value['experimental'])
+}
+
+/**
+ * Публичная версия признака конфига Xray — по разделу маршрутизации
+ * (`routing` либо `policy`), а не по обёрткам, которые проверяет внутренний
+ * `looksLikeXray` в YAML-ветке. Та функция охраняет редактор Mihomo и не
+ * годится сюда без правки чужой ветки: у неё нет пары для sing-box, а с
+ * появлением JSON-конкурента одного признака `inbounds`+`outbounds` уже
+ * недостаточно — он общий у обоих форматов.
+ */
+export function looksLikeXrayConfig(value: unknown): boolean {
+  if (!isObject(value)) return false
+  return isObject(value['routing']) || isObject(value['policy'])
+}
+
+/**
+ * Разбор JSON-файла для загрузки в редактор конкретного формата (`xray` либо
+ * `singbox`). Оба формата — JSON с `inbounds`/`outbounds` в корне, поэтому
+ * `parseImported` (без параметра формата) для различения не годится — им
+ * пользуется только редактор Xray, у которого конкурента до появления
+ * sing-box не было. Здесь же отказ строится на признаке ЧУЖОГО формата: свой
+ * признак не обязателен (см. `looksLikeSingbox`), а вот `routing`/`policy` в
+ * документе, ожидаемом как sing-box, либо `route`/`experimental` в документе,
+ * ожидаемом как Xray, — однозначная чужая примета.
+ */
+export function parseImportedJson(
+  raw: string,
+  expect: 'xray' | 'singbox',
+): { text: string } | { error: string } {
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch (err) {
+    return {
+      error: `Файл не разбирается как JSON: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+  const config = unwrapConfig(value)
+  if (config === null) return { error: `Ожидается объект конфига, а в файле ${kindOf(value)}.` }
+  if (expect === 'singbox' && looksLikeXrayConfig(config)) {
+    return {
+      error:
+        'Похоже на конфиг Xray, а не на шаблон sing-box: в файле раздел routing или policy вместо route.',
+    }
+  }
+  if (expect === 'xray' && looksLikeSingbox(config)) {
+    return {
+      error:
+        'Похоже на шаблон sing-box, а не на конфиг Xray: в файле раздел route или experimental вместо routing.',
+    }
+  }
+  return { text: JSON.stringify(config, null, 2) }
+}
+
+/**
  * Разбор загруженного файла для документа, содержимое которого — YAML-ТЕКСТ.
  * Четыре случая:
  *   1. распознаваемый конфиг Xray (`looksLikeXray`) — отказ: чужой формат;
