@@ -75,6 +75,61 @@ describe('диагностики', () => {
     expect(messages(bad).join(' ')).toContain('подсписок')
   })
 
+  // Содержимое подсписка проверяется теми же правилами, что и основной список:
+  // это правила Mihomo, а не другой язык. Раньше проверялся только основной, и
+  // одна и та же опечатка давала предупреждение в `rules` и тишину тремя
+  // строками ниже — молчание при этом читалось как «всё в порядке».
+  describe('содержимое sub-rules', () => {
+    const withSub = (body: string) =>
+      `sub-rules:${'\n'}  ru:${'\n'}${body}rules:${'\n'}  - SUB-RULE,(NETWORK,tcp),ru${'\n'}  - MATCH,DIRECT${'\n'}`
+
+    it('неизвестный тип правила виден и внутри подсписка', () => {
+      expect(messages(withSub('    - ДОМЕН,a.com,DIRECT\n')).join(' ')).toContain(
+        'Неизвестный тип правила',
+      )
+    })
+
+    it('неизвестная цель внутри подсписка тоже называется', () => {
+      expect(messages(withSub('    - DOMAIN,a.com,нет-такой-группы\n')).join(' ')).toContain(
+        'нет-такой-группы',
+      )
+    })
+
+    it('необъявленный набор правил внутри подсписка тоже называется', () => {
+      expect(messages(withSub('    - RULE-SET,нет-набора,DIRECT\n')).join(' ')).toContain(
+        'не объявлен в rule-providers',
+      )
+    })
+
+    it('правило после MATCH недостижимо и внутри подсписка', () => {
+      const text = withSub('    - MATCH,DIRECT\n    - DOMAIN,a.com,DIRECT\n')
+      expect(messages(text).join(' ')).toContain('никогда не сработает')
+    })
+
+    it('место проблемы — путь до правила подсписка, а не до секции', () => {
+      // По этому пути резолвер графа ведёт на карточку подсписка; отдельных
+      // узлов у его правил нет, поэтому глубже пути и не нужно
+      const issues = validateMihomo(parseMihomo(withSub('    - ДОМЕН,a.com,DIRECT\n')))
+      const found = issues.find((i) => i.message.includes('Неизвестный тип правила'))
+      expect(found?.parts).toEqual(['sub-rules', 'ru', 0])
+    })
+
+    it('подсписку без MATCH не предъявляют отсутствие MATCH', () => {
+      // Вывод «трафик пойдёт напрямую» верен только для основного списка. В
+      // подсписке «ничего не совпало» выводит ОБРАТНО в основной список, и
+      // требовать там MATCH значило бы требовать ошибку
+      const text = withSub('    - DOMAIN,a.com,DIRECT\n')
+      const about = messages(text).filter((m) => m.includes('нет MATCH'))
+      expect(about).toEqual([])
+    })
+
+    it('значение подсписка не список — предупреждение, а не тишина', () => {
+      // Ядру здесь нечего исполнять, а трассировка на таком подсписке встаёт.
+      // Сказать об этом в диагностиках дешевле, чем ждать трассировки
+      const text = 'sub-rules:\n  ru: DIRECT\nrules:\n  - SUB-RULE,(NETWORK,tcp),ru\n  - MATCH,DIRECT\n'
+      expect(messages(text).join(' ')).toContain('не список правил')
+    })
+  })
   it('правило после MATCH недостижимо', () => {
     const text = 'rules:\n  - MATCH,DIRECT\n  - DOMAIN,a.com,DIRECT\n'
     expect(messages(text).join(' ')).toContain('никогда не сработает')

@@ -32,7 +32,7 @@ import {
 import { ruleProvidersOf, subRuleEntries } from './groups'
 import type { MihomoDoc } from './parse'
 import { resolveTarget } from './resolve'
-import { parseRule, rulesOf, splitTopLevel, RULE_TYPES, type MihomoRule } from './rules'
+import { parseRule, ruleEntriesOf, rulesOf, splitTopLevel, RULE_TYPES, type MihomoRule } from './rules'
 
 export interface MihomoRuleVerdict {
   index: number
@@ -589,17 +589,18 @@ function evalLogic(ctx: Ctx, type: string, payload: string | undefined): CondRes
 }
 
 /**
- * Правила подсписка `sub-rules`. Значение скаляра берём ДЕКОДИРОВАННЫМ, а не
- * срезом текста: в кавычках (`- "MATCH,DIRECT"`) YAML их уже снял, и разбор
- * среза дал бы тип правила `"MATCH` (тот же приём, что в `rulesOf`).
- * null — подсписка нет либо его значение не список: проверять нечего.
+ * Правила подсписка `sub-rules`. Разбор общий с основным списком
+ * (`ruleEntriesOf`) — своей копии здесь больше нет.
+ *
+ * null — подсписка нет либо его значение не список: проверять нечего. Именно
+ * это различение и не даёт звать `ruleEntriesOf` напрямую — тот на не-списке
+ * возвращает пустой результат, а «пустой подсписок» и «подсписка нет» ведут
+ * себя по-разному: первый честно ничем не совпал, второй проверить нечем.
  */
 function subRuleRules(md: MihomoDoc, name: string): (MihomoRule | null)[] | null {
   const entry = subRuleEntries(md).find((e) => e.name === name)
   if (entry === undefined || !isSeq(entry.node)) return null
-  return entry.node.items.map((item) =>
-    isScalar(item) && typeof item.value === 'string' ? parseRule(item.value) : null,
-  )
+  return ruleEntriesOf(md, entry.node).map((e) => e.rule)
 }
 
 /** Проход по подсписку: те же правила и та же остановка, что и в основном списке */

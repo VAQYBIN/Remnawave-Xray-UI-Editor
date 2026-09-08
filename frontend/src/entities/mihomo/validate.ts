@@ -2,12 +2,20 @@
 // редактору неизвестны, поэтому «неизвестное имя цели» — предупреждение, а не
 // ошибка. Строгая проверка дала бы ложную тревогу на каждом корректном шаблоне.
 
+import { isSeq } from 'yaml'
 import type { ValidationIssue, PathParts } from '../xray/config'
 import { conflictingKeys, groupGetsHosts } from './inject'
-import { groupsOf, providersOf, ruleProvidersOf, subRuleNames, type MihomoGroup } from './groups'
+import {
+  groupsOf,
+  providersOf,
+  ruleProvidersOf,
+  subRuleEntries,
+  subRuleNames,
+  type MihomoGroup,
+} from './groups'
 import type { MihomoDoc } from './parse'
 import { resolveTarget } from './resolve'
-import { RULE_MODIFIERS, RULE_TYPES, rulesOf } from './rules'
+import { RULE_MODIFIERS, RULE_TYPES, ruleEntriesOf, rulesOf, type RuleEntry } from './rules'
 
 function issue(parts: PathParts, message: string, level: 'error' | 'warning'): ValidationIssue {
   return { parts, path: parts.join('.'), message, level }
@@ -125,66 +133,99 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
     issues.push(issue(['proxy-groups'], `Группы образуют кольцо: ${cycle.join(' → ')}`, 'error'))
   }
 
-  const rules = rulesOf(md)
-  let matchAt = -1
-  // Строка-алиас (`*r1`) — валидный YAML: содержимое лежит у якоря (`&r1`) в другом
-  // месте документа, а parseRule() тут неизбежно возвращает null (текст среза — сам
-  // алиас, не разрешённое значение). Раз такое правило не разбирается редактором
-  // ПРИНЦИПИАЛЬНО, а не по ошибке автора, флаг гасит и текущую ошибку разбора, и
-  // последующую проверку «нет MATCH»: алиас может резолвиться хоть в MATCH.
-  let hasAliasRule = false
-  rules.forEach((entry) => {
-    const at: PathParts = ['rules', entry.index]
-    if (entry.rule === null) {
-      if (entry.raw.trim().startsWith('*')) {
-        hasAliasRule = true
+  /**
+   * Проверки ОДНОГО списка правил. Списков в документе два вида: основной
+   * `rules` и любой подсписок внутри `sub-rules`. Раньше цикл стоял прямо
+   * здесь и знал только про основной — содержимое подсписков не проверялось
+   * вовсе, и одна и та же опечатка давала предупреждение в `rules` и тишину
+   * тремя строками ниже, в подсписке.
+   *
+   * Наружу отдаётся то, о чём судить может только вызывающий: где встретился
+   * MATCH и был ли среди правил алиас. У основного списка из этого выводится
+   * «в конце нет MATCH»; у подсписка такого вывода НЕТ и быть не может —
+   * подсписок без MATCH нормален: «ничего не совпало» выводит обратно в
+   * основной список, а не в прямое соединение.
+   */
+  const checkRuleList = (entries: RuleEntry[], base: PathParts) => {
+    let matchAt = -1
+    // Строка-алиас (`*r1`) — валидный YAML: содержимое лежит у якоря (`&r1`) в другом
+    // месте документа, а parseRule() тут неизбежно возвращает null (текст среза — сам
+    // алиас, не разрешённое значение). Раз такое правило не разбирается редактором
+    // ПРИНЦИПИАЛЬНО, а не по ошибке автора, флаг гасит и текущую ошибку разбора, и
+    // последующую проверку «нет MATCH»: алиас может резолвиться хоть в MATCH.
+    let hasAliasRule = false
+    entries.forEach((entry) => {
+      const at: PathParts = [...base, entry.index]
+      if (entry.rule === null) {
+        if (entry.raw.trim().startsWith('*')) {
+          hasAliasRule = true
+          issues.push(
+            issue(
+              at,
+              `Правило задано алиасом «${entry.raw.trim()}» — содержимое лежит у якоря, редактор не может проверить цель`,
+              'warning',
+            ),
+          )
+          return
+        }
+        issues.push(issue(at, `«${entry.raw}» не похоже на правило: нужны тип, значение и цель`, 'error'))
+        return
+      }
+      const { type, target, payload, modifiers } = entry.rule
+      if (!(RULE_TYPES as readonly string[]).includes(type)) {
+        issues.push(issue(at, `Неизвестный тип правила «${type}»`, 'warning'))
+      }
+      // Тип уже проверен по словарю выше — та же логика для модификаторов:
+      // без неё опечатка вроде no-resolv вместо no-resolve проходит молча
+      modifiers.forEach((modifier) => {
+        if (!(RULE_MODIFIERS as readonly string[]).includes(modifier)) {
+          issues.push(issue(at, `Неизвестный модификатор правила «${modifier}»`, 'warning'))
+        }
+      })
+      if (type === 'MATCH' && matchAt === -1) matchAt = entry.index
+      else if (matchAt !== -1) {
+        issues.push(issue(at, `Правило никогда не сработает: выше стоит MATCH`, 'warning'))
+      }
+      if (type === 'RULE-SET' && payload !== undefined && !ruleProviders.has(payload)) {
+        issues.push(issue(at, `Набор правил «${payload}» не объявлен в rule-providers`, 'warning'))
+      }
+      // У SUB-RULE третье поле — имя подсписка, а не группы: гонять его через
+      // resolveTarget значит ругаться на каждый корректный шаблон с подправилами
+      if (type === 'SUB-RULE') {
+        if (!subRules.has(target)) {
+          issues.push(issue(at, `Ссылка на подсписок правил «${target}», которого нет в sub-rules`, 'warning'))
+        }
+        return
+      }
+      if (resolveTarget(md, target) === 'unknown') {
         issues.push(
           issue(
             at,
-            `Правило задано алиасом «${entry.raw.trim()}» — содержимое лежит у якоря, редактор не может проверить цель`,
+            `Цель «${target}» не найдена среди групп и провайдеров — если это не имя хоста от панели, правило не разрешится`,
             'warning',
           ),
         )
-        return
-      }
-      issues.push(issue(at, `«${entry.raw}» не похоже на правило: нужны тип, значение и цель`, 'error'))
-      return
-    }
-    const { type, target, payload, modifiers } = entry.rule
-    if (!(RULE_TYPES as readonly string[]).includes(type)) {
-      issues.push(issue(at, `Неизвестный тип правила «${type}»`, 'warning'))
-    }
-    // Тип уже проверен по словарю выше — та же логика для модификаторов:
-    // без неё опечатка вроде no-resolv вместо no-resolve проходит молча
-    modifiers.forEach((modifier) => {
-      if (!(RULE_MODIFIERS as readonly string[]).includes(modifier)) {
-        issues.push(issue(at, `Неизвестный модификатор правила «${modifier}»`, 'warning'))
       }
     })
-    if (type === 'MATCH' && matchAt === -1) matchAt = entry.index
-    else if (matchAt !== -1) {
-      issues.push(issue(at, `Правило никогда не сработает: выше стоит MATCH`, 'warning'))
-    }
-    if (type === 'RULE-SET' && payload !== undefined && !ruleProviders.has(payload)) {
-      issues.push(issue(at, `Набор правил «${payload}» не объявлен в rule-providers`, 'warning'))
-    }
-    // У SUB-RULE третье поле — имя подсписка, а не группы: гонять его через
-    // resolveTarget значит ругаться на каждый корректный шаблон с подправилами
-    if (type === 'SUB-RULE') {
-      if (!subRules.has(target)) {
-        issues.push(issue(at, `Ссылка на подсписок правил «${target}», которого нет в sub-rules`, 'warning'))
-      }
+    return { matchAt, hasAliasRule }
+  }
+
+  const rules = rulesOf(md)
+  const { matchAt, hasAliasRule } = checkRuleList(rules, ['rules'])
+
+  // Подсписки проверяются теми же правилами: это правила Mihomo, а не другой
+  // язык. Путь `sub-rules.<имя>.<индекс>` резолвер графа уже понимает — он
+  // ведёт на карточку подсписка, у отдельных его правил узлов нет.
+  subRuleEntries(md).forEach(({ name, node }) => {
+    const at: PathParts = ['sub-rules', name]
+    if (!isSeq(node)) {
+      // Не список — не «пустой список»: ядру здесь нечего исполнять, а
+      // трассировка на таком подсписке встаёт. Сказать об этом в диагностиках
+      // дешевле, чем ждать, пока пользователь дойдёт до трассировки
+      issues.push(issue(at, `Подсписок «${name}» — не список правил`, 'warning'))
       return
     }
-    if (resolveTarget(md, target) === 'unknown') {
-      issues.push(
-        issue(
-          at,
-          `Цель «${target}» не найдена среди групп и провайдеров — если это не имя хоста от панели, правило не разрешится`,
-          'warning',
-        ),
-      )
-    }
+    checkRuleList(ruleEntriesOf(md, node), at)
   })
 
   if (rules.length > 0 && matchAt === -1 && !hasAliasRule) {

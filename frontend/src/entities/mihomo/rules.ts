@@ -86,19 +86,31 @@ export interface RuleEntry {
   range: Range
 }
 
-export function rulesOf(md: MihomoDoc): RuleEntry[] {
-  const node = sectionNode(md, 'rules')
+/**
+ * Разбор строк-правил ПРОИЗВОЛЬНОГО списка: секции `rules` либо любого списка
+ * внутри `sub-rules`. Единственное место, где строка документа превращается в
+ * правило, — до этого тот же десяток строк был переписан трижды (здесь, в
+ * `edits.ts` и в `trace.ts`), и каждая копия несла свой пересказ приёма ниже.
+ *
+ * Разбираем ДЕКОДИРОВАННОЕ значение скаляра, а не срез текста: в кавычках
+ * (`- "MATCH,DIRECT"`) их YAML уже снял, а разбор среза как есть загнал бы
+ * кавычку в тип правила (`"MATCH`) — валидное правило стало бы диагностикой на
+ * ровном месте. Не список — пустой результат: «списка нет» и «список пуст»
+ * различает вызывающий, ему для этого хватает самого узла.
+ */
+export function ruleEntriesOf(md: MihomoDoc, node: unknown): RuleEntry[] {
   if (!isSeq(node)) return []
   const out: RuleEntry[] = []
   node.items.forEach((item, index) => {
     const range = rangeOf(item)
     if (range === null) return
     const raw = md.text.slice(range.from, range.to)
-    // Разбираем ДЕКОДИРОВАННОЕ значение скаляра, а не срез текста: в кавычках их
-    // YAML уже снял, а если парсить raw как есть, кавычка попадёт в тип правила
-    // (`"MATCH`) и валидное правило превратится в диагностику на ровном месте.
     const value = isScalar(item) && typeof item.value === 'string' ? item.value : raw
     out.push({ index, rule: parseRule(value), raw, range })
   })
   return out
+}
+
+export function rulesOf(md: MihomoDoc): RuleEntry[] {
+  return ruleEntriesOf(md, sectionNode(md, 'rules'))
 }

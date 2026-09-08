@@ -18,7 +18,7 @@ import type { PathParts } from '../xray/config'
 import { groupsOf } from './groups'
 import { dealias, mergedHas, mergedNode } from './merge'
 import { parseMihomo, rangeOf, sectionNode, type MihomoDoc, type Range } from './parse'
-import { formatRule, parseRule, rulesOf, type MihomoRule } from './rules'
+import { formatRule, parseRule, ruleEntriesOf, rulesOf, type MihomoRule } from './rules'
 
 export interface TextEdit {
   from: number
@@ -557,21 +557,6 @@ export function setListAt(
   return [{ from: lineStart, to, insert: block }]
 }
 
-/** Разбор строк-правил произвольного списка (`rules`, любой список в `sub-rules`) */
-function ruleEntriesIn(md: MihomoDoc, node: unknown): { rule: MihomoRule | null; range: Range }[] {
-  if (!isSeq(node)) return []
-  const out: { rule: MihomoRule | null; range: Range }[] = []
-  node.items.forEach((item) => {
-    const range = rangeOf(item)
-    if (range === null) return
-    const raw = md.text.slice(range.from, range.to)
-    // Разбираем декодированное значение скаляра, а не срез текста — в кавычках
-    // их YAML уже снял (см. симметричный комментарий в rules.ts:rulesOf).
-    const value = isScalar(item) && typeof item.value === 'string' ? item.value : raw
-    out.push({ rule: parseRule(value), range })
-  })
-  return out
-}
 
 /**
  * Ключи, чьё значение НИКОГДА не считается ссылкой на группу — обход в них не
@@ -829,7 +814,7 @@ export function renameGroup(md: MihomoDoc, from: string, to: string): TextEdit[]
     // Находка 2 (раунд 3): цель `SUB-RULE` — это имя ПОДСПИСКА в `sub-rules`,
     // а не группы; переименовывать её здесь — переименовать не то (документ
     // остался бы синтаксически цел, но ссылка была бы уже не на ту сущность).
-    const entries = ruleEntriesIn(md, list).filter((e) => e.rule?.target === from && e.rule.type !== 'SUB-RULE')
+    const entries = ruleEntriesOf(md, list).filter((e) => e.rule?.target === from && e.rule.type !== 'SUB-RULE')
     if (entries.length === 0) continue
     if (isFlowNode(list)) {
       blocked = true
