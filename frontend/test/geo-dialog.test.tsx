@@ -44,6 +44,9 @@ describe('GeoDataDialog', () => {
     wrap(<GeoDataDialog open onClose={() => {}} />)
     await waitFor(() => expect(screen.getByText(/категорий: 1200/i)).toBeInTheDocument())
     expect(screen.getByText(/не загружена/i)).toBeInTheDocument()
+    // Размер печатается общим форматтером `formatBytes`; своей копии на МБ у
+    // диалога больше нет, и эта строка — единственное, что её отсутствие держит
+    expect(screen.getByText('1.2 МБ')).toBeInTheDocument()
   })
 
   it('кнопка загрузки дергает /api/geo/update', async () => {

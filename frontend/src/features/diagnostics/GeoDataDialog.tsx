@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useGeoStatus, useSaveGeoUrls, useUpdateGeo, type GeoSourceStatus } from '../../shared/api'
+import { formatBytes } from '../../shared/lib/format'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Dialog, TextInput } from '../../shared/ui'
 import { GeoBrowser } from './GeoBrowser'
@@ -15,11 +16,6 @@ const PRESETS = {
   },
 }
 
-function megabytes(bytes: number | undefined): string {
-  if (bytes === undefined) return ''
-  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
-}
-
 function SourceState({ label, status }: { label: string; status: GeoSourceStatus | undefined }) {
   if (!status) return null
   return (
@@ -28,7 +24,10 @@ function SourceState({ label, status }: { label: string; status: GeoSourceStatus
       {status.present ? (
         <span className="metrics">
           <span className="metric metric-accent">{`категорий: ${status.categories ?? 0}`}</span>
-          <span className="metric">{megabytes(status.sizeBytes)}</span>
+          {/* Размер приходит не всегда: пустая подпись честнее нуля */}
+          {status.sizeBytes !== undefined && (
+            <span className="metric">{formatBytes(status.sizeBytes)}</span>
+          )}
           {status.loadedAt && (
             <span className="metric">{`обновлена ${relativeTime(status.loadedAt)}`}</span>
           )}
