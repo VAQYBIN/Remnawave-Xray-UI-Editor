@@ -257,6 +257,25 @@ export const TEMPLATE_TYPES = [
 
 export type TemplateType = (typeof TEMPLATE_TYPES)[number]
 
+/** Шаблон, тип которого уже известен: редактору не нужно повторять его строкой */
+export type TemplateOfType<T extends TemplateType> = SubscriptionTemplate & {
+  templateType: T
+}
+
+/**
+ * Проверка типа шаблона, сужающая САМ ШАБЛОН, а не только доступ к полю.
+ * `template.templateType === 'MIHOMO'` объект не сужает: `SubscriptionTemplate` —
+ * один интерфейс с union-полем, а не размеченное объединение, и знание о типе
+ * дальше по коду теряется. Из-за этого страница редактора повторяла свой тип
+ * строкой — и повторяла бы его неверно, если бы ветку однажды переставили.
+ */
+export function isTemplateOfType<T extends TemplateType>(
+  template: SubscriptionTemplate,
+  type: T,
+): template is TemplateOfType<T> {
+  return template.templateType === type
+}
+
 /**
  * Шаблон подписки. Полей createdAt/updatedAt здесь НЕТ — защита при сохранении
  * строится на хэше содержимого, который считает бэкенд.

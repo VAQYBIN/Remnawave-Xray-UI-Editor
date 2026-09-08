@@ -10,9 +10,11 @@ import { useNavigate, useParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ConflictError,
+  isTemplateOfType,
   useSaveTemplate,
   useTemplate,
   type SubscriptionTemplate,
+  type TemplateOfType,
 } from '../../shared/api'
 import type { GraphContext } from '../../entities/graph/types'
 import { Button, Dialog } from '../../shared/ui'
@@ -54,7 +56,13 @@ interface ConflictState {
   hash: string
 }
 
-function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; hash: string }) {
+function TemplateEditor({
+  template,
+  hash,
+}: {
+  template: TemplateOfType<'XRAY_JSON'>
+  hash: string
+}) {
   const qc = useQueryClient()
   const hasContent = isDictionary(template.templateJson)
   const draft = useConfigDraft({
@@ -144,7 +152,7 @@ function TemplateEditor({ template, hash }: { template: SubscriptionTemplate; ha
     >
       <ImportTemplateDialog
         open={importOpen}
-        docType="XRAY_JSON"
+        docType={template.templateType}
         dirty={draft.dirty}
         onImport={(content) => {
           // Импорт — правка черновика, а не запись в панель: пользователь видит
@@ -236,25 +244,31 @@ export function TemplateEditorPage() {
   // (/templates/:uuid), а разводит их страница — там, где уже стояла проверка
   // типа. Отдельный адрес пришлось бы угадывать в списке шаблонов.
   // key — по той же причине, что и у TemplateEditor ниже.
-  if (template.templateType === 'MIHOMO') {
+  // Обе открываемые ветки — через предикат, а не через сравнение поля: только
+  // он доносит тип до самого редактора, и тому не приходится повторять его
+  // строкой. По той же причине тупик стоит последним: отрицание предиката
+  // («не XRAY_JSON») не сужает ничего, и ранний возврат оставлял бы редактор
+  // ниже с тем же неопределённым типом, с какого начали.
+  //
+  // key: переход между двумя закэшированными шаблонами не перемонтирует компонент
+  // сам по себе, и выбранный узел, вкладка и цель трассировки пережили бы смену
+  // документа — позиционные id правил и групп при этом указывают уже не туда
+  if (isTemplateOfType(template, 'MIHOMO')) {
     return <MihomoEditorPage key={template.uuid} template={template} hash={hash} />
+  }
+  if (isTemplateOfType(template, 'XRAY_JSON')) {
+    return <TemplateEditor key={template.uuid} template={template} hash={hash} />
   }
   // Остальные YAML-типы держат содержимое в encodedTemplateYaml, а разбирать
   // его редактор умеет только по правилам Mihomo; XRAY_BASE64 и SINGBOX — свои
   // форматы. Открыть их нельзя, и молчать об этом — худшее из решений
-  if (template.templateType !== 'XRAY_JSON') {
-    return (
-      <main style={{ padding: 24 }}>
-        <p>
-          Редактор умеет шаблоны XRAY_JSON и MIHOMO, а «{template.name}» —{' '}
-          {template.templateType}. Откройте его в панели Remnawave.
-        </p>
-        {back}
-      </main>
-    )
-  }
-  // key: переход между двумя закэшированными шаблонами не перемонтирует компонент
-  // сам по себе, и выбранный узел, вкладка и цель трассировки пережили бы смену
-  // документа — позиционные id правил и групп при этом указывают уже не туда
-  return <TemplateEditor key={template.uuid} template={template} hash={hash} />
+  return (
+    <main style={{ padding: 24 }}>
+      <p>
+        Редактор умеет шаблоны XRAY_JSON и MIHOMO, а «{template.name}» —{' '}
+        {template.templateType}. Откройте его в панели Remnawave.
+      </p>
+      {back}
+    </main>
+  )
 }

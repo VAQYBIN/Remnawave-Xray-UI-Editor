@@ -208,19 +208,26 @@ export function useDeleteTemplate() {
   })
 }
 
+/**
+ * Ровно одно поле содержимого. `?: never` у противоположного нужен именно для
+ * этого: без него литерал с обоими полями прошёл бы проверку лишних свойств —
+ * каждое из них известно КАКОМУ-ТО члену объединения, и TS такой объект
+ * принимает.
+ */
+type TemplateContentField =
+  | { templateJson: unknown; encodedTemplateYaml?: never }
+  | { encodedTemplateYaml: string; templateJson?: never }
+
 export function useSaveTemplate(uuid: string) {
   const qc = useQueryClient()
   return useMutation({
     // Содержимое приходит ровно одним полем: JSON-типы правятся через
     // templateJson, YAML-типы — через encodedTemplateYaml. Бэкенд отвечает 400
     // на поле, не подходящее типу шаблона, и слать оба — значит спрятать эту
-    // защиту от себя же: чужое поле уехало бы в панель молча.
-    mutationFn: (input: {
-      templateJson?: unknown
-      encodedTemplateYaml?: string
-      name?: string
-      expectedHash: string
-    }) =>
+    // защиту от себя же: чужое поле уехало бы в панель молча. Требование
+    // «ровно одно» держит тип, а не только этот комментарий: два
+    // необязательных поля разрешали и ноль полей, и оба сразу.
+    mutationFn: (input: TemplateContentField & { name?: string; expectedHash: string }) =>
       apiFetch<{ template: SubscriptionTemplate; hash: string }>(`/api/templates/${uuid}`, {
         method: 'PATCH',
         body: JSON.stringify(input),

@@ -12,7 +12,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { ConflictError, useSaveTemplate, type SubscriptionTemplate } from '../../shared/api'
+import {
+  ConflictError,
+  useSaveTemplate,
+  type SubscriptionTemplate,
+  type TemplateOfType,
+} from '../../shared/api'
 import { YAML_SYNTAX_PREFIX } from '../../entities/mihomo'
 import { decodeYamlOrNull, encodeYaml } from '../../shared/lib/base64'
 import { Button, Dialog, EmptyState } from '../../shared/ui'
@@ -47,7 +52,7 @@ export function MihomoEditorPage({
   template,
   hash,
 }: {
-  template: SubscriptionTemplate
+  template: TemplateOfType<'MIHOMO'>
   hash: string
 }) {
   const navigate = useNavigate()
@@ -74,7 +79,7 @@ function MihomoEditor({
   hash,
   panelText,
 }: {
-  template: SubscriptionTemplate
+  template: TemplateOfType<'MIHOMO'>
   hash: string
   /** Уже раскодированный документ панели: пустая строка у незаполненного шаблона */
   panelText: string
@@ -305,7 +310,7 @@ function MihomoEditor({
 
       <ImportTemplateDialog
         open={draft.importOpen}
-        docType="MIHOMO"
+        docType={template.templateType}
         dirty={draft.dirty}
         onImport={(content) => {
           // Импорт — правка черновика, а не запись в панель: пользователь видит
