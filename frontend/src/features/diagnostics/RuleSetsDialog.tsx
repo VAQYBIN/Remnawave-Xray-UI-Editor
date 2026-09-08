@@ -1,6 +1,7 @@
 // Состояние наборов правил документа. Сестра `GeoDataDialog`: тот же вопрос
 // («что у редактора есть на руках и насколько оно свежее»), заданный про другой
 // источник данных.
+import { useState } from 'react'
 import type { RuleSetDescriptor } from '../../entities/mihomo/ruleSets'
 import {
   useRefreshRuleSets,
@@ -11,6 +12,7 @@ import {
 import { formatBytes, groupDigits } from '../../shared/lib/format'
 import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Dialog } from '../../shared/ui'
+import { RuleSetBrowser } from './RuleSetBrowser'
 
 /**
  * Причина, известная без сети. Такие наборы показываются наравне с остальными:
@@ -52,10 +54,16 @@ export function RuleSetsDialog({
   const status = useRuleSetStatus(asked, open)
   const refresh = useRefreshRuleSets()
   const byName = new Map((status.data ?? []).map((item) => [item.name, item]))
+  // Список строк и просмотрщик содержимого взаимоисключающие: отдельной
+  // вкладки не заводим, «К списку» — единственный обратный ход
+  const [viewing, setViewing] = useState<RuleSetQuery | null>(null)
 
   return (
-    <Dialog open={open} title="Наборы правил" onClose={onClose}>
-      {open && (
+    <Dialog open={open} title="Наборы правил" onClose={onClose} wide={viewing !== null}>
+      {open && viewing !== null && (
+        <RuleSetBrowser descriptor={viewing} onBack={() => setViewing(null)} />
+      )}
+      {open && viewing === null && (
         <>
           <p className="muted" style={{ marginTop: 0 }}>
             Наборы нужны трассировщику, чтобы отвечать по условиям{' '}
@@ -91,7 +99,17 @@ export function RuleSetsDialog({
                   const item = byName.get(set.name)
                   return (
                     <li key={set.name} className="rs-row" data-state={reason ? 'local' : item?.state}>
-                      <span className="rs-name mono">{set.name}</span>
+                      {reason === null ? (
+                        <button
+                          type="button"
+                          className="rs-name rs-open mono"
+                          onClick={() => setViewing(asked.find((a) => a.name === set.name) ?? null)}
+                        >
+                          {set.name}
+                        </button>
+                      ) : (
+                        <span className="rs-name mono">{set.name}</span>
+                      )}
                       <span className="rs-tags">
                         {'behavior' in set ? `${set.behavior} · ${set.format}` : '—'}
                       </span>

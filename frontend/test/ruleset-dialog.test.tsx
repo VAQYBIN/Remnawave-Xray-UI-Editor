@@ -35,10 +35,19 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
       bodies.push({
-        url: String(input),
+        url,
         body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
       })
+      // Просмотрщик содержимого спрашивает отдельную ручку — ответ по её форме,
+      // а не по форме состояния, иначе рендер набора упал бы на объекте вместо строки
+      if (url.includes('/page')) {
+        return new Response(
+          JSON.stringify({ total: 0, offset: 0, count: 0, items: [] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
       return new Response(
         JSON.stringify({
           items: [
@@ -104,5 +113,17 @@ describe('диалог «Наборы правил»', () => {
   it('закрытый диалог не запрашивает состояние', () => {
     render(<RuleSetsDialog open={false} onClose={() => {}} sets={SETS} asked={ASKED} />, { wrapper })
     expect(bodies).toEqual([])
+  })
+
+  it('клик по имени сетевого набора открывает содержимое', async () => {
+    render(<RuleSetsDialog open onClose={() => {}} sets={SETS} asked={ASKED} />, { wrapper })
+    await waitFor(() => expect(screen.getByText(/загружен/)).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'ads' }))
+    expect(screen.getByLabelText('Поиск по набору')).toBeInTheDocument()
+  })
+
+  it('имя набора из файла кнопкой не становится: смотреть нечего', async () => {
+    render(<RuleSetsDialog open onClose={() => {}} sets={SETS} asked={ASKED} />, { wrapper })
+    expect(screen.queryByRole('button', { name: 'local' })).toBeNull()
   })
 })
