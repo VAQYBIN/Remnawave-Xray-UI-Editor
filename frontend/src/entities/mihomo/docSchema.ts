@@ -228,7 +228,17 @@ const SNIFFER_FIELDS: MihomoField[] = [
     doc: 'Настройки по протоколам (HTTP/TLS/QUIC): порты и override-destination для каждого.',
     type: 'map',
   },
+  {
+    key: 'force-domain',
+    doc: 'Домены, для которых sniffing выполняется всегда, даже если протокол в sniff не включён.',
+    type: 'strings',
+  },
   { key: 'skip-domain', doc: 'Домены, для которых sniffing не выполняется.', type: 'strings' },
+  {
+    key: 'skip-src-address',
+    doc: 'Адреса ИСТОЧНИКА, для которых sniffing не выполняется (подсети клиентов).',
+    type: 'strings',
+  },
   { key: 'skip-dst-address', doc: 'Адреса назначения, для которых sniffing не выполняется.', type: 'strings' },
 ]
 
@@ -266,11 +276,19 @@ const ROOT_FIELDS: MihomoField[] = [
     key: 'global-client-fingerprint',
     doc: 'Глобальный uTLS-отпечаток клиента (ниже приоритетом, чем client-fingerprint у конкретного прокси). В новых версиях ядра устарел в пользу настройки на уровне прокси.',
     type: 'string',
+    // Документация ядра значения не перечисляет — описывает их примерами
+    // («Chrome, Firefox, iOS и подобные»), поэтому список зеркалит карту
+    // отпечатков самого ядра. Это по-прежнему ПОДСКАЗКА, а не ограничение:
+    // незнакомое значение проходит насквозь, как и раньше
     enum: [
       { value: 'chrome' },
       { value: 'firefox' },
       { value: 'safari' },
       { value: 'ios' },
+      { value: 'android' },
+      { value: 'edge' },
+      { value: '360' },
+      { value: 'qq' },
       { value: 'random', doc: 'Реалистичный современный отпечаток по данным Cloudflare Radar' },
       { value: 'none' },
     ],

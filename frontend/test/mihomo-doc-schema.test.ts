@@ -27,6 +27,43 @@ describe('словарь Mihomo', () => {
     ])
   })
 
+  // Ключи снифера перечислены в документации ядра полностью, поэтому и
+  // сверяемся с полным списком, а не с «содержит вот эти». Пропущенный ключ
+  // не ломает документ — его просто не видно в форме, и заметить пропажу
+  // иначе нечем: молчание формы выглядит как «такого ключа не бывает»
+  it('секция снифера знает все ключи, задокументированные ядром', () => {
+    expect(fieldsOf('sniffer').map((f) => f.key).sort()).toEqual(
+      [
+        'enable',
+        'force-dns-mapping',
+        'force-domain',
+        'override-destination',
+        'parse-pure-ip',
+        'skip-domain',
+        'skip-dst-address',
+        'skip-src-address',
+        'sniff',
+      ].sort(),
+    )
+  })
+
+  it('отпечаток клиента предлагает все значения карты ядра', () => {
+    // Документация ядра их не перечисляет, а описывает примерами, поэтому
+    // список зеркалит карту отпечатков самого ядра. Это подсказка, а не
+    // ограничение: незнакомое значение проходит насквозь
+    expect(fieldOf('root', 'global-client-fingerprint')?.enum?.map((e) => e.value)).toEqual([
+      'chrome',
+      'firefox',
+      'safari',
+      'ios',
+      'android',
+      'edge',
+      '360',
+      'qq',
+      'random',
+      'none',
+    ])
+  })
   it('знает поля провайдера, включая override', () => {
     const keys = fieldsOf('proxy-provider').map((f) => f.key)
     expect(keys).toEqual(
