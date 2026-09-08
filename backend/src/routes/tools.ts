@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { YAMLParseError } from 'yaml'
 import { z } from 'zod'
+import { RuleSetError } from '../ruleset/errors.js'
 import { derivePublicKey, generateRealityKeypair } from '../tools/reality.js'
 import { probeRealityTarget, type RealityProbe } from '../tools/realityProbe.js'
 import { registerWarpAccount, type WarpRegister } from '../tools/warp.js'
@@ -8,25 +9,51 @@ import { registerWarpAccount, type WarpRegister } from '../tools/warp.js'
 const deriveSchema = z.object({ privateKey: z.string().min(1) })
 const xrayTestSchema = z.object({ config: z.unknown(), profileUuid: z.string().optional() })
 const mihomoSchema = z.object({ encodedTemplateYaml: z.string() })
-// Предел 200 здесь — не тот же, что setsPerDocument: схема отбивает явно
-// абсурдный запрос, а осмысленный предел с внятной причиной по каждому набору
-// ставит сервис
+
+/**
+ * Дескриптор набора — общий для всех четырёх наборных роутов.
+ *
+ * `intervalSec` пропускается через `catch`: значение приходит из чужого
+ * документа, и `interval: 1.5` или отрицательное число не повод отказать
+ * запросу целиком — сервис сам поднимет срок годности до часа.
+ */
+const ruleSetDescriptorSchema = z.object({
+  name: z.string().min(1),
+  kind: z.enum(['http', 'inline']),
+  url: z.string().optional(),
+  payload: z.array(z.string()).optional(),
+  behavior: z.enum(['domain', 'ipcidr', 'classical']),
+  format: z.enum(['mrs', 'yaml', 'text']),
+  intervalSec: z.number().int().nonnegative().optional().catch(undefined),
+})
+
+/**
+ * Числом наборов запрос НЕ ограничен, и это осознанно. Предел на документ живёт
+ * в сервисе (`setsPerDocument`), где по каждому лишнему набору есть отдельная
+ * причина; отказ схемой обнулял бы ответы по ВСЕМ наборам сразу — превышение
+ * превращалось бы в неработающую трассировку вместо частичной. Границу запроса
+ * держит `bodyLimit` ниже: он меряет байты, которых у нас и правда конечное
+ * число.
+ */
 const ruleSetSchema = z.object({
   target: z.object({ address: z.string().min(1), ip: z.string().optional() }),
-  sets: z
-    .array(
-      z.object({
-        name: z.string().min(1),
-        kind: z.enum(['http', 'inline']),
-        url: z.string().optional(),
-        payload: z.array(z.string()).optional(),
-        behavior: z.enum(['domain', 'ipcidr', 'classical']),
-        format: z.enum(['mrs', 'yaml', 'text']),
-        intervalSec: z.number().int().nonnegative().optional(),
-      }),
-    )
-    .max(200),
+  sets: z.array(ruleSetDescriptorSchema),
 })
+const ruleSetStatusSchema = z.object({ sets: z.array(ruleSetDescriptorSchema) })
+const ruleSetRefreshSchema = ruleSetStatusSchema.extend({
+  names: z.array(z.string()).optional(),
+})
+const ruleSetPageSchema = z.object({
+  descriptor: ruleSetDescriptorSchema,
+  offset: z.number().int().min(0).default(0),
+  limit: z.number().int().min(1).max(1000).default(200),
+  q: z.string().optional(),
+})
+
+/** Тот же потолок, что у файла на проводе: документ со встроенными наборами
+ *  в стандартный мегабайт Fastify не помещается */
+const RULESET_BODY_LIMIT = 8 * 1024 * 1024
+
 const realitySchema = z.object({
   target: z.string().min(1),
   serverNames: z.array(z.string()).default([]),
@@ -83,9 +110,33 @@ export const toolsRoutes: FastifyPluginAsync<ToolsRoutesOptions> = async (app, o
     }
   })
 
-  app.post('/api/tools/ruleset/match', async (req) => {
+  app.post('/api/tools/ruleset/match', { bodyLimit: RULESET_BODY_LIMIT }, async (req) => {
     const { target, sets } = ruleSetSchema.parse(req.body)
     return { answers: await app.ruleset.match(target, sets) }
+  })
+
+  app.post('/api/tools/ruleset/status', { bodyLimit: RULESET_BODY_LIMIT }, async (req) => {
+    const { sets } = ruleSetStatusSchema.parse(req.body)
+    return { items: await app.ruleset.status(sets) }
+  })
+
+  app.post('/api/tools/ruleset/refresh', { bodyLimit: RULESET_BODY_LIMIT }, async (req) => {
+    const { sets, names } = ruleSetRefreshSchema.parse(req.body)
+    return { items: await app.ruleset.refresh(sets, names) }
+  })
+
+  app.post('/api/tools/ruleset/page', { bodyLimit: RULESET_BODY_LIMIT }, async (req, reply) => {
+    const { descriptor, offset, limit, q } = ruleSetPageSchema.parse(req.body)
+    try {
+      return await app.ruleset.page(descriptor, { offset, limit, q })
+    } catch (err) {
+      // Набор недоступен — это состояние набора, а не поломка сервера:
+      // просмотрщик обязан показать причину строкой, а не «500»
+      if (err instanceof RuleSetError) {
+        return reply.status(400).send({ message: err.message })
+      }
+      throw err
+    }
   })
 
   app.post('/api/tools/reality-target', async (req) => {
