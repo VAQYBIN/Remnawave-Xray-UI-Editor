@@ -231,6 +231,14 @@ export interface MihomoTestResult {
   errors: string[]
 }
 
+/** Ответ `POST /api/tools/singbox-test` — зеркало SingboxTestResult бэкенда */
+export interface SingboxTestResult {
+  /** false — бинаря нет: инструмент недоступен, а шаблон тут ни при чём */
+  available: boolean
+  ok: boolean
+  errors: string[]
+}
+
 /**
  * Запись каталога готовых шаблонов. `type` — строка, а не TemplateType:
  * каталог опережает контракт панели (в нём уже лежит SINGBOX_LEGACY), и

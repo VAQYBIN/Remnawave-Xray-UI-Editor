@@ -9,6 +9,7 @@ import type {
   GeoMatchAnswer,
   GeoStatus,
   MihomoTestResult,
+  SingboxTestResult,
   PanelTokenStatus,
   Profile,
   ProfileInboundDetail,
@@ -323,6 +324,21 @@ export function useMihomoTest() {
   return useMutation({
     mutationFn: (input: { encodedTemplateYaml: string }) =>
       apiFetch<MihomoTestResult>('/api/tools/mihomo-test', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+  })
+}
+
+/**
+ * Проверка шаблона sing-box ядром. Тело — РАЗОБРАННЫЙ документ, а не текст: у
+ * JSON-шаблона содержимое и есть объект, и слать строку значило бы завести
+ * второй формат тела там, где панель хранит первый.
+ */
+export function useSingboxTest() {
+  return useMutation({
+    mutationFn: (input: { templateJson: unknown }) =>
+      apiFetch<SingboxTestResult>('/api/tools/singbox-test', {
         method: 'POST',
         body: JSON.stringify(input),
       }),
