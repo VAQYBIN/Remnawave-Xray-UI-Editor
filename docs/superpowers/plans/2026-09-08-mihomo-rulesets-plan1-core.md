@@ -2361,7 +2361,6 @@ git commit -m "feat(backend): serve rule-set membership answers"
 - [ ] **Шаг 1: падающий тест**
 
 ```ts
-// frontend/test/mihomo-rule-sets.test.ts
 import { describe, expect, it } from 'vitest'
 import { parseMihomo } from '../src/entities/mihomo'
 import { ruleSetDescriptors } from '../src/entities/mihomo/ruleSets'
@@ -2388,6 +2387,20 @@ describe('дескрипторы наборов', () => {
         intervalSec: 86400,
       },
     ])
+  })
+
+  it('ЯВНО пустой format — тоже yaml, а не отказ', () => {
+    // `ParseRuleFormat("")` у ядра отдаёт YamlRule, поэтому отсутствие ключа и
+    // пустая строка обязаны давать одно и то же. Через `??` они расходились:
+    // пустая строка проскакивала мимо умолчания прямо в «формат незнаком»
+    const md = doc('  a:', '    type: http', '    behavior: domain', '    format: ""', '    url: https://e.com/a')
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({ kind: 'http', format: 'yaml' })
+  })
+
+  it('пустой behavior — отказ: ядро его тоже не принимает', () => {
+    // Асимметрия с format намеренная: `ParseBehavior("")` валится ошибкой
+    const md = doc('  a:', '    type: http', '    behavior: ""', '    url: https://e.com/a')
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({ kind: 'unsupported' })
   })
 
   it('пустой format означает yaml — так его понимает ядро', () => {
@@ -2460,7 +2473,6 @@ describe('дескрипторы наборов', () => {
 - [ ] **Шаг 4: реализация дескрипторов**
 
 ```ts
-// frontend/src/entities/mihomo/ruleSets.ts
 // Что именно редактор попросит у бэкенда по каждому набору правил документа.
 // Читает документ только фронтенд, поэтому и дескрипторы собирает он.
 import { ruleProvidersOf } from './groups'
@@ -2512,8 +2524,14 @@ export function ruleSetDescriptors(md: MihomoDoc): RuleSetDescriptor[] {
       })
       continue
     }
-    // Пустое поле формата ядро понимает как yaml: ParseRuleFormat("") → YamlRule
-    const format = ref.format?.trim().toLowerCase() ?? 'yaml'
+    // Пустое поле формата ядро понимает как yaml: `ParseRuleFormat("")` отдаёт
+    // YamlRule. Здесь `||`, а не `??`: пустая строка — это тоже «не задано», и
+    // `??` пропустил бы её мимо умолчания прямо в отказ.
+    //
+    // С `behavior` выше нарочно иначе, и это не небрежность: `ParseBehavior("")`
+    // у ядра валится ошибкой `unsupported behavior type`. Асимметрия здесь
+    // повторяет асимметрию ядра.
+    const format = ref.format?.trim().toLowerCase() || 'yaml'
     if (!FORMATS.has(format)) {
       out.push({
         name: ref.name,
@@ -2565,6 +2583,9 @@ export function ruleSetDescriptors(md: MihomoDoc): RuleSetDescriptor[] {
 3. Проверку `BEHAVIORS.has` заменить на `true` — падает «незнакомый behavior не
    выдумывается».
 4. Не переносить `proxy` — падает «поле proxy сохраняется».
+5. `|| 'yaml'` вернуть на `?? 'yaml'` — падает «ЯВНО пустой format».
+   Это нашло ревью: `??` пропускал пустую строку мимо умолчания в отказ,
+   хотя `ParseRuleFormat("")` у ядра отдаёт YamlRule.
 
 - [ ] **Шаг 7: коммит**
 

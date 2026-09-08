@@ -49,8 +49,14 @@ export function ruleSetDescriptors(md: MihomoDoc): RuleSetDescriptor[] {
       })
       continue
     }
-    // Пустое поле формата ядро понимает как yaml: ParseRuleFormat("") → YamlRule
-    const format = ref.format?.trim().toLowerCase() ?? 'yaml'
+    // Пустое поле формата ядро понимает как yaml: `ParseRuleFormat("")` отдаёт
+    // YamlRule. Здесь `||`, а не `??`: пустая строка — это тоже «не задано», и
+    // `??` пропустил бы её мимо умолчания прямо в отказ.
+    //
+    // С `behavior` выше нарочно иначе, и это не небрежность: `ParseBehavior("")`
+    // у ядра валится ошибкой `unsupported behavior type`. Асимметрия здесь
+    // повторяет асимметрию ядра.
+    const format = ref.format?.trim().toLowerCase() || 'yaml'
     if (!FORMATS.has(format)) {
       out.push({
         name: ref.name,

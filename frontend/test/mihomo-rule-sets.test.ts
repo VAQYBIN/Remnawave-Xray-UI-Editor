@@ -26,6 +26,20 @@ describe('дескрипторы наборов', () => {
     ])
   })
 
+  it('ЯВНО пустой format — тоже yaml, а не отказ', () => {
+    // `ParseRuleFormat("")` у ядра отдаёт YamlRule, поэтому отсутствие ключа и
+    // пустая строка обязаны давать одно и то же. Через `??` они расходились:
+    // пустая строка проскакивала мимо умолчания прямо в «формат незнаком»
+    const md = doc('  a:', '    type: http', '    behavior: domain', '    format: ""', '    url: https://e.com/a')
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({ kind: 'http', format: 'yaml' })
+  })
+
+  it('пустой behavior — отказ: ядро его тоже не принимает', () => {
+    // Асимметрия с format намеренная: `ParseBehavior("")` валится ошибкой
+    const md = doc('  a:', '    type: http', '    behavior: ""', '    url: https://e.com/a')
+    expect(ruleSetDescriptors(md)[0]).toMatchObject({ kind: 'unsupported' })
+  })
+
   it('пустой format означает yaml — так его понимает ядро', () => {
     const md = doc('  a:', '    type: http', '    behavior: classical', '    url: https://e.com/a')
     expect(ruleSetDescriptors(md)[0]).toMatchObject({ format: 'yaml' })
