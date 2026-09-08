@@ -78,7 +78,11 @@ describe('RuleSetService', () => {
       state: 'yes',
     })
     expect((await svc.match({ address: 'x', ip: '8.8.8.8' }, [d])).p).toMatchObject({ state: 'no' })
-    expect((await svc.match({ address: 'x' }, [d])).p).toMatchObject({ state: 'no' })
+    // Не «нет»: без адреса набор подсетей ответить не может, а «нет» увело бы
+    // трассировку дальше по списку с уверенно неверным маршрутом
+    const blind = (await svc.match({ address: 'x' }, [d])).p
+    expect(blind).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(blind)).toMatch(/нет IP назначения/)
   })
 
   it('classical отдаёт строки, а не вердикт', async () => {

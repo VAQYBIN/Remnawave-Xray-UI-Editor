@@ -21,7 +21,10 @@ function fromYaml(text: string): string[] {
   if (!Array.isArray(payload)) throw new RuleSetError('Ключ payload в наборе — не список')
   // Нестроковую запись пропускаем молча: приводить её к строке значило бы
   // завести в набор запись «null», которой в нём нет
-  return payload.filter((x): x is string => typeof x === 'string')
+  // Пустые записи отбрасываем по той же причине, по какой их отбрасывает
+  // разбор текстового формата: записи в них нет, а до трассировки такая
+  // строка доезжает как «в наборе не разбирается строка «»»
+  return payload.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
 }
 
 function fromText(text: string): string[] {

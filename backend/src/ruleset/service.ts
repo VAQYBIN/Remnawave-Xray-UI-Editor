@@ -133,8 +133,18 @@ export class RuleSetService {
     }
     // Без IP в цели набор подсетей не совпадает: резолвить домены сервер не
     // берётся, а догадка здесь стоила бы неверного маршрута
-    const hit = target.ip !== undefined && parsed.matcher.has(target.ip)
-    return { state: hit ? 'yes' : 'no', count: parsed.count }
+    // Без IP в цели набор подсетей не отвечает НИЧЕГО — и «нет» здесь было бы
+    // ложью. Ядро в этом случае домен резолвит и проверяет полученный адрес;
+    // какой он выйдет, мы не знаем. Сказать «не совпало» значило бы отправить
+    // трассировку дальше по списку и уверенно назвать неверный маршрут.
+    //
+    // Случай, когда отсутствие IP законно означает промах, ровно один — правило
+    // с модификатором no-resolve, — но про модификатор знает документ, а не
+    // набор, и решается он на стороне трассировки, до обращения сюда.
+    if (target.ip === undefined) {
+      return { state: 'unavailable', reason: 'в цели трассировки нет IP назначения' }
+    }
+    return { state: parsed.matcher.has(target.ip) ? 'yes' : 'no', count: parsed.count }
   }
 
   private async load(set: RuleSetDescriptor): Promise<Parsed> {
