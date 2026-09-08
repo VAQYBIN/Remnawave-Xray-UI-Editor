@@ -20,7 +20,7 @@
 - `route.final` пуст → ядро берёт **первый** элемент `outbounds`. В трёх шаблонах каталога из трёх поле не задано — это норма, а не исключение.
 - Схема разбора **сквозная**: незнакомые ключи проходят насквозь и не делают документ невалидным. Форма, не умеющая выразить значение, показывает его на чтение с названной причиной, а не прячет и не портит.
 - **Список выходов группы — только на чтение**, пока не поставлен `includeProxies: false`.
-- **Общий слой редактора не меняется** (`useDocumentDraft`, `EditorShell`, `GraphCanvas`, `DocumentAdapter`). Исключения ровно два, оба аддитивные и названы поимённо в задачах: расширение union `SearchHit['kind']` (задача 3) и расширение `edgeHues` новыми префиксами id (задача 6).
+- **Общий слой редактора не меняется** (`useDocumentDraft`, `EditorShell`, `GraphCanvas`, `DocumentAdapter`). Исключения ровно три, все аддитивные и названы поимённо в задачах: расширение union `SearchHit['kind']` (задача 3), расширение `edgeHues` новыми префиксами id (задача 6) и расширение union `docFormat`/`format` значением `'singbox-json'` (задача 12).
 - **Тесты Xray и Mihomo не меняются ни в одной задаче.** Их неизменность — доказательство, что общий слой не тронут. Проверка: `git diff --stat` по `frontend/test` показывает только новые файлы `singbox-*`.
 - Язык UI, сообщений об ошибках, текстов диагностик и комментариев — **русский**; коммиты — English conventional style (`feat(frontend): ...`).
 - Фикстуры фронтенда читаются через `?raw`-импорт Vite (`singboxFixture` в `frontend/test/helpers.ts`), а НЕ через `node:fs`/`new URL(..., import.meta.url)`: `frontend/tsconfig.json` держит `types: ["vite/client"]` без типов Node, а в jsdom глобальный `URL` — это whatwg-url, ломающий разрешение `file:`-адреса с буквой диска. Помощник уже существует; править `helpers.ts` не нужно.
@@ -3255,7 +3255,7 @@ git commit -m "feat(frontend): sing-box core check report with its own caveat"
 
 **Files:**
 - Create: `frontend/src/features/templates/SingboxEditorPage.tsx`
-- Modify: `frontend/src/features/templates/TemplateEditorPage.tsx`, `TemplatesPage.tsx`, `CreateTemplateDialog.tsx`, `frontend/src/shared/api/hooks.ts`
+- Modify: `frontend/src/features/templates/TemplateEditorPage.tsx`, `TemplatesPage.tsx`, `CreateTemplateDialog.tsx`, `frontend/src/shared/api/hooks.ts`, `frontend/src/features/editor/EditorShell.tsx` и `VersionsDialog.tsx` (только union `docFormat`/`format` и ветка разбора файла — см. шаг про `EditorShell`)
 - Test: `frontend/test/singbox-page.test.tsx`
 
 **Interfaces:**
@@ -3330,7 +3330,25 @@ const blocked = draft.hasErrors
 
 В `EditorShell` уходит: `draft`, `kind="templates"`, `back`, `title={template.name}`, `subtitle="шаблон SINGBOX"`, `tabs={{ graph: 'Топология' }}`, `validLabel="Документ разбирается, замечаний нет"` (обязателен без умолчания: «Конфиг валиден» здесь соврало бы — документ это клиентская подписка, а не конфиг ядра ноды), `canvas={<SingboxTopology ... dockRow={<TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} />} />}`, `textView={<SingboxJsonView ... />}`, плюс `children` с диалогами: `SingboxCheckDialog`, `ImportTemplateDialog docType="SINGBOX"`, конфликт версий.
 
-`docFormat` НЕ передаётся: умолчание `'json'` и есть правда о формате, а явный проп был бы вторым её объявлением.
+`docFormat="singbox-json"` передаётся — и это ТРЕТЬЕ исключение из «общий слой не меняется», внесённое ревью плана, а не исполнителем. Причина: задача 13 делает `parseImportedJson(raw, expect)`, но потребителя ей план не назвал, а загрузка файла живёт в `VersionsDialog`, который рисует `EditorShell`. Без этой ниточки конфиг Xray, загруженный в редактор sing-box, молча стал бы черновиком — ровно та ошибка, ради которой задача 13 и написана. Правки ограничены расширением union:
+
+```tsx
+// features/editor/EditorShell.tsx и VersionsDialog.tsx
+// 'singbox-json' — не третий ФОРМАТ, а диалект JSON: подпись вкладки и тип файла у него
+// те же, различается только разбор загруженного файла. Отдельным пропом «диалект» это
+// была бы вторая истина о документе рядом с docFormat, и разъехаться они могли бы молча
+docFormat?: 'json' | 'yaml' | 'singbox-json'
+
+// VersionsDialog, ветка загрузки файла:
+const parsed =
+  format === 'yaml'
+    ? parseImportedYaml(await file.text())
+    : format === 'singbox-json'
+      ? parseImportedJson(await file.text(), 'singbox')
+      : parseImported(await file.text())
+```
+
+Подпись текстовой вкладки (`docFormat === 'yaml' ? 'YAML' : 'JSON'`) и тип скачиваемого файла при этом не трогаются: у диалекта они те же, что у `json`, и любая правка там соврала бы про формат. Тесты Xray и Mihomo остаются нетронутыми — обе ветки старых значений идут прежним кодом.
 
 `TraceBar` идёт БЕЗ `showProcess`: правил по процессу sing-box не проверяет (`process_*` в останавливающих), и поле было бы приглашением заполнить то, на что ни одно правило не посмотрит.
 
