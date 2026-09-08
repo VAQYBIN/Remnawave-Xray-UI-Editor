@@ -8,6 +8,25 @@ import { registerWarpAccount, type WarpRegister } from '../tools/warp.js'
 const deriveSchema = z.object({ privateKey: z.string().min(1) })
 const xrayTestSchema = z.object({ config: z.unknown(), profileUuid: z.string().optional() })
 const mihomoSchema = z.object({ encodedTemplateYaml: z.string() })
+// Предел 200 здесь — не тот же, что setsPerDocument: схема отбивает явно
+// абсурдный запрос, а осмысленный предел с внятной причиной по каждому набору
+// ставит сервис
+const ruleSetSchema = z.object({
+  target: z.object({ address: z.string().min(1), ip: z.string().optional() }),
+  sets: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        kind: z.enum(['http', 'inline']),
+        url: z.string().optional(),
+        payload: z.array(z.string()).optional(),
+        behavior: z.enum(['domain', 'ipcidr', 'classical']),
+        format: z.enum(['mrs', 'yaml', 'text']),
+        intervalSec: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .max(200),
+})
 const realitySchema = z.object({
   target: z.string().min(1),
   serverNames: z.array(z.string()).default([]),
@@ -62,6 +81,11 @@ export const toolsRoutes: FastifyPluginAsync<ToolsRoutesOptions> = async (app, o
       }
       throw error
     }
+  })
+
+  app.post('/api/tools/ruleset/match', async (req) => {
+    const { target, sets } = ruleSetSchema.parse(req.body)
+    return { answers: await app.ruleset.match(target, sets) }
   })
 
   app.post('/api/tools/reality-target', async (req) => {

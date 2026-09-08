@@ -20,6 +20,7 @@ import { GeoService } from './geo/service.js'
 import { geoRoutes } from './routes/geo.js'
 import { XrayService } from './xray/service.js'
 import { MihomoService } from './mihomo/service.js'
+import { RuleSetService } from './ruleset/service.js'
 import type { RealityProbe } from './tools/realityProbe.js'
 import type { WarpRegister } from './tools/warp.js'
 import { CatalogService } from './catalog/service.js'
@@ -32,6 +33,7 @@ declare module 'fastify' {
     geo: GeoService
     xray: XrayService
     mihomo: MihomoService
+    ruleset: RuleSetService
     catalog: CatalogService
   }
 }
@@ -42,6 +44,7 @@ export interface ServerDeps {
   geo?: GeoService
   xray?: XrayService
   mihomo?: MihomoService
+  ruleset?: RuleSetService
   catalog?: CatalogService
   /** Подменяется в тестах: настоящая проба открывает TLS-соединение наружу */
   probeReality?: RealityProbe
@@ -82,6 +85,11 @@ export async function buildServer(
   )
   app.decorate('xray', deps.xray ?? new XrayService(config.xrayBin, config.dataDir))
   app.decorate('mihomo', deps.mihomo ?? new MihomoService(config.mihomoBin, config.dataDir))
+  app.decorate(
+    'ruleset',
+    deps.ruleset ??
+      new RuleSetService(config.dataDir, { allowPrivate: config.geoAllowPrivateUrls }),
+  )
   app.decorate(
     'catalog',
     deps.catalog ?? new CatalogService({ allowPrivate: config.geoAllowPrivateUrls }),
