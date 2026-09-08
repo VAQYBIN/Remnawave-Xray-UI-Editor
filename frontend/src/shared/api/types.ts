@@ -122,12 +122,41 @@ export interface RuleSetQuery {
  * поэтому форма провода описана здесь, а трассировка держит свою копию.
  */
 export type RuleSetMatchAnswer =
-  | { state: 'yes' | 'no'; count: number }
-  | { state: 'lines'; lines: string[]; count: number }
+  | { state: 'yes' | 'no'; count: number; loadedAt?: number }
+  | { state: 'lines'; lines: string[]; count: number; loadedAt?: number }
   | { state: 'unavailable'; reason: string }
 
 export interface RuleSetMatchResponse {
   answers: Record<string, RuleSetMatchAnswer>
+}
+
+/**
+ * Состояние набора по кэшу редактора. Повторяет `RuleSetStatusItem` бэкенда:
+ * слой `shared` не знает про `entities`, поэтому форма провода описана здесь.
+ */
+export interface RuleSetStatusItem {
+  name: string
+  state: 'ready' | 'missing' | 'error'
+  /** Записей по заголовку набора — не число строк просмотрщика */
+  count?: number
+  bytes?: number
+  loadedAt?: number
+  /** Файл старше своего срока годности: следующая трассировка перекачает его */
+  stale?: boolean
+  reason?: string
+}
+
+export interface RuleSetStatusResponse {
+  items: RuleSetStatusItem[]
+}
+
+export interface RuleSetPageResponse {
+  /** Сколько записей нашлось всего (с учётом поиска) */
+  total: number
+  offset: number
+  /** `count` из заголовка набора: у набора доменов он ВДВОЕ меньше `total` */
+  count: number
+  items: string[]
 }
 
 export interface XrayTestError {

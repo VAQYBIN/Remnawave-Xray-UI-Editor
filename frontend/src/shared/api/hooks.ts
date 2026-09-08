@@ -14,7 +14,9 @@ import type {
   ProfileInboundDetail,
   RealityProbeResult,
   RuleSetMatchResponse,
+  RuleSetPageResponse,
   RuleSetQuery,
+  RuleSetStatusResponse,
   SquadInfo,
   SubscriptionTemplate,
   WarpAccount,
@@ -405,5 +407,63 @@ export function useRuleSetMatch(
       }),
     enabled: input !== null && sets.length > 0,
     staleTime: 60_000,
+  })
+}
+
+/**
+ * Состояние наборов по кэшу сервера. Сеть здесь не трогается — сервер отвечает
+ * тем, что у него уже лежит, поэтому открытие диалога стоит один запрос, а не
+ * двадцать шесть загрузок. Качает `useRefreshRuleSets`.
+ */
+export function useRuleSetStatus(sets: RuleSetQuery[], enabled = true) {
+  return useQuery({
+    queryKey: ['ruleset-status', sets],
+    queryFn: () =>
+      apiFetch<RuleSetStatusResponse>('/api/tools/ruleset/status', {
+        method: 'POST',
+        body: JSON.stringify({ sets }),
+      }).then((r) => r.items),
+    enabled: enabled && sets.length > 0,
+    // Секунды, а не минута: сразу после «Обновить» пользователь смотрит именно
+    // сюда, и показать ему прежнее состояние было бы обманом
+    staleTime: 5_000,
+    retry: false,
+  })
+}
+
+export function useRefreshRuleSets() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { sets: RuleSetQuery[]; names?: string[] }) =>
+      apiFetch<RuleSetStatusResponse>('/api/tools/ruleset/refresh', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }).then((r) => r.items),
+    onSuccess: (items, input) => {
+      qc.setQueryData(['ruleset-status', input.sets], items)
+      // Вердикты трассировки посчитаны по прежнему содержимому: оставить их
+      // значило бы показывать старый маршрут по новому файлу
+      qc.invalidateQueries({ queryKey: ['ruleset-match'] })
+    },
+  })
+}
+
+/**
+ * Страница содержимого набора. В отличие от состояния, здесь сервер качать
+ * ИМЕЕТ право: пользователь открыл конкретный набор и ждёт именно его.
+ */
+export function useRuleSetPage(
+  descriptor: RuleSetQuery | null,
+  params: { offset: number; limit: number; q: string },
+) {
+  return useQuery({
+    queryKey: ['ruleset-page', descriptor, params.offset, params.limit, params.q],
+    queryFn: () =>
+      apiFetch<RuleSetPageResponse>('/api/tools/ruleset/page', {
+        method: 'POST',
+        body: JSON.stringify({ descriptor, ...params }),
+      }),
+    enabled: descriptor !== null,
+    retry: false,
   })
 }
