@@ -318,6 +318,13 @@ interface Ctx {
   ipcidrProviders: Set<string>
   /** Что бэкенд ответил по наборам правил документа */
   ruleSets: RuleSetAnswers
+  /**
+   * Наборы, чьим СОДЕРЖИМЫМ проход воспользовался. Копится по ходу разбора:
+   * набор, до которого не дошли, и набор, ответа по которому нет, сюда не
+   * попадают — говорить об их содержимом нечего. На этом множестве стоит
+   * оговорка о прокси провайдера.
+   */
+  usedSets: Set<string>
 }
 
 /**
@@ -502,6 +509,10 @@ function evalCondition(ctx: Ctx, cond: Cond): CondResult {
     if (answer.state === 'unavailable') {
       return { state: 'unknown', reason: `набор правил «${payload}»: ${answer.reason}` }
     }
+    // Содержимое набора участвовало в решении — и «да», и «нет» одинаково
+    // опираются на файл, который редактор взял напрямую. Оговорка о прокси
+    // провайдера считается по этому множеству
+    ctx.usedSets.add(payload)
     if (answer.state === 'lines') return evalClassical(ctx, payload, answer.lines)
     return answer.state === 'yes' ? YES : NO
   }
@@ -696,6 +707,7 @@ export function traceMihomo(
         .map((p) => p.name),
     ),
     ruleSets,
+    usedSets: new Set(),
   }
 
   const verdicts: MihomoRuleVerdict[] = []
@@ -754,6 +766,33 @@ interface Notes {
   passed: number[]
 }
 
+/**
+ * Провайдер с полем `proxy` клиент качает ЧЕРЕЗ указанную группу, а редактор
+ * спрашивал его напрямую с сервера. Файл по одной и той же ссылке из разных
+ * точек мира вполне может отличаться (CDN, региональная блокировка, зеркало), и
+ * тогда вердикт по такому набору посчитан не по тому содержимому, которое
+ * увидит клиент. Молчать об этом нельзя: ответ выглядел бы точным.
+ *
+ * Строка на каждое РАЗНОЕ значение `proxy`: обычно оно в документе одно, и
+ * двадцать однотипных строк вместо одной были бы шумом, а не подробностью.
+ */
+function proxyCaveats(ctx: Ctx): string[] {
+  const byProxy = new Map<string, string[]>()
+  for (const provider of ruleProvidersOf(ctx.md)) {
+    if (!ctx.usedSets.has(provider.name)) continue
+    const proxy = provider.proxy?.trim()
+    if (proxy === undefined || proxy === '') continue
+    const names = byProxy.get(proxy)
+    if (names === undefined) byProxy.set(proxy, [provider.name])
+    else names.push(provider.name)
+  }
+  return [...byProxy].map(([proxy, names]) => {
+    const list = names.map((n) => `«${n}»`).join(', ')
+    const head = names.length === 1 ? `Набор ${list} клиент качает` : `Наборы ${list} клиент качает`
+    return `${head} через «${proxy}», а редактор спрашивал ${names.length === 1 ? 'его' : 'их'} напрямую — содержимое могло отличаться.`
+  })
+}
+
 function collectCaveats(
   ctx: Ctx,
   winner: MihomoTraceResult['winner'],
@@ -783,6 +822,7 @@ function collectCaveats(
       `Правило #${index + 1} совпало, но его цель — PASS: ветка пропущена, и разбор продолжился со следующих правил.`,
     )
   }
+  caveats.push(...proxyCaveats(ctx))
   if (!ctx.geo.loaded && usesGeo(ctx.md)) {
     caveats.push('Geo-базы не загружены: вердикты по GEOSITE и GEOIP неизвестны.')
   }

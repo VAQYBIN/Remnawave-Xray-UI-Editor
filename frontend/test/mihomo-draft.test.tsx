@@ -303,3 +303,127 @@ describe('трассировка спрашивает geo-базу по ключ
     expect(geoBodies).toEqual([])
   })
 })
+
+/**
+ * Наборы правил: что уходит на бэкенд, что известно без него и что значит
+ * «ответ ещё едет». Документ намеренно без geo-условий — иначе в тесте были бы
+ * два запроса, и провалившийся ответ одного лечился бы другим.
+ */
+describe('трассировка спрашивает наборы правил', () => {
+  const SET_DOC = (...rules: string[]) =>
+    [
+      'rule-providers:',
+      '  net:',
+      '    type: http',
+      '    behavior: domain',
+      '    format: mrs',
+      '    url: https://example.com/net.mrs',
+      '    proxy: Авто',
+      '    interval: 86400',
+      '  local:',
+      '    type: file',
+      '    behavior: domain',
+      '    format: yaml',
+      '    path: ./local.yaml',
+      '  weird:',
+      '    type: http',
+      '    behavior: чепуха',
+      '    format: yaml',
+      '    url: https://example.com/weird.yaml',
+      'rules:',
+      ...rules.map((r) => `  - ${r}`),
+      '',
+    ].join('\n')
+
+  /** Тела POST-запросов к ручке наборов — по ним видно, что именно спросили */
+  let setBodies: Record<string, unknown>[] = []
+  /** Ответ ручки держится здесь: тест решает, когда он приедет и приедет ли */
+  let answer: Promise<Response>
+
+  const respond = (answers: Record<string, unknown>) =>
+    Promise.resolve(
+      new Response(JSON.stringify({ answers }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+  beforeEach(() => {
+    useDraftStore.setState({ drafts: {} })
+    useHistoryStore.setState({ stacks: {} })
+    qc.clear()
+    setBodies = []
+    answer = respond({ net: { state: 'no', count: 0 } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/api/tools/ruleset/match')) {
+          setBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+          return answer
+        }
+        throw new Error(`Неожиданный запрос: ${String(input)}`)
+      }),
+    )
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const target = { address: 'a.com', port: 443, network: 'tcp' as const }
+
+  it('на бэкенд уходят только http-наборы, файл и незнакомый вид — нет', async () => {
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(setBodies).toHaveLength(1), { timeout: 3000 })
+    expect(setBodies[0]).toEqual({
+      target: { address: 'a.com' },
+      sets: [
+        {
+          name: 'net',
+          kind: 'http',
+          url: 'https://example.com/net.mrs',
+          behavior: 'domain',
+          format: 'mrs',
+          intervalSec: 86400,
+        },
+      ],
+    })
+  })
+
+  it('набор из файла клиента останавливает проход и называет причину без сети', async () => {
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'RULE-SET,local,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace?.stopped?.index).toBe(1), { timeout: 3000 })
+    expect(result.current.trace?.stopped?.reason).toMatch(/«local»/)
+    expect(result.current.trace?.stopped?.reason).toMatch(/файл/)
+  })
+
+  it('набор незнакомого вида останавливает проход своей причиной, а не общей', async () => {
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'RULE-SET,weird,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace?.stopped?.index).toBe(1), { timeout: 3000 })
+    expect(result.current.trace?.stopped?.reason).toMatch(/«weird»/)
+    expect(result.current.trace?.stopped?.reason).toMatch(/незнаком/)
+  })
+
+  it('пока ответ едет, причина остановки — «ещё загружается», а не промах', async () => {
+    // Ответ не приедет никогда: важна ровно та секунда, пока запрос в пути
+    answer = new Promise<Response>(() => {})
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace?.stopped?.index).toBe(0), { timeout: 3000 })
+    expect(result.current.trace?.stopped?.reason).toMatch(/загружа/)
+  })
+
+  it('приехавший ответ доводит проход до конца', async () => {
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace?.winner?.ruleIndex).toBe(1), { timeout: 3000 })
+    expect(result.current.trace?.stopped).toBeUndefined()
+  })
+
+  it('без наборов в документе ручку не дёргают вовсе', async () => {
+    const { result } = draft()
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace).toBeDefined(), { timeout: 3000 })
+    expect(setBodies).toEqual([])
+  })
+})

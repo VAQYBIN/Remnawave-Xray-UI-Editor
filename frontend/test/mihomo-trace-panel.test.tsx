@@ -76,10 +76,10 @@ describe('MihomoTracePanel', () => {
           index: 1,
           state: 'unknown',
           target: 'VPN',
-          reason: 'набор правил «ads» лежит по ссылке',
+          reason: 'набор правил «ads»: сервер ответил 404',
         },
       ],
-      stopped: { index: 1, reason: 'набор правил «ads» лежит по ссылке' },
+      stopped: { index: 1, reason: 'набор правил «ads»: сервер ответил 404' },
       caveats: [],
     }
     render(<MihomoTracePanel result={stopped} onClose={noop} onSelectRule={noop} />)

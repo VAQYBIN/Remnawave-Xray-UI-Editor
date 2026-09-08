@@ -50,11 +50,13 @@ export function selectedValue(target: string | HTMLElement): string | null {
 import defaultYaml from './fixtures/mihomo/default.yaml?raw'
 import simpleYaml from './fixtures/mihomo/simple.yaml?raw'
 import bundleYaml from './fixtures/mihomo/bundle.yaml?raw'
+import roscomvpnYaml from './fixtures/mihomo/roscomvpn.yaml?raw'
 
 const mihomoFixtures = {
   default: defaultYaml,
   simple: simpleYaml,
   bundle: bundleYaml,
+  roscomvpn: roscomvpnYaml,
 }
 
 /**
@@ -64,6 +66,6 @@ const mihomoFixtures = {
  * это whatwg-url, а не реализация Node, и она на Windows ломает относительное разрешение
  * `file:`-адреса с буквой диска.
  */
-export function mihomoFixture(name: 'default' | 'simple' | 'bundle'): string {
+export function mihomoFixture(name: keyof typeof mihomoFixtures): string {
   return mihomoFixtures[name]
 }

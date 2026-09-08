@@ -13,6 +13,8 @@ import type {
   Profile,
   ProfileInboundDetail,
   RealityProbeResult,
+  RuleSetMatchResponse,
+  RuleSetQuery,
   SquadInfo,
   SubscriptionTemplate,
   WarpAccount,
@@ -373,6 +375,35 @@ export function useGeoMatch(input: { domain?: string; ip?: string; keys: string[
         body: JSON.stringify(input),
       }),
     enabled: input !== null && keys.length > 0,
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Ответы по наборам правил документа. Форма запроса и гейт — те же, что у
+ * `useGeoMatch`: null или пустой список наборов запроса не порождают.
+ *
+ * В `sets` приходят ТОЛЬКО виды `http` и `inline`: набор из файла клиента и
+ * набор незнакомого вида сервер не увидит и увидеть не может, их состояние
+ * известно без сети. Отбор делает вызывающий — он же и подмешивает их ответы.
+ *
+ * Ключ запроса включает и цель, и сами наборы: смена ссылки или содержимого
+ * inline-набора обязана дать новый ответ, а не отданный из кэша по старому
+ * документу. `staleTime` — минута, как у geo: файл по ссылке за минуту не
+ * меняется, а бэкенд держит собственный кэш с TTL из документа.
+ */
+export function useRuleSetMatch(
+  input: { target: { address: string; ip?: string }; sets: RuleSetQuery[] } | null,
+) {
+  const sets = input?.sets ?? []
+  return useQuery({
+    queryKey: ['ruleset-match', input?.target.address ?? null, input?.target.ip ?? null, sets],
+    queryFn: () =>
+      apiFetch<RuleSetMatchResponse>('/api/tools/ruleset/match', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    enabled: input !== null && sets.length > 0,
     staleTime: 60_000,
   })
 }

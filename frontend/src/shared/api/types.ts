@@ -101,6 +101,35 @@ export interface GeoMatchAnswer {
   missing: string[]
 }
 
+/**
+ * Набор правил в запросе к `/api/tools/ruleset/match`. Форма — ровно та, что
+ * принимает `ruleSetSchema` роута: виды `file` и `unsupported` сюда не попадают
+ * по построению — их состояние известно без сети, и спрашивать о них нечего.
+ */
+export interface RuleSetQuery {
+  name: string
+  kind: 'http' | 'inline'
+  url?: string
+  payload?: string[]
+  behavior: 'domain' | 'ipcidr' | 'classical'
+  format: 'mrs' | 'yaml' | 'text'
+  intervalSec?: number
+}
+
+/**
+ * Ответ по одному набору. Повторяет `RuleSetAnswer` бэкенда, как
+ * `GeoMatchAnswer` повторяет ответ geo: слой `shared` не знает про `entities`,
+ * поэтому форма провода описана здесь, а трассировка держит свою копию.
+ */
+export type RuleSetMatchAnswer =
+  | { state: 'yes' | 'no'; count: number }
+  | { state: 'lines'; lines: string[]; count: number }
+  | { state: 'unavailable'; reason: string }
+
+export interface RuleSetMatchResponse {
+  answers: Record<string, RuleSetMatchAnswer>
+}
+
 export interface XrayTestError {
   message: string
   line?: number

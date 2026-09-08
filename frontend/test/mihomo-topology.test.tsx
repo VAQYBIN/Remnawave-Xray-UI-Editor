@@ -346,8 +346,8 @@ describe('вердикт трассировки на карточке прави
   it('правило, до которого проход не дошёл, бейджа не получает', () => {
     // Разбор оборвался на первом правиле: у второго вердикта нет вовсе
     const stopped = {
-      verdicts: [{ index: 0, state: 'unknown' as const, reason: 'набор правил лежит по ссылке' }],
-      stopped: { index: 0, reason: 'набор правил лежит по ссылке' },
+      verdicts: [{ index: 0, state: 'unknown' as const, reason: 'набор правил «ads»: сервер ответил 404' }],
+      stopped: { index: 0, reason: 'набор правил «ads»: сервер ответил 404' },
       caveats: [],
     }
     const { container } = renderTopology({ trace: stopped })

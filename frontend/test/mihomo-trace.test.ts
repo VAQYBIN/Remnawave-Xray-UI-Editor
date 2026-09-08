@@ -904,3 +904,94 @@ describe('трассировка Mihomo: имя набора из чужого �
     expect(res.winner).toBeUndefined()
   })
 })
+
+// Провайдер с полем `proxy` клиент качает через указанную группу, а редактор —
+// напрямую с сервера. Содержимое по одной ссылке из разных точек мира может
+// отличаться, и вердикт по такому набору посчитан не обязательно по тому файлу,
+// который увидит клиент
+describe('трассировка Mihomo: оговорка про прокси провайдера', () => {
+  const withProviders = (providers: string[], ...rules: string[]) =>
+    parseMihomo(
+      ['rule-providers:', ...providers, 'rules:', ...rules.map((r) => `  - ${r}`), ''].join('\n'),
+    )
+
+  const provider = (name: string, proxy?: string) => [
+    `  ${name}:`,
+    '    type: http',
+    '    behavior: domain',
+    '    format: mrs',
+    `    url: https://example.com/${name}.mrs`,
+    ...(proxy === undefined ? [] : [`    proxy: ${proxy}`]),
+  ]
+
+  it('сработавший набор с proxy даёт оговорку с его именем и именем группы', () => {
+    const md = withProviders(provider('ads', '⚡️ Авто'), 'RULE-SET,ads,VPN', 'MATCH,D')
+    const res = traceMihomo(md, T(), NO_GEO, sets({ ads: { state: 'yes', count: 1 } }))
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+    const text = res.caveats.join(' ')
+    expect(text).toMatch(/«ads»/)
+    expect(text).toMatch(/⚡️ Авто/)
+  })
+
+  it('промах набора с proxy оговорку тоже даёт: «нет» опирается на тот же файл', () => {
+    const md = withProviders(provider('ads', '⚡️ Авто'), 'RULE-SET,ads,VPN', 'MATCH,D')
+    const res = traceMihomo(md, T(), NO_GEO, sets({ ads: { state: 'no', count: 0 } }))
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+    expect(res.caveats.join(' ')).toMatch(/«ads»/)
+  })
+
+  it('без поля proxy оговорки нет', () => {
+    const md = withProviders(provider('ads'), 'RULE-SET,ads,VPN', 'MATCH,D')
+    const res = traceMihomo(md, T(), NO_GEO, sets({ ads: { state: 'yes', count: 1 } }))
+    expect(res.caveats.join(' ')).not.toMatch(/«ads»/)
+    expect(res.caveats.join(' ')).not.toMatch(/напрямую/)
+  })
+
+  it('набор ниже победителя оговорки не даёт: его содержимым не пользовались', () => {
+    const md = withProviders(
+      [...provider('ads', '⚡️ Авто'), ...provider('later', 'Прокси')],
+      'DOMAIN,a.com,VPN',
+      'RULE-SET,later,X',
+      'MATCH,D',
+    )
+    const res = traceMihomo(md, T(), NO_GEO, sets({ later: { state: 'yes', count: 1 } }))
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+    expect(res.caveats.join(' ')).not.toMatch(/«later»/)
+  })
+
+  it('недоступный набор оговорки не даёт: содержимого не было вовсе', () => {
+    const md = withProviders(provider('ads', '⚡️ Авто'), 'RULE-SET,ads,VPN', 'MATCH,D')
+    const res = traceMihomo(
+      md,
+      T(),
+      NO_GEO,
+      sets({ ads: { state: 'unavailable', reason: 'сервер ответил 404' } }),
+    )
+    expect(res.stopped?.index).toBe(0)
+    expect(res.caveats.join(' ')).not.toMatch(/напрямую/)
+  })
+
+  it('две разные группы дают две строки, одна общая — одну', () => {
+    const two = withProviders(
+      [...provider('a', 'Первая'), ...provider('b', 'Вторая')],
+      'RULE-SET,a,X',
+      'RULE-SET,b,Y',
+      'MATCH,D',
+    )
+    const answers = sets({ a: { state: 'no', count: 0 }, b: { state: 'no', count: 0 } })
+    expect(traceMihomo(two, T(), NO_GEO, answers).caveats.filter((c) => /напрямую/.test(c)))
+      .toHaveLength(2)
+
+    const one = withProviders(
+      [...provider('a', 'Общая'), ...provider('b', 'Общая')],
+      'RULE-SET,a,X',
+      'RULE-SET,b,Y',
+      'MATCH,D',
+    )
+    const shared = traceMihomo(one, T(), NO_GEO, answers).caveats.filter((c) =>
+      /напрямую/.test(c),
+    )
+    expect(shared).toHaveLength(1)
+    expect(shared[0]).toMatch(/«a», «b»/)
+  })
+})

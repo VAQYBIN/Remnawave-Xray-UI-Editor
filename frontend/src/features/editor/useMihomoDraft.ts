@@ -24,7 +24,9 @@ import {
   geoKeysOfMihomo,
   traceMihomo,
   type MihomoTraceResult,
+  type RuleSetAnswers,
 } from '../../entities/mihomo/trace'
+import { ruleSetDescriptors } from '../../entities/mihomo/ruleSets'
 import {
   connectMihomo,
   disconnectMihomo,
@@ -32,7 +34,7 @@ import {
 } from '../../entities/graph/mihomo/mutations'
 import type { GeoAnswers, PathParts } from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
-import { useGeoMatch } from '../../shared/api'
+import { useGeoMatch, useRuleSetMatch, type RuleSetQuery } from '../../shared/api'
 import { useDebounced } from '../../shared/lib/useDebounced'
 import { useDocumentDraft, type DocumentDraft } from './useDocumentDraft'
 import { mihomoAdapter } from './mihomoAdapter'
@@ -118,10 +120,78 @@ export function useMihomoDraft({
   const geoQuery = useGeoMatch(
     settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
   )
+
+  // Наборы правил документа делятся надвое ещё до запроса. На бэкенд уходят
+  // только те, чьё содержимое он способен достать: `http` и `inline`. Набор из
+  // файла клиента и набор незнакомого вида сервер не увидит по определению —
+  // спрашивать о них нечего, их состояние известно здесь и сейчас, и оно
+  // подмешивается к ответу как `unavailable` со своей причиной. Промолчать о
+  // них было бы хуже: трассировка сказала бы «содержимое редактору неизвестно»
+  // и умолчала бы о том, ПОЧЕМУ оно неизвестно и что этого уже не изменить.
+  const ruleSets = useMemo(() => (md ? ruleSetDescriptors(md) : []), [md])
+  const askedSets = useMemo<RuleSetQuery[]>(() => {
+    const asked: RuleSetQuery[] = []
+    for (const set of ruleSets) {
+      if (set.kind === 'http') {
+        asked.push({
+          name: set.name,
+          kind: 'http',
+          url: set.url,
+          behavior: set.behavior,
+          format: set.format,
+          ...(set.intervalSec === undefined ? {} : { intervalSec: set.intervalSec }),
+        })
+      } else if (set.kind === 'inline') {
+        asked.push({
+          name: set.name,
+          kind: 'inline',
+          payload: set.payload,
+          behavior: set.behavior,
+          format: set.format,
+        })
+      }
+    }
+    return asked
+  }, [ruleSets])
+  // `proxy` в запрос не уходит: бэкенд ходит по ссылке напрямую и такое поле
+  // всё равно отбросил бы. Расхождение содержимого с тем, что увидит клиент,
+  // объясняется оговоркой трассировки, а не молчаливой отправкой лишнего поля.
+  const localAnswers = useMemo(() => {
+    const answers: RuleSetAnswers['answers'] = {}
+    for (const set of ruleSets) {
+      if (set.kind === 'file') {
+        answers[set.name] = {
+          state: 'unavailable',
+          reason: 'набор лежит в файле у клиента — серверу такой файл недоступен',
+        }
+      } else if (set.kind === 'unsupported') {
+        answers[set.name] = { state: 'unavailable', reason: set.reason }
+      }
+    }
+    return answers
+  }, [ruleSets])
+
+  const ruleSetQuery = useRuleSetMatch(
+    settledTarget
+      ? { target: { address: settledTarget.address, ip: settledTarget.ip }, sets: askedSets }
+      : null,
+  )
+  const ruleSetAnswers = useMemo<RuleSetAnswers>(
+    () => ({
+      answers: { ...localAnswers, ...(ruleSetQuery.data?.answers ?? {}) },
+      // «Ещё едет» — это не «недоступен»: пока ответы в пути, трассировка
+      // обязана останавливаться с ЭТОЙ причиной, а не выдавать промах
+      pending: ruleSetQuery.isFetching,
+    }),
+    [localAnswers, ruleSetQuery.data, ruleSetQuery.isFetching],
+  )
+
   const trace = useMemo(
     () =>
-      md && settledTarget ? traceMihomo(md, settledTarget, geoQuery.data ?? NO_GEO) : undefined,
-    [md, settledTarget, geoQuery.data],
+      md && settledTarget
+        ? traceMihomo(md, settledTarget, geoQuery.data ?? NO_GEO, ruleSetAnswers)
+        : undefined,
+    [md, settledTarget, geoQuery.data, ruleSetAnswers],
   )
 
   /**
