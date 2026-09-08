@@ -158,8 +158,9 @@ function MihomoEditor({
             dockRow={
               draft.traceOpen ? (
                 // Строка ввода общая с Xray: она работает с TraceTarget и о виде
-                // документа ничего не знает
-                <TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} />
+                // документа ничего не знает. Поле процесса включаем здесь —
+                // правила `PROCESS-*` есть только у Mihomo
+                <TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} showProcess />
               ) : undefined
             }
           />

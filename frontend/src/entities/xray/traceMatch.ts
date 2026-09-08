@@ -12,6 +12,11 @@ export interface TraceTarget {
   network: 'tcp' | 'udp'
   /** IP назначения; сервер домены не резолвит, поле заполняет пользователь */
   ip?: string
+  /**
+   * Имя или полный путь процесса; заполняет пользователь. У Xray правил по
+   * процессу нет — поле живёт здесь потому, что цель трассировки общая.
+   */
+  process?: string
   sourceIp?: string
   sourcePort?: number
   inboundTag?: string

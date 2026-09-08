@@ -2,8 +2,9 @@
 // сверху вниз, побеждает ПЕРВОЕ совпавшее правило — как в Xray.
 //
 // Отличие от трассировки Xray — в границе честности. Правило, которое редактор
-// проверить не может (набор правил по ссылке, условие по процессу или
-// источнику), ОСТАНАВЛИВАЕТ проход, а не пропускается. Пропустить его значило
+// проверить не может (условие по источнику или входу, набор правил, который не
+// удалось загрузить, правило по процессу, когда процесс в цели не указан),
+// ОСТАНАВЛИВАЕТ проход, а не пропускается. Пропустить его значило
 // бы соврать: всё, что стоит ниже, выполняется ровно при условии, что
 // непроверяемое правило не совпало, — а этого условия мы не знаем. По той же
 // причине в `verdicts` не попадают правила ниже остановки: их состояние
@@ -124,10 +125,97 @@ const NO_DATA_TYPES = new Set<string>(
       t === 'UID' ||
       t === 'DSCP' ||
       t.startsWith('SRC-') ||
-      t.startsWith('IN-') ||
-      t.startsWith('PROCESS-'),
+      t.startsWith('IN-'),
   ),
 )
+
+/*
+ * Правила по процессу. Семантика взята из `rules/common/process.go` и
+ * `component/wildcard/wildcard.go`, а не из документации: точные типы сравнивают
+ * целиком через `strings.EqualFold`, `-WILDCARD` — через `wildcard.Match` с
+ * обеими сторонами в нижнем регистре, `-REGEX` — через `regexp2` с флагом
+ * IgnoreCase, и это ПОИСК ПОДСТРОКИ, а не совпадение целиком.
+ *
+ * Имя и путь у ядра — РАЗНЫЕ поля метаданных соединения, а поле формы одно.
+ * Разводим их по введённому значению (см. `processCond`): вывести путь из имени
+ * нельзя, а подставить догадку значило бы дать уверенный неверный ответ.
+ */
+const PROCESS_PATH_TYPES = new Set(['PROCESS-PATH', 'PROCESS-PATH-WILDCARD', 'PROCESS-PATH-REGEX'])
+const PROCESS_NAME_TYPES = new Set(['PROCESS-NAME', 'PROCESS-NAME-WILDCARD', 'PROCESS-NAME-REGEX'])
+
+/** `*` — ноль и больше символов, `?` — ровно один, совпадение целиком */
+function wildcardMatch(pattern: string, value: string): boolean {
+  let p = 0
+  let i = 0
+  let star = -1
+  let mark = 0
+  while (i < value.length) {
+    const c = pattern[p]
+    if (p < pattern.length && (c === '?' || c === value[i])) {
+      p++
+      i++
+      continue
+    }
+    if (p < pattern.length && c === '*') {
+      star = p
+      mark = i
+      p++
+      continue
+    }
+    if (star !== -1) {
+      p = star + 1
+      mark++
+      i = mark
+      continue
+    }
+    return false
+  }
+  while (p < pattern.length && pattern[p] === '*') p++
+  return p === pattern.length
+}
+
+function matchProcess(type: string, pattern: string, value: string): CondResult {
+  if (type.endsWith('-REGEX')) {
+    let re: RegExp
+    try {
+      re = new RegExp(pattern, 'i')
+    } catch {
+      return {
+        state: 'unknown',
+        reason: `выражение «${pattern}» не разбирается как регулярное`,
+      }
+    }
+    // Не заякорено намеренно: ядро зовёт MatchString, а это поиск подстроки
+    return re.test(value) ? YES : NO
+  }
+  if (type.endsWith('-WILDCARD')) {
+    return wildcardMatch(pattern.toLowerCase(), value.toLowerCase()) ? YES : NO
+  }
+  return pattern.toLowerCase() === value.toLowerCase() ? YES : NO
+}
+
+function processCond(ctx: Ctx, type: string, payload: string): CondResult {
+  const raw = ctx.target.process?.trim()
+  if (raw === undefined || raw === '') {
+    return {
+      state: 'unknown',
+      reason: `условие «${type}» проверяется по процессу — укажите его в цели трассировки`,
+    }
+  }
+  // Разделитель отличает путь от имени: имя и путь у ядра — РАЗНЫЕ поля
+  const isPath = raw.includes('/') || raw.includes('\\')
+  if (PROCESS_PATH_TYPES.has(type)) {
+    if (!isPath) {
+      return {
+        state: 'unknown',
+        reason: `условие «${type}» сравнивает путь процесса, а в цели указано только имя`,
+      }
+    }
+    return matchProcess(type, payload, raw)
+  }
+  const name = isPath ? (raw.split(/[\\/]/).pop() ?? raw) : raw
+  return matchProcess(type, payload, name)
+}
 
 /**
  * Логическое правило прячет условия в скобках: `AND,((DOMAIN,a),(NETWORK,udp)),T`.
@@ -401,10 +489,13 @@ function evalCondition(ctx: Ctx, cond: Cond): CondResult {
     if (answer.state === 'lines') return evalClassical(ctx, payload, answer.lines)
     return answer.state === 'yes' ? YES : NO
   }
+  if (PROCESS_NAME_TYPES.has(type) || PROCESS_PATH_TYPES.has(type)) {
+    return processCond(ctx, type, payload)
+  }
   if (NO_DATA_TYPES.has(type)) {
     return {
       state: 'unknown',
-      reason: `условие «${type}» проверяется по данным процесса, источника или входа — в цели трассировки их нет`,
+      reason: `условие «${type}» проверяется по данным источника или входа — в цели трассировки их нет`,
     }
   }
   return { state: 'unknown', reason: `редактор не знает тип правила «${type}»` }

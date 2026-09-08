@@ -714,3 +714,137 @@ describe('трассировка Mihomo: набор classical', () => {
     expect(res.winner?.ruleIndex).toBe(0)
   })
 })
+
+describe('трассировка Mihomo: правила по процессу', () => {
+  it('без процесса в цели проход останавливается, как раньше', () => {
+    const res = traceMihomo(doc('PROCESS-NAME,chrome.exe,VPN', 'MATCH,D'), T(), NO_GEO)
+    expect(res.stopped?.index).toBe(0)
+    // Причина названа: остановка без объяснения читается как поломка редактора
+    expect(res.stopped?.reason).toMatch(/процесс/i)
+  })
+
+  it('точное имя сравнивается без учёта регистра', () => {
+    const t = T({ process: 'Chrome.exe' })
+    expect(traceMihomo(doc('PROCESS-NAME,chrome.exe,VPN', 'MATCH,D'), t, NO_GEO).winner).toEqual({
+      ruleIndex: 0,
+      target: 'VPN',
+    })
+    expect(traceMihomo(doc('PROCESS-NAME,firefox.exe,VPN', 'MATCH,D'), t, NO_GEO).winner).toEqual({
+      ruleIndex: 1,
+      target: 'D',
+    })
+  })
+
+  it('точное имя сравнивается ЦЕЛИКОМ, а не по вхождению', () => {
+    // EqualFold — это равенство строк: `chrome` не ловит `chrome.exe`
+    const t = T({ process: 'chrome.exe' })
+    const res = traceMihomo(doc('PROCESS-NAME,chrome,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+  })
+
+  it('REGEX ищет подстроку, а не совпадение целиком', () => {
+    // `regexp2.MatchString` не заякорен: правило `discord` ловит и помощника
+    const t = T({ process: 'my-discord-helper.exe' })
+    const res = traceMihomo(doc('PROCESS-NAME-REGEX,discord,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+
+  it('REGEX не учитывает регистр', () => {
+    const t = T({ process: 'Discord.exe' })
+    expect(
+      traceMihomo(doc('PROCESS-NAME-REGEX,discord,VPN', 'MATCH,D'), t, NO_GEO).winner?.ruleIndex,
+    ).toBe(0)
+  })
+
+  it('REGEX, который не нашёлся, — это промах, а не остановка', () => {
+    const t = T({ process: 'chrome.exe' })
+    const res = traceMihomo(doc('PROCESS-NAME-REGEX,discord,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(res.stopped).toBeUndefined()
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+  })
+
+  it('нерабочее выражение — остановка с причиной, а не промах', () => {
+    const t = T({ process: 'x.exe' })
+    const res = traceMihomo(doc('PROCESS-NAME-REGEX,[,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(res.stopped?.index).toBe(0)
+    expect(res.stopped?.reason).toMatch(/регулярн/i)
+  })
+
+  it('подстановки: «*» — сколько угодно, «?» — ровно один', () => {
+    const t = T({ process: 'chrome.exe' })
+    const yes = (p: string) =>
+      traceMihomo(doc(`PROCESS-NAME-WILDCARD,${p},VPN`, 'MATCH,D'), t, NO_GEO).winner?.ruleIndex
+    expect(yes('chr*')).toBe(0)
+    expect(yes('*.exe')).toBe(0)
+    expect(yes('chrome.ex?')).toBe(0)
+    expect(yes('chrome.ex??')).toBe(1)
+    expect(yes('firefox*')).toBe(1)
+    // Совпадение целиком: хвост, не покрытый шаблоном, — это промах
+    expect(yes('chrome')).toBe(1)
+    expect(yes('*.EXE')).toBe(0)
+  })
+
+  it('введён путь — работают оба семейства правил', () => {
+    const t = T({ process: 'C:\\Program Files\\Chrome\\chrome.exe' })
+    expect(
+      traceMihomo(doc('PROCESS-NAME,chrome.exe,VPN', 'MATCH,D'), t, NO_GEO).winner?.ruleIndex,
+    ).toBe(0)
+    expect(
+      traceMihomo(doc('PROCESS-PATH-REGEX,Program Files,VPN', 'MATCH,D'), t, NO_GEO).winner
+        ?.ruleIndex,
+    ).toBe(0)
+  })
+
+  it('имя из пути берётся по последнему разделителю, а путь сравнивается целиком', () => {
+    // Правило по ИМЕНИ не должно ловить каталог, а правило по ПУТИ — имя
+    const t = T({ process: '/usr/lib/chrome/chrome' })
+    expect(traceMihomo(doc('PROCESS-NAME,chrome,VPN', 'MATCH,D'), t, NO_GEO).winner?.ruleIndex).toBe(
+      0,
+    )
+    expect(traceMihomo(doc('PROCESS-NAME,usr,VPN', 'MATCH,D'), t, NO_GEO).winner?.ruleIndex).toBe(1)
+    expect(traceMihomo(doc('PROCESS-PATH,chrome,VPN', 'MATCH,D'), t, NO_GEO).winner?.ruleIndex).toBe(
+      1,
+    )
+    expect(
+      traceMihomo(doc('PROCESS-PATH,/usr/lib/chrome/chrome,VPN', 'MATCH,D'), t, NO_GEO).winner
+        ?.ruleIndex,
+    ).toBe(0)
+  })
+
+  it('введено имя — правило по ПУТИ остаётся остановкой', () => {
+    // Путь из имени не выводится, и подставлять догадку сюда нельзя
+    const t = T({ process: 'chrome.exe' })
+    const res = traceMihomo(doc('PROCESS-PATH,C:\\x\\chrome.exe,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(res.stopped?.index).toBe(0)
+    expect(res.stopped?.reason).toMatch(/путь/i)
+  })
+
+  it('введено имя — остановкой остаётся и WILDCARD, и REGEX по пути', () => {
+    const t = T({ process: 'chrome.exe' })
+    for (const type of ['PROCESS-PATH-WILDCARD', 'PROCESS-PATH-REGEX']) {
+      const res = traceMihomo(doc(`${type},*chrome*,VPN`, 'MATCH,D'), t, NO_GEO)
+      expect(res.stopped?.index, type).toBe(0)
+      expect(res.stopped?.reason, type).toMatch(/путь/i)
+    }
+  })
+
+  it('пробелы вокруг процесса не считаются значением', () => {
+    const res = traceMihomo(
+      doc('PROCESS-NAME,chrome.exe,VPN', 'MATCH,D'),
+      T({ process: '   ' }),
+      NO_GEO,
+    )
+    expect(res.stopped?.index).toBe(0)
+    expect(res.stopped?.reason).toMatch(/процесс/i)
+  })
+
+  it('процесс работает и внутри логического правила, и внутри набора', () => {
+    const t = T({ process: 'chrome.exe', address: 'zzz.com' })
+    const logical = traceMihomo(
+      doc('OR,((DOMAIN,nope.com),(PROCESS-NAME,chrome.exe)),VPN', 'MATCH,D'),
+      t,
+      NO_GEO,
+    )
+    expect(logical.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+})
