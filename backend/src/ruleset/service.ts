@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { fetchExternalBytes, type FetchGuardOptions } from '../net/guard.js'
 import { RuleSetCache } from './cache.js'
 import { domainMatcher, readDomainSet, type DomainMatcher } from './domainSet.js'
+import { cidrsOf, domainKeys } from './enumerate.js'
 import { RuleSetError } from './errors.js'
 import { ipMatcher, readIpCidrSet, type IpMatcher } from './ipcidrSet.js'
 import { parseMrs, type RuleBehavior } from './mrs.js'
@@ -45,17 +46,51 @@ export interface RuleSetDescriptor {
 }
 
 export type RuleSetAnswer =
-  | { state: 'yes' | 'no'; count: number }
-  | { state: 'lines'; lines: string[]; count: number }
+  | { state: 'yes' | 'no'; count: number; loadedAt?: number }
+  | { state: 'lines'; lines: string[]; count: number; loadedAt?: number }
   | { state: 'unavailable'; reason: string }
+
+export interface RuleSetStatusItem {
+  name: string
+  state: 'ready' | 'missing' | 'error'
+  /** Записей по заголовку набора — не число ключей бора */
+  count?: number
+  /** Размер разобранного содержимого в байтах */
+  bytes?: number
+  loadedAt?: number
+  /** Файл в кэше старше TTL: следующая трассировка перекачает его */
+  stale?: boolean
+  reason?: string
+}
+
+export interface RuleSetPage {
+  total: number
+  offset: number
+  /** `count` из заголовка набора — рядом с `total`, и это разные числа */
+  count: number
+  items: string[]
+}
 
 // Наборы `domain` и `ipcidr` приходят и из `.mrs`, и из текста, поэтому
 // сервис держит не структуру, а то, у чего можно спросить: откуда взялся
 // ответ, ему знать незачем
+interface ParsedBase {
+  count: number
+  bytes: number
+  /** Когда файл скачан; у встроенного набора времени нет — он часть документа */
+  loadedAt?: number
+  /**
+   * Содержимое набора по одной записи. Генератор, а не массив: у `geoip/us`
+   * 300 531 диапазон, и материализовать их все ради одной страницы просмотрщика
+   * значило бы держать в памяти сотни мегабайт строк
+   */
+  entries: () => Iterable<string>
+}
+
 type Parsed =
-  | { kind: 'domain'; matcher: DomainMatcher; count: number; bytes: number }
-  | { kind: 'ipcidr'; matcher: IpMatcher; count: number; bytes: number }
-  | { kind: 'classical'; lines: string[]; count: number; bytes: number }
+  | (ParsedBase & { kind: 'domain'; matcher: DomainMatcher })
+  | (ParsedBase & { kind: 'ipcidr'; matcher: IpMatcher })
+  | (ParsedBase & { kind: 'classical'; lines: string[] })
 
 /** Разобранный набор помнится не навсегда: у него тот же срок годности, что у файла */
 interface Remembered {
@@ -132,37 +167,37 @@ export class RuleSetService {
     // же отказе, не дождавшись соседей, и часть наборов осталась бы без ответа
     // вовсе. И идут они не все разом: документ с шестьюдесятью четырьмя
     // провайдерами при пустом кэше открыл бы столько же соединений сразу
-    let next = 0
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        const set = allowed[next++]
-        if (set === undefined) return
-        try {
-          answers[set.name] = this.answer(await this.load(set), target)
-        } catch (err) {
-          answers[set.name] = {
-            state: 'unavailable',
+    const results = await this.pool(allowed, async (set) => {
+      try {
+        return { name: set.name, answer: this.answer(await this.load(set), target) }
+      } catch (err) {
+        return {
+          name: set.name,
+          answer: {
+            state: 'unavailable' as const,
             // Наружу пускаем только текст известного отказа: чужое исключение
             // выглядело бы как состояние набора и увело бы пользователя
             // разбираться с его документом вместо нашей ошибки
             reason: err instanceof RuleSetError ? err.message : 'не удалось прочитать набор',
-          }
+          },
         }
       }
-    }
-    await Promise.all(
-      Array.from({ length: Math.min(this.limits.concurrentDownloads, allowed.length) }, worker),
-    )
+    })
+    for (const { name, answer } of results) answers[name] = answer
 
     return answers
   }
 
   private answer(parsed: Parsed, target: { address: string; ip?: string }): RuleSetAnswer {
     if (parsed.kind === 'classical') {
-      return { state: 'lines', lines: parsed.lines, count: parsed.count }
+      return { state: 'lines', lines: parsed.lines, count: parsed.count, loadedAt: parsed.loadedAt }
     }
     if (parsed.kind === 'domain') {
-      return { state: parsed.matcher.has(target.address) ? 'yes' : 'no', count: parsed.count }
+      return {
+        state: parsed.matcher.has(target.address) ? 'yes' : 'no',
+        count: parsed.count,
+        loadedAt: parsed.loadedAt,
+      }
     }
     // Без IP в цели набор подсетей не совпадает: резолвить домены сервер не
     // берётся, а догадка здесь стоила бы неверного маршрута
@@ -177,7 +212,11 @@ export class RuleSetService {
     if (target.ip === undefined) {
       return { state: 'unavailable', reason: 'в цели трассировки нет IP назначения' }
     }
-    return { state: parsed.matcher.has(target.ip) ? 'yes' : 'no', count: parsed.count }
+    return {
+      state: parsed.matcher.has(target.ip) ? 'yes' : 'no',
+      count: parsed.count,
+      loadedAt: parsed.loadedAt,
+    }
   }
 
   private async load(set: RuleSetDescriptor): Promise<Parsed> {
@@ -234,7 +273,7 @@ export class RuleSetService {
       await this.cache.write(set.url, bytes)
     }
 
-    const parsed = this.build(set, bytes)
+    const parsed: Parsed = { ...this.build(set, bytes), loadedAt }
     this.remember(cacheKey, parsed, loadedAt + ttl)
     return parsed
   }
@@ -258,19 +297,24 @@ export class RuleSetService {
       if (file.behavior === 'classical') {
         throw new RuleSetError('вид classical в формате mrs не встречается')
       }
-      return file.behavior === 'domain'
-        ? {
-            kind: 'domain',
-            matcher: domainMatcher(readDomainSet(file.body)),
-            count: file.count,
-            bytes: size,
-          }
-        : {
-            kind: 'ipcidr',
-            matcher: ipMatcher(readIpCidrSet(file.body)),
-            count: file.count,
-            bytes: size,
-          }
+      if (file.behavior === 'domain') {
+        const ds = readDomainSet(file.body)
+        return {
+          kind: 'domain',
+          matcher: domainMatcher(ds),
+          entries: () => domainKeys(ds),
+          count: file.count,
+          bytes: size,
+        }
+      }
+      const ranges = readIpCidrSet(file.body)
+      return {
+        kind: 'ipcidr',
+        matcher: ipMatcher(ranges),
+        entries: () => cidrsOf(ranges),
+        count: file.count,
+        bytes: size,
+      }
     }
 
     return this.fromLines(set, parsePayload(Buffer.from(bytes).toString('utf8'), set.format), size)
@@ -282,7 +326,7 @@ export class RuleSetService {
       if (lines.length > this.limits.classicalLines) {
         throw new RuleSetError(`в наборе больше ${this.limits.classicalLines} строк`)
       }
-      return { kind: 'classical', lines, count: lines.length, bytes: size }
+      return { kind: 'classical', lines, count: lines.length, bytes: size, entries: () => lines }
     }
     if (set.behavior === 'domain') {
       return {
@@ -290,6 +334,7 @@ export class RuleSetService {
         matcher: domainSetFromLines(lines),
         count: lines.length,
         bytes: size,
+        entries: () => lines,
       }
     }
     return {
@@ -297,6 +342,7 @@ export class RuleSetService {
       matcher: ipCidrSetFromLines(lines),
       count: lines.length,
       bytes: size,
+      entries: () => lines,
     }
   }
 
@@ -314,5 +360,145 @@ export class RuleSetService {
       this.parsedBytes -= this.parsed.get(oldest)?.parsed.bytes ?? 0
       this.parsed.delete(oldest)
     }
+  }
+
+  /**
+   * Прогнать задачи с пределом одновременности, сохраняя порядок результатов.
+   * Ни одна задача не отклоняется наружу: иначе обход завершился бы на первом
+   * же отказе, не дождавшись соседей, и часть наборов осталась бы без ответа.
+   */
+  private async pool<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+    const out: R[] = new Array(items.length)
+    let next = 0
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const index = next++
+        if (index >= items.length) return
+        out[index] = await fn(items[index]!)
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(this.limits.concurrentDownloads, items.length) }, worker),
+    )
+    return out
+  }
+
+  /**
+   * Состояние наборов ПО КЭШУ. Сеть здесь не трогается принципиально: документ
+   * с 26 наборами превратил бы открытие диалога в 26 загрузок, и пользователь
+   * читал бы пустой список секунд десять. Качает `refresh`, у него есть кнопка.
+   */
+  async status(sets: RuleSetDescriptor[]): Promise<RuleSetStatusItem[]> {
+    return this.pool(sets, async (set) => {
+      try {
+        return await this.statusOf(set)
+      } catch (err) {
+        return {
+          name: set.name,
+          state: 'error' as const,
+          reason: err instanceof RuleSetError ? err.message : 'не удалось прочитать набор',
+        }
+      }
+    })
+  }
+
+  private async statusOf(set: RuleSetDescriptor): Promise<RuleSetStatusItem> {
+    if (set.kind === 'inline') {
+      // Тот же запрет, что в load: набор mrs не бывает встроенным в документ.
+      // Без этой проверки status ответил бы «готов» по набору, который match
+      // тут же назовёт недоступным, — два разных ответа на один вопрос.
+      if (set.format === 'mrs') throw new RuleSetError('Формат mrs не бывает встроенным в документ')
+      const lines = set.payload ?? []
+      const parsed = this.fromLines(set, lines, lines.join('\n').length)
+      return { name: set.name, state: 'ready', count: parsed.count, bytes: parsed.bytes }
+    }
+    if (set.url === undefined) throw new RuleSetError('У набора не указана ссылка')
+
+    const file = await this.cache.peek(set.url)
+    if (file === null) return { name: set.name, state: 'missing' }
+
+    const ttl = Math.max(this.limits.minTtlMs, (set.intervalSec ?? 0) * 1000)
+    const cacheKey = `${set.url}|${set.behavior}|${set.format}`
+    // Разобранное берём из памяти, если оно там есть: разбор `geoip/us` — это
+    // 300 тысяч диапазонов, и повторять его на каждое открытие диалога незачем
+    let parsed = this.parsed.get(cacheKey)?.parsed
+    if (parsed === undefined) {
+      parsed = { ...this.build(set, file.bytes), loadedAt: file.loadedAt }
+      this.remember(cacheKey, parsed, file.loadedAt + ttl)
+    }
+    return {
+      name: set.name,
+      state: 'ready',
+      count: parsed.count,
+      bytes: parsed.bytes,
+      loadedAt: file.loadedAt,
+      stale: Date.now() - file.loadedAt > ttl,
+    }
+  }
+
+  /**
+   * Принудительная перезагрузка. `names` не задан — обновляем всё сетевое.
+   * Причина неудачи доезжает до ответа: без неё состояние стало бы «не
+   * загружен», и пользователь жал бы кнопку по кругу, не понимая, что не так.
+   */
+  async refresh(sets: RuleSetDescriptor[], names?: string[]): Promise<RuleSetStatusItem[]> {
+    const wanted = sets.filter(
+      (set) => set.kind === 'http' && (names === undefined || names.includes(set.name)),
+    )
+    const failures = new Map<string, string>()
+    await this.pool(wanted, async (set) => {
+      await this.forget(set)
+      try {
+        await this.load(set)
+      } catch (err) {
+        failures.set(
+          set.name,
+          err instanceof RuleSetError ? err.message : 'не удалось прочитать набор',
+        )
+      }
+    })
+    const items = await this.status(sets)
+    return items.map((item) => {
+      const reason = failures.get(item.name)
+      return reason === undefined ? item : { ...item, state: 'error' as const, reason }
+    })
+  }
+
+  /** Забыть набор целиком: и разобранное, и файл — иначе `load` вернёт старое */
+  private async forget(set: RuleSetDescriptor): Promise<void> {
+    if (set.url === undefined) return
+    const cacheKey = `${set.url}|${set.behavior}|${set.format}`
+    const remembered = this.parsed.get(cacheKey)
+    if (remembered !== undefined) {
+      this.parsedBytes -= remembered.parsed.bytes
+      this.parsed.delete(cacheKey)
+    }
+    await this.cache.remove(set.url)
+  }
+
+  /**
+   * Страница содержимого для просмотрщика. В отличие от `status`, качать можно:
+   * пользователь сам открыл набор и ждёт именно его.
+   *
+   * `total` считается по ФАКТИЧЕСКИ перечисленному, а не берётся из заголовка:
+   * у набора доменов ключей вдвое больше записей (на каждый домен ядро кладёт
+   * и форму `+.`), а при поиске их вообще столько, сколько совпало. Заголовочный
+   * `count` едет рядом отдельным полем — оба числа правда, и подменять одно
+   * другим нельзя.
+   */
+  async page(
+    set: RuleSetDescriptor,
+    opts: { offset: number; limit: number; q?: string },
+  ): Promise<RuleSetPage> {
+    const parsed = await this.load(set)
+    const q = opts.q?.trim().toLowerCase() ?? ''
+    const items: string[] = []
+    let total = 0
+    for (const entry of parsed.entries()) {
+      if (q !== '' && !entry.toLowerCase().includes(q)) continue
+      total++
+      if (total > opts.offset && items.length < opts.limit) items.push(entry)
+    }
+    return { total, offset: opts.offset, count: parsed.count, items }
   }
 }

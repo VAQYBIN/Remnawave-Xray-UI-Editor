@@ -51,6 +51,35 @@ export class RuleSetCache {
     }
   }
 
+  /**
+   * Файл как он есть, невзирая на срок годности. Нужен состоянию: просроченный
+   * набор — это «загружен тогда-то и будет перекачан», а не «его нет». `read`
+   * для этого не годится: он на просрочке возвращает null, и диалог показывал
+   * бы «не загружен» на полном каталоге.
+   *
+   * Отметку обращения здесь НЕ ставим: заглядывание в состояние — не
+   * использование набора, и двигать им очередь вытеснения значило бы спасать от
+   * вытеснения то, на что никто не ссылается.
+   */
+  async peek(url: string): Promise<CachedFile | null> {
+    const path = join(this.dir, this.nameOf(url))
+    try {
+      const info = await stat(path)
+      return { bytes: await readFile(path), loadedAt: info.mtimeMs }
+    } catch {
+      return null
+    }
+  }
+
+  /** Выбросить файл, чтобы следующая загрузка пошла в сеть */
+  async remove(url: string): Promise<void> {
+    try {
+      await rm(join(this.dir, this.nameOf(url)))
+    } catch {
+      // Файла и не было — цель достигнута
+    }
+  }
+
   async write(url: string, bytes: Uint8Array): Promise<void> {
     await mkdir(this.dir, { recursive: true })
     const path = join(this.dir, this.nameOf(url))

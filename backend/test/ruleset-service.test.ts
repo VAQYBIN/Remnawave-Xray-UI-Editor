@@ -65,9 +65,11 @@ describe('RuleSetService', () => {
     const { opts } = net({ 'https://example.com/faceit.mrs': FACEIT })
     const svc = new RuleSetService(await newDir(), opts)
     const hit = await svc.match({ address: 'www.faceit.com' }, [http()])
-    expect(hit.faceit).toEqual({ state: 'yes', count: 2 })
+    // loadedAt назван явно, а не спрятан под toMatchObject: у ответа проверяется
+    // ВСЯ форма, иначе в неё однажды доедет лишнее поле и никто не заметит
+    expect(hit.faceit).toEqual({ state: 'yes', count: 2, loadedAt: expect.any(Number) })
     const miss = await svc.match({ address: 'example.org' }, [http()])
-    expect(miss.faceit).toEqual({ state: 'no', count: 2 })
+    expect(miss.faceit).toEqual({ state: 'no', count: 2, loadedAt: expect.any(Number) })
   })
 
   it('подсети отвечают по IP цели, а без IP — не совпадение', async () => {
@@ -92,7 +94,12 @@ describe('RuleSetService', () => {
     const answer = await svc.match({ address: 'x' }, [
       http({ name: 'c', url: 'https://example.com/c.yaml', behavior: 'classical', format: 'yaml' }),
     ])
-    expect(answer.c).toEqual({ state: 'lines', lines: ['PROCESS-NAME,uTorrent.exe'], count: 1 })
+    expect(answer.c).toEqual({
+      state: 'lines',
+      lines: ['PROCESS-NAME,uTorrent.exe'],
+      count: 1,
+      loadedAt: expect.any(Number),
+    })
   })
 
   it('inline не ходит в сеть вовсе', async () => {
