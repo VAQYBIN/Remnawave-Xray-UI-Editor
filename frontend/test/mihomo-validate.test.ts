@@ -158,6 +158,42 @@ describe('диагностики', () => {
     expect(messages(text).join(' ')).toContain('proxy-providers')
   })
 
+  /**
+   * Провайдер адресуется ИМЕНЕМ (`proxy-providers.<имя>`), поэтому две записи
+   * под одним именем давали два одинаковых предупреждения с одним и тем же
+   * путём: клик по обоим вёл в одно место, а о настоящей причине — дубле ключа
+   * — ни одно из них не говорило. Сам дубль при этом не замалчивается: о нём
+   * сообщает разбор YAML своей ошибкой, и она же блокирует сохранение.
+   */
+  it('дубль имени провайдера не удваивает диагностику — о самом дубле говорит разбор', () => {
+    const text =
+      'proxy-providers:\n' +
+      '  free:\n    type: http\n    remnawave:\n      include-proxies: false\n' +
+      '  free:\n    type: http\n    remnawave:\n      include-proxies: false\n'
+    const issues = validateMihomo(parseMihomo(text))
+    // Фраза, а не подстрока «include-proxies»: текст ошибки разбора цитирует
+    // сам YAML и тоже её содержит
+    expect(issues.filter((i) => i.message.includes('допустим только в proxy-groups'))).toHaveLength(1)
+    // Причина названа — ошибкой разбора, а не пересказом своими словами
+    expect(issues.filter((i) => i.level === 'error').map((i) => i.message).join(' ')).toMatch(
+      /Map keys must be unique/,
+    )
+  })
+
+  it('дубль имени подсписка не удваивает диагностику', () => {
+    const text = 'sub-rules:\n  ru: 42\n  ru: 42\n'
+    const issues = validateMihomo(parseMihomo(text))
+    expect(issues.filter((i) => i.message.includes('не список правил'))).toHaveLength(1)
+  })
+
+  it('дубль имени ГРУППЫ, наоборот, называется прямо: список — законный YAML', () => {
+    const text = 'proxy-groups:\n  - name: a\n    proxies: [DIRECT]\n  - name: a\n    proxies: [DIRECT]\n'
+    const issues = validateMihomo(parseMihomo(text))
+    expect(issues.filter((i) => i.level === 'error').map((i) => i.message).join(' ')).toContain(
+      'повторяется',
+    )
+  })
+
   it('незнакомый модификатор правила — предупреждение (опечатка no-resolv вместо no-resolve)', () => {
     const text = 'rules:\n  - DOMAIN,a.com,DIRECT,no-resolv\n'
     expect(messages(text).join(' ')).toContain('no-resolv')

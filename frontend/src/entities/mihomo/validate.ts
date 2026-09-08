@@ -21,6 +21,34 @@ function issue(parts: PathParts, message: string, level: 'error' | 'warning'): V
   return { parts, path: parts.join('.'), message, level }
 }
 
+/**
+ * Первая запись на имя. Провайдеры и подсписки — отображения, и диагностика у
+ * них адресуется ИМЕНЕМ (`proxy-providers.<имя>`): две записи под одним именем
+ * дали бы два одинаковых сообщения с одним и тем же путём, и клик по обоим вёл
+ * бы в одно место.
+ *
+ * Сам дубль ключа при этом не замалчивается — о нём сообщает разбор YAML своей
+ * ошибкой («Map keys must be unique») с точным смещением, и сохранение блокирует
+ * именно она. Повторять её здесь своими словами значило бы завести второе
+ * описание одного факта, которое разошлось бы с первым молча.
+ *
+ * У групп всё наоборот: `proxy-groups` — СПИСОК, дубль имени там законный YAML,
+ * сказать о нём некому, и потому там стоит собственная проверка.
+ *
+ * Оставляем первую: `resolveTarget` и остальные поиски по имени идут через
+ * `some`/`find`, то есть видят тоже первую.
+ */
+function firstPerName<T extends { name: string }>(items: T[]): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const item of items) {
+    if (seen.has(item.name)) continue
+    seen.add(item.name)
+    out.push(item)
+  }
+  return out
+}
+
 /** Кольцо ссылок между группами: ядро на таком конфиге не поднимется */
 function findCycle(groups: MihomoGroup[]): string[] | null {
   const byName = new Map(groups.map((g) => [g.name, g]))
@@ -53,7 +81,7 @@ function findCycle(groups: MihomoGroup[]): string[] | null {
 export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
   const issues: ValidationIssue[] = [...md.issues]
   const groups = groupsOf(md)
-  const providers = providersOf(md)
+  const providers = firstPerName(providersOf(md))
   const ruleProviders = new Set(ruleProvidersOf(md).map((p) => p.name))
   const subRules = new Set(subRuleNames(md))
 
@@ -216,7 +244,7 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
   // Подсписки проверяются теми же правилами: это правила Mihomo, а не другой
   // язык. Путь `sub-rules.<имя>.<индекс>` резолвер графа уже понимает — он
   // ведёт на карточку подсписка, у отдельных его правил узлов нет.
-  subRuleEntries(md).forEach(({ name, node }) => {
+  firstPerName(subRuleEntries(md)).forEach(({ name, node }) => {
     const at: PathParts = ['sub-rules', name]
     if (!isSeq(node)) {
       // Не список — не «пустой список»: ядру здесь нечего исполнять, а
