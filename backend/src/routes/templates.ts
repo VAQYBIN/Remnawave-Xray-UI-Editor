@@ -2,15 +2,30 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { hashTemplate, YAML_TEMPLATE_TYPES } from '../templates/hash.js'
 import { STARTER_MIHOMO_TEMPLATE } from '../templates/starterMihomo.js'
+import { STARTER_SINGBOX_TEMPLATE } from '../templates/starterSingbox.js'
 import { STARTER_XRAY_TEMPLATE } from '../templates/starter.js'
 import { nameSchema } from './nameSchema.js'
 
 const paramsSchema = z.object({ uuid: z.string().uuid() })
 
+/**
+ * Типы, которые редактор открывает на правку. Белый список, а не чёрный: тип,
+ * который панель добавит завтра, обязан молча получить 400, а не молча пройти.
+ */
+export const EDITABLE_TEMPLATE_TYPES = ['XRAY_JSON', 'MIHOMO', 'SINGBOX'] as const
+
 const createSchema = z.object({
   name: nameSchema,
-  templateType: z.enum(['XRAY_JSON', 'MIHOMO']).default('XRAY_JSON'),
+  templateType: z.enum(EDITABLE_TEMPLATE_TYPES).default('XRAY_JSON'),
 })
+
+/** Каркас нового шаблона по типу — единая точка, чтобы POST и будущие роуты не разошлись */
+function starterFor(type: (typeof EDITABLE_TEMPLATE_TYPES)[number]) {
+  if (type === 'MIHOMO') {
+    return { encodedTemplateYaml: Buffer.from(STARTER_MIHOMO_TEMPLATE, 'utf8').toString('base64') }
+  }
+  return { templateJson: type === 'SINGBOX' ? STARTER_SINGBOX_TEMPLATE : STARTER_XRAY_TEMPLATE }
+}
 
 // Ровно одно из полей содержимого: applying JSON-патч к YAML-шаблону оставил бы
 // в нём мусор, а панель приняла бы это молча
@@ -36,14 +51,10 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
   app.post('/api/templates', async (req, reply) => {
     const body = createSchema.parse(req.body)
     const created = await app.remnawave.createTemplate(body.name, body.templateType)
-    const template = await app.remnawave.updateTemplate(
-      body.templateType === 'MIHOMO'
-        ? {
-            uuid: created.uuid,
-            encodedTemplateYaml: Buffer.from(STARTER_MIHOMO_TEMPLATE, 'utf8').toString('base64'),
-          }
-        : { uuid: created.uuid, templateJson: STARTER_XRAY_TEMPLATE },
-    )
+    const template = await app.remnawave.updateTemplate({
+      uuid: created.uuid,
+      ...starterFor(body.templateType),
+    })
     reply.status(201)
     return { template }
   })
@@ -62,13 +73,14 @@ export const templateRoutes: FastifyPluginAsync = async (app) => {
     const { uuid } = paramsSchema.parse(req.params)
     const body = updateSchema.parse(req.body)
     const current = await app.remnawave.getTemplate(uuid)
-    // Белый список, а не чёрный: редактор умеет ровно два типа, и любой новый
-    // тип, который панель добавит завтра, обязан молча получить 400, а не
-    // молча пройти. Проверка типа — ПЕРЕД проверками поля содержимого: иначе
-    // на XRAY_BASE64 сработала бы более ранняя проверка и ответила бы «нужен
-    // templateJson», что вводит оператора в заблуждение — редактор этот тип
-    // не умеет вовсе, дело не в отсутствующем поле.
-    if (current.templateType !== 'XRAY_JSON' && current.templateType !== 'MIHOMO') {
+    // Белый список, а не чёрный: редактор умеет ровно те типы, что перечислены
+    // в EDITABLE_TEMPLATE_TYPES, и любой новый тип, который панель добавит
+    // завтра, обязан молча получить 400, а не молча пройти. Проверка типа —
+    // ПЕРЕД проверками поля содержимого: иначе на XRAY_BASE64 сработала бы
+    // более ранняя проверка и ответила бы «нужен templateJson», что вводит
+    // оператора в заблуждение — редактор этот тип не умеет вовсе, дело не в
+    // отсутствующем поле.
+    if (!(EDITABLE_TEMPLATE_TYPES as readonly string[]).includes(current.templateType)) {
       return reply.status(400).send({
         message: `Редактор не умеет шаблоны типа ${current.templateType}`,
       })

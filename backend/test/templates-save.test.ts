@@ -99,6 +99,55 @@ describe('сохранение шаблона', () => {
     await app.close()
   })
 
+  it('PATCH шаблона SINGBOX проходит и требует templateJson', async () => {
+    const template = makeStubTemplate({
+      templateType: 'SINGBOX',
+      templateJson: { outbounds: [{ type: 'direct', tag: 'direct' }] },
+    })
+    const { app, cookie } = await makeApp([template])
+
+    const ok = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/${template.uuid}`,
+      headers: { cookie },
+      payload: {
+        templateJson: { outbounds: [{ type: 'direct', tag: 'direct' }], route: { final: 'direct' } },
+        expectedHash: hashTemplateJson(template.templateJson),
+      },
+    })
+    expect(ok.statusCode).toBe(200)
+
+    // Поле содержимого своё у каждого вида: YAML-поле на JSON-шаблоне — ошибка,
+    // а не молча принятая правка
+    const wrong = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/${template.uuid}`,
+      headers: { cookie },
+      payload: { encodedTemplateYaml: 'eA==', expectedHash: 'x' },
+    })
+    expect(wrong.statusCode).toBe(400)
+    expect((wrong.json() as { message: string }).message).toMatch(/templateJson/)
+    await app.close()
+  })
+
+  it('тип вне белого списка получает 400, а не проходит молча', async () => {
+    const template = makeStubTemplate({
+      templateType: 'CLASH',
+      templateJson: null,
+      encodedTemplateYaml: 'eA==',
+    })
+    const { app, cookie } = await makeApp([template])
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/${template.uuid}`,
+      headers: { cookie },
+      payload: { encodedTemplateYaml: 'eA==', expectedHash: 'x' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect((res.json() as { message: string }).message).toMatch(/CLASH/)
+    await app.close()
+  })
+
   it('без expectedHash запрос отклоняется', async () => {
     const { app, cookie, template } = await makeApp()
     const res = await app.inject({

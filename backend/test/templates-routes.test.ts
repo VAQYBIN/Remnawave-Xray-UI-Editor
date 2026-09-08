@@ -66,6 +66,24 @@ describe('роуты шаблонов', () => {
     await app.close()
   })
 
+  it('создание SINGBOX кладёт каркас в templateJson', async () => {
+    const { app, cookie } = await makeApp()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/templates',
+      headers: { cookie },
+      payload: { name: 'sb', templateType: 'SINGBOX' },
+    })
+    expect(res.statusCode).toBe(201)
+    const created = res.json().template
+    // Каркас обязан быть рабочим: пустой шаблон панель создаст и сама, но
+    // подписка из него не отдаст клиенту ни одного сервера
+    const json = created.templateJson as Record<string, unknown>
+    expect(json.outbounds).toBeDefined()
+    expect(json.route).toBeDefined()
+    await app.close()
+  })
+
   it('удаление пишет бэкап и убирает шаблон из панели', async () => {
     const t = makeStubTemplate()
     const { app, cookie, stub } = await makeApp(makeStubRemnawave([], [t]))
