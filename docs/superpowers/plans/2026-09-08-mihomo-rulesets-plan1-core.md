@@ -3684,14 +3684,24 @@ import { mihomoFixture } from './helpers'
 const NO_GEO: GeoAnswers = { loaded: false, answers: {}, missing: [] }
 const md = parseMihomo(mihomoFixture('roscomvpn'))
 
-/** Все наборы отвечают «нет», кроме classical — он отдаёт свои строки */
-function allMiss(): RuleSetAnswers {
+/**
+ * Ответы, какие на самом деле вернул бы бэкенд: все наборы промахиваются,
+ * classical отдаёт строки, а набор ПОДСЕТЕЙ без IP в цели отвечать отказывается.
+ * Последнее принципиально — выдать за него «нет» значило бы построить приёмку на
+ * ответе, которого сервис не даёт, и заодно на той самой лжи, ради устранения
+ * которой он и правился.
+ */
+function answersFor(target: TraceTarget): RuleSetAnswers {
   const answers: RuleSetAnswers['answers'] = {}
   for (const set of ruleSetDescriptors(md)) {
-    answers[set.name] =
-      set.name === 'torrent-clients'
-        ? { state: 'lines', lines: ['PROCESS-NAME,uTorrent.exe'], count: 1 }
-        : { state: 'no', count: 0 }
+    if (set.kind !== 'http' && set.kind !== 'inline') continue
+    if (set.behavior === 'classical') {
+      answers[set.name] = { state: 'lines', lines: ['PROCESS-NAME,uTorrent.exe'], count: 1 }
+    } else if (set.behavior === 'ipcidr' && target.ip === undefined) {
+      answers[set.name] = { state: 'unavailable', reason: 'в цели трассировки нет IP назначения' }
+    } else {
+      answers[set.name] = { state: 'no', count: 0 }
+    }
   }
   return { answers, pending: false }
 }
@@ -3715,19 +3725,30 @@ describe('приёмка: эталонный шаблон RoscomVPN', () => {
   })
 
   it('наборы отвечают, процесса нет — упирается в правила по процессу', () => {
-    const res = traceMihomo(md, target(), NO_GEO, allMiss())
+    const res = traceMihomo(md, target(), NO_GEO, answersFor(target()))
     expect(res.stopped?.index).toBe(24)
   })
 
-  it('наборы отвечают и процесс задан — проход доходит до MATCH', () => {
+  it('наборы и процесс есть, а IP нет — останов на наборе подсетей', () => {
+    // Правило #30 — RULE-SET,direct-ips: набор подсетей БЕЗ no-resolve. Ядро
+    // здесь домен резолвит и проверяет полученный адрес; какой он выйдет, мы не
+    // знаем. Остановка тут — не недоделка, а единственный честный ответ
+    const t = target({ process: 'chrome.exe' })
+    const res = traceMihomo(md, t, NO_GEO, answersFor(t))
+    expect(res.stopped?.index).toBe(29)
+    expect(res.stopped?.reason).toMatch(/IP назначения/)
+  })
+
+  it('цель задана полностью — проход доходит до MATCH', () => {
     // Ради этой строки всё и делалось
-    const res = traceMihomo(md, target({ process: 'chrome.exe' }), NO_GEO, allMiss())
+    const t = target({ process: 'chrome.exe', ip: '203.0.113.7' })
+    const res = traceMihomo(md, t, NO_GEO, answersFor(t))
     expect(res.stopped).toBeUndefined()
     expect(res.winner).toEqual({ ruleIndex: 30, target: 'PROXY' })
   })
 
   it('совпавший набор выигрывает раньше и не доходит до конца', () => {
-    const answers = allMiss()
+    const answers = answersFor(target())
     answers.answers['whitelist'] = { state: 'yes', count: 100 }
     const res = traceMihomo(md, target({ address: 'gosuslugi.ru', process: 'chrome.exe' }), NO_GEO, answers)
     expect(res.winner?.target).toBe('DIRECT')
@@ -3735,7 +3756,7 @@ describe('приёмка: эталонный шаблон RoscomVPN', () => {
   })
 
   it('один недоступный набор возвращает остановку на нём', () => {
-    const answers = allMiss()
+    const answers = answersFor(target())
     answers.answers['category-ads'] = { state: 'unavailable', reason: 'сервер ответил 404' }
     const res = traceMihomo(md, target({ process: 'chrome.exe' }), NO_GEO, answers)
     expect(res.stopped?.reason).toMatch(/404/)
@@ -3793,11 +3814,24 @@ git commit -m "feat(frontend): wire rule-set answers into the mihomo trace"
 
 ## Приёмка плана
 
-Одна проверяемая строка: на эталонном `roscomvpn-mihomo-ru.yaml` цель, не
-совпавшая ни с одним набором, при заданном процессе доходит до правила #31
-(`MATCH,PROXY`). Тест из задачи 11 проверяет и её, и обе промежуточные отметки
-— #4 без наборов и #25 без процесса, — чтобы движение было видно, а регресс
-нельзя было списать на «так и было».
+Одна проверяемая строка: на эталонном `roscomvpn-mihomo-ru.yaml` **полностью
+заданная** цель — адрес, процесс и IP назначения — доходит до правила #31
+(`MATCH,PROXY`). Тест из задачи 11 проверяет её и три промежуточные отметки,
+чтобы движение было видно, а регресс нельзя было списать на «так и было»:
+
+| Что задано | Докуда доходит |
+|---|---|
+| ничего сверх адреса, наборы не отвечают | правило #4 |
+| наборы отвечают, процесса нет | правило #25 |
+| наборы и процесс есть, IP нет | правило #30 |
+| адрес, процесс и IP | правило #31, `MATCH,PROXY` |
+
+Третья строка — не недоделка. Правило #30 (`RULE-SET,direct-ips`) смотрит на
+подсети и не несёт `no-resolve`: ядро в этом случае домен резолвит и проверяет
+полученный адрес, которого редактор знать не может. Остановка там — тот самый
+отказ вместо догадки, ради которого всё и строилось. Приёмка обязана показывать
+обе стороны: и что проход доходит до конца, когда цель задана, и что он честно
+встаёт, когда данных не хватает.
 
 ## Чего этот план НЕ делает
 
