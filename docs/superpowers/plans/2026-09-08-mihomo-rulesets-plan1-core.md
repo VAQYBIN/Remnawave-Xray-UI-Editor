@@ -1746,8 +1746,9 @@ export class RuleSetService {
 - [ ] **Шаг 1: падающий тест сервиса**
 
 ```ts
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
@@ -1993,6 +1994,19 @@ describe('RuleSetService', () => {
     expect(reasonOf(answer.c)).toMatch(String(LIMITS.classicalLines))
   })
 
+  it('ровно предельное число строк classical ещё принимается', async () => {
+    // Границу пиннем с обеих сторон: с одним только «на одну больше» сдвиг
+    // сравнения с `>` на `>=` оставался бы зелёным
+    const lines = Array.from({ length: LIMITS.classicalLines }, (_, i) => `- DOMAIN,a${i}.com`)
+    const yaml = Buffer.from(`payload:\n${lines.join('\n')}\n`)
+    const { opts } = net({ 'https://example.com/c.yaml': yaml })
+    const svc = new RuleSetService(await newDir(), opts)
+    const answer = await svc.match({ address: 'x' }, [
+      http({ name: 'c', url: 'https://example.com/c.yaml', behavior: 'classical', format: 'yaml' }),
+    ])
+    expect(answer.c).toMatchObject({ state: 'lines', count: LIMITS.classicalLines })
+  })
+
   it('не наш отказ наружу не пересказывается', async () => {
     // Каталог кэша не создаётся: путь упирается в обычный файл. Отказ файловой
     // системы — наша ошибка, а не состояние набора
@@ -2006,16 +2020,47 @@ describe('RuleSetService', () => {
   })
 
   it('один упавший набор не отменяет ответы по остальным', async () => {
-    const file = join(await newDir(), 'not-a-dir')
-    writeFileSync(file, 'x')
-    const { opts } = net({ 'https://example.com/faceit.mrs': FACEIT })
-    const svc = new RuleSetService(file, opts)
-    const answer = await svc.match({ address: 'a.example.com' }, [
-      http(),
-      { name: 'i', kind: 'inline', payload: ['+.example.com'], behavior: 'domain', format: 'yaml' },
+    // Сосед обязан быть ЕЩЁ В ПОЛЁТЕ в момент отказа. Со встроенным набором
+    // тест был зелёным и на дефектном коде: у inline нет ни одного настоящего
+    // await, и ответ по нему успевал лечь в первом же микротаске
+    // Отказ обязан быть ТОЧЕЧНЫМ: сломав кэш целиком, мы уронили бы и соседа,
+    // и тест снова доказывал бы не то. Подкладываем каталог ровно на то имя,
+    // под которым кэш сохранит первый набор, — запись файла туда не пройдёт
+    const dir = await newDir()
+    const boomUrl = 'https://example.com/faceit.mrs'
+    await mkdir(join(dir, 'rulesets', createHash('sha256').update(boomUrl).digest('hex')), {
+      recursive: true,
+    })
+    const svc = new RuleSetService(dir, {
+      lookupImpl: PUBLIC_LOOKUP,
+      fetchImpl: (async (url: string) => {
+        if (url.endsWith('slow.mrs')) {
+          await new Promise((resolve) => setTimeout(resolve, 30))
+          return new Response(new Uint8Array(FACEIT), { status: 200 })
+        }
+        return new Response(new Uint8Array(FACEIT), { status: 200 })
+      }) as unknown as typeof fetch,
+    })
+    const answer = await svc.match({ address: 'faceit.com' }, [
+      http({ name: 'boom' }),
+      http({ name: 'slow', url: 'https://example.com/slow.mrs' }),
     ])
-    expect(answer.faceit).toMatchObject({ state: 'unavailable' })
-    expect(answer.i).toMatchObject({ state: 'yes' })
+    expect(answer.boom).toMatchObject({ state: 'unavailable' })
+    expect(answer.slow).toMatchObject({ state: 'yes' })
+  })
+
+  it('одна ссылка в документе скачивается один раз', async () => {
+    // Наборы документа грузятся разом, и одна ссылка встречается в нём не раз:
+    // без дедупликации это кратный трафик и запись в один файл кэша из
+    // нескольких мест сразу
+    const { opts, asked } = net({ 'https://example.com/faceit.mrs': FACEIT })
+    const svc = new RuleSetService(await newDir(), opts)
+    await svc.match({ address: 'faceit.com' }, [
+      http({ name: 'a' }),
+      http({ name: 'b' }),
+      http({ name: 'c' }),
+    ])
+    expect(asked).toHaveLength(1)
   })
 
   it('второй запрос берёт файл из кэша', async () => {
@@ -2150,10 +2195,29 @@ interface Remembered {
   expiresAt: number
 }
 
+/**
+ * Причина неудачной загрузки по-русски. Сообщения undici английские и
+ * технические («fetch failed», «getaddrinfo ENOTFOUND»), а пользователь читает
+ * их как состояние своего набора. Незнакомое пропускаем как есть: выдуманный
+ * перевод хуже непонятного оригинала, а сам `err` доезжает в `cause`.
+ */
+function downloadReason(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  const code = (err as { code?: string; cause?: { code?: string } }).code ?? (err as { cause?: { code?: string } }).cause?.code
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'имя хоста не разрешается'
+  if (code === 'ECONNREFUSED') return 'соединение отклонено'
+  if (code === 'ETIMEDOUT' || /timeout|timed out/i.test(message)) return 'истекло время ожидания'
+  if (/^Сервер ответил /.test(message) || /больше d+ байт/.test(message)) return message
+  if (/внутреннюю сеть|Некорректная ссылка|должна начинаться|редирект/i.test(message)) return message
+  return message
+}
+
 export class RuleSetService {
   private readonly cache: RuleSetCache
   /** Разобранное держим в памяти: набор подсетей крупной страны разбирается заметно */
   private readonly parsed = new Map<string, Remembered>()
+  /** Загрузки в полёте: одна ссылка в документе встречается не раз */
+  private readonly loading = new Map<string, Promise<Parsed>>()
   private parsedBytes = 0
 
   constructor(
@@ -2230,6 +2294,24 @@ export class RuleSetService {
     const hit = this.parsed.get(cacheKey)
     if (hit !== undefined && hit.expiresAt > Date.now()) return hit.parsed
 
+    // Наборы одного документа грузятся разом, и одна ссылка встречается в нём
+    // не раз. Без этой карты каждый её экземпляр качал бы файл сам и писал бы
+    // в один и тот же путь кэша одновременно с соседями: лишний трафик кратно
+    // числу повторов и чтение поверх недописанного файла
+    const inFlight = this.loading.get(cacheKey)
+    if (inFlight !== undefined) return inFlight
+    const started = this.loadUncached(set, cacheKey)
+    this.loading.set(cacheKey, started)
+    try {
+      return await started
+    } finally {
+      this.loading.delete(cacheKey)
+    }
+  }
+
+  private async loadUncached(set: RuleSetDescriptor, cacheKey: string): Promise<Parsed> {
+    if (set.url === undefined) throw new RuleSetError('У набора не указана ссылка')
+
     const ttl = Math.max(LIMITS.minTtlMs, (set.intervalSec ?? 0) * 1000)
     const cached = await this.cache.read(set.url, ttl)
 
@@ -2243,9 +2325,7 @@ export class RuleSetService {
         ...this.net,
         maxBytes: LIMITS.wireBytes,
       }).catch((err: unknown) => {
-        throw new RuleSetError(
-          `не удалось скачать: ${err instanceof Error ? err.message : String(err)}`,
-        )
+        throw new RuleSetError(`не удалось скачать: ${downloadReason(err)}`, { cause: err })
       })
       loadedAt = Date.now()
       await this.cache.write(set.url, bytes)
@@ -2257,10 +2337,14 @@ export class RuleSetService {
   }
 
   private build(set: RuleSetDescriptor, bytes: Uint8Array): Parsed {
-    const size = bytes.byteLength
+    // Размер меряем ПОСЛЕ распаковки. Байты с провода тут не годятся: у .mrs
+    // они впятеро меньше распакованного, и счётчик показывал бы 64 МБ там, где
+    // в памяти лежат сотни, — вытеснение не сработало бы ни разу
+    let size = bytes.byteLength
 
     if (set.format === 'mrs') {
       const file = parseMrs(bytes, LIMITS.plainBytes)
+      size = file.body.length
       if (file.behavior !== set.behavior) {
         // Документ обещал одно, файл содержит другое: считать по файлу — значит
         // ответить не на тот вопрос, который задало правило
@@ -2412,11 +2496,26 @@ function matchDomainEntry(entry: string, target: string): boolean {
 export function ipCidrSetFromLines(lines: string[]): IpMatcher {
   const cidrs: GeoCidr[] = []
   for (const line of lines) {
-    const [addr, len] = line.trim().split('/')
-    const ip = addr === undefined ? null : ipToBytes(addr)
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    const slash = trimmed.indexOf('/')
+    const ip = ipToBytes(slash < 0 ? trimmed : trimmed.slice(0, slash))
     if (ip === null) continue // строку, которую не разобрали, молча пропускаем
-    const prefix = len === undefined ? ip.length * 8 : Number(len)
-    if (!Number.isInteger(prefix) || prefix < 0 || prefix > ip.length * 8) continue
+    const bits = ip.length * 8
+
+    let prefix = bits
+    if (slash >= 0) {
+      const lenText = trimmed.slice(slash + 1)
+      // Только десятичные цифры, и ничего больше. `Number` здесь опасен именно
+      // тем, что почти всегда прав: у записи с лишней косой (`10.0.0.0/`) он
+      // берёт пустую строку за НОЛЬ, и набор превращается в `0.0.0.0/0` —
+      // «совпадает со всем». Одна опечатка в чужом наборе делала бы правило
+      // `RULE-SET` совпавшим для любого адреса, и трассировка уверенно называла
+      // бы неверный маршрут. Заодно `Number` принимает `0x8` и ` 8 `.
+      if (!/^[0-9]{1,3}$/.test(lenText)) continue
+      prefix = Number(lenText)
+    }
+    if (prefix > bits) continue
     cidrs.push({ ip, prefix })
   }
   return { has: (ip: string) => ipMatches(cidrs, ip) }
@@ -2459,6 +2558,11 @@ app.post('/api/tools/ruleset/match', async (req) => {
 ставит сервис.
 
 - [ ] **Шаг 6: подключение в server.ts**
+
+`GEO_ALLOW_PRIVATE_URLS` сюда **не** передаётся, хотя у geo он есть. Разница в
+происхождении ссылки: адрес geo-базы задаёт администратор в настройках, а
+ссылку набора приносит документ шаблона. Открыть по этому флагу внутреннюю
+сеть чужому документу — расширить его смысл молча.
 
 В объявлении типов Fastify добавить `ruleset: RuleSetService`, в `ServerDeps` —
 `ruleset?: RuleSetService`, и декоратор:
@@ -2631,6 +2735,22 @@ describe('POST /api/tools/ruleset/match', () => {
 отвечать узнаваемо.
 
 - [ ] **Шаг 9: мутации**
+
+Четыре из этого списка добавлены по итогам ревью, и первая закрывает самый
+дорогой дефект первой редакции плана:
+
+- вернуть `Number(lenText)` вместо разбора десятичных цифр — падают тесты
+  текстовых наборов. `Number` от пустой строки даёт НОЛЬ, поэтому запись
+  `10.0.0.0/` ложилась в набор как `0.0.0.0/0`: одна опечатка в чужом наборе
+  делала правило `RULE-SET` совпавшим для ЛЮБОГО адреса;
+- пробрасывать чужую ошибку наружу из ветки — падает «один упавший набор не
+  отменяет ответы по остальным». Проверять это встроенным набором нельзя: у
+  него нет ни одного настоящего ожидания, и ответ по нему ложится раньше
+  отказа соседа. Нужен медленный сетевой набор, а отказ — точечный, иначе
+  падают оба;
+- убрать дедупликацию загрузок — падает «одна ссылка скачивается один раз»;
+- сдвинуть границу числа строк `classical` на `>=` — падает «ровно предельное
+  число строк ещё принимается».
 
 1. В `answer` для `ipcidr` убрать проверку `target.ip !== undefined` — падает
    «подсети отвечают по IP цели».
@@ -3224,6 +3344,17 @@ function judgeRule(ctx: Ctx, rule: MihomoRule | null, seen: Set<string>): Judged
 3. `FORBIDDEN_IN_CLASSICAL` очистить — падает «строка, запрещённая ядром».
 4. Ветку `pending` убрать — падает «пока ответы едут».
 5. `answer.state === 'unavailable'` → возвращать `NO` — падает «недоступный
+   набор останавливает проход».
+6. `unknown ??= …` заменить на `unknown = …` в любой из трёх веток
+   `evalClassical` — на тестах первой редакции все три такие мутации ВЫЖИВАЛИ:
+   вердикт «неизвестно» получался в обоих случаях, менялась только причина.
+   Нужен тест на ТЕКСТ: назван должен быть ПЕРВЫЙ непроверяемый элемент
+   набора, а не последний.
+
+И об одной формулировке. Текст остановки обязан содержать «набор правил»
+именно в этом падеже: на нём стоят два действующих теста. Вариант, где
+сначала идёт «содержимое набора правил», их роняет — порядок слов пришлось
+переставить.
    набор останавливает проход».
 
 - [ ] **Шаг 6: коммит**
