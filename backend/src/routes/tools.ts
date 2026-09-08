@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { YAMLParseError } from 'yaml'
 import { z } from 'zod'
 import { RuleSetError } from '../ruleset/errors.js'
+import { LIMITS } from '../ruleset/service.js'
 import { derivePublicKey, generateRealityKeypair } from '../tools/reality.js'
 import { probeRealityTarget, type RealityProbe } from '../tools/realityProbe.js'
 import { registerWarpAccount, type WarpRegister } from '../tools/warp.js'
@@ -50,9 +51,13 @@ const ruleSetPageSchema = z.object({
   q: z.string().optional(),
 })
 
-/** Тот же потолок, что у файла на проводе: документ со встроенными наборами
- *  в стандартный мегабайт Fastify не помещается */
-const RULESET_BODY_LIMIT = 8 * 1024 * 1024
+/**
+ * Тот же потолок, что у файла на проводе, и взятый ИЗ ТОГО ЖЕ места: документ
+ * со встроенными наборами в стандартный мегабайт Fastify не помещается. Второй
+ * литерал разошёлся бы с первым при первой же правке предела, и ни один тест
+ * этого не поймал бы.
+ */
+const RULESET_BODY_LIMIT = LIMITS.wireBytes
 
 const realitySchema = z.object({
   target: z.string().min(1),

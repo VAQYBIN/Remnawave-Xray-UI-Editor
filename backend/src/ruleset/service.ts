@@ -161,14 +161,9 @@ export class RuleSetService {
     sets: RuleSetDescriptor[],
   ): Promise<Record<string, RuleSetAnswer>> {
     const answers: Record<string, RuleSetAnswer> = {}
-    // Предел режет лишние наборы, а не весь запрос: документ с 65 наборами
-    // обязан получить ответ по первым 64 и честную причину по остальным
-    const allowed = sets.slice(0, this.limits.setsPerDocument)
-    for (const set of sets.slice(this.limits.setsPerDocument)) {
-      answers[set.name] = {
-        state: 'unavailable',
-        reason: `в документе больше ${this.limits.setsPerDocument} наборов — этот не проверялся`,
-      }
+    const { allowed, refused, reason } = this.withinDocumentLimit(sets)
+    for (const set of refused) {
+      answers[set.name] = { state: 'unavailable', reason }
     }
 
     // Ни одна из этих задач не отклоняется: иначе обход завершился бы на первом
@@ -371,6 +366,28 @@ export class RuleSetService {
   }
 
   /**
+   * Разделить наборы документа по пределу на документ. Предел режет НАБОР, а не
+   * запрос: первые 64 получают настоящий ответ, остальные — причину.
+   *
+   * Один хелпер на все три операции, и это не вкусовщина. У `match` срез был с
+   * самого начала, а `status` и `refresh` оставались с единственной защитой в
+   * виде размера тела: минимальный дескриптор весит меньше сотни байт, в
+   * восьмимегабайтное тело их влезает под сотню тысяч, и `refresh` пошёл бы
+   * качать по каждому. Находка ревью задачи 3.
+   */
+  private withinDocumentLimit(sets: RuleSetDescriptor[]): {
+    allowed: RuleSetDescriptor[]
+    refused: RuleSetDescriptor[]
+    reason: string
+  } {
+    return {
+      allowed: sets.slice(0, this.limits.setsPerDocument),
+      refused: sets.slice(this.limits.setsPerDocument),
+      reason: `в документе больше ${this.limits.setsPerDocument} наборов — этот не проверялся`,
+    }
+  }
+
+  /**
    * Прогнать задачи с пределом одновременности, сохраняя порядок результатов.
    *
    * Отказ ОДНОЙ задачи обрывает весь обход: соседи не дождутся своей очереди, и
@@ -400,7 +417,8 @@ export class RuleSetService {
    * читал бы пустой список секунд десять. Качает `refresh`, у него есть кнопка.
    */
   async status(sets: RuleSetDescriptor[]): Promise<RuleSetStatusItem[]> {
-    return this.pool(sets, async (set) => {
+    const { allowed, refused, reason } = this.withinDocumentLimit(sets)
+    const items = await this.pool(allowed, async (set) => {
       try {
         return await this.statusOf(set)
       } catch (err) {
@@ -411,6 +429,9 @@ export class RuleSetService {
         }
       }
     })
+    // Лишние идут строками с причиной, а не пропадают: строки нет — читается
+    // как «набора нет в документе»
+    return [...items, ...refused.map((set) => ({ name: set.name, state: 'error' as const, reason }))]
   }
 
   private async statusOf(set: RuleSetDescriptor): Promise<RuleSetStatusItem> {
@@ -453,7 +474,9 @@ export class RuleSetService {
    * загружен», и пользователь жал бы кнопку по кругу, не понимая, что не так.
    */
   async refresh(sets: RuleSetDescriptor[], names?: string[]): Promise<RuleSetStatusItem[]> {
-    const wanted = sets.filter(
+    // Качаем только внутри предела: без этого один запрос заказывал бы
+    // столько загрузок, сколько дескрипторов уместилось в тело
+    const wanted = this.withinDocumentLimit(sets).allowed.filter(
       (set) => set.kind === 'http' && (names === undefined || names.includes(set.name)),
     )
     const failures = new Map<string, string>()

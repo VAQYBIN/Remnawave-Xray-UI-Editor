@@ -109,6 +109,38 @@ describe('status', () => {
   })
 })
 
+describe('предел на документ', () => {
+  // Предел режет НАБОР, а не запрос. У match срез был с самого начала, а
+  // status и refresh оставались с единственной защитой в виде размера тела:
+  // минимальный дескриптор весит меньше сотни байт, и в восьмимегабайтное тело
+  // их влезает под сотню тысяч — refresh пошёл бы качать по каждому
+  const many = (count: number) =>
+    Array.from({ length: count }, (_, i) =>
+      httpSet({ name: `s${i}`, url: `https://example.com/${i}.mrs` }),
+    )
+
+  it('status отвечает по первым 64 и называет причину по остальным', async () => {
+    const { service, downloads } = makeService()
+    const items = await service.status(many(65))
+    expect(items).toHaveLength(65)
+    const last = items.find((i) => i.name === 's64')
+    expect(last?.state).toBe('error')
+    expect(last?.reason).toMatch(/больше 64 наборов/)
+    // Строка на месте, а не пропала: её отсутствие читалось бы как «набора нет
+    // в документе»
+    expect(items.find((i) => i.name === 's0')?.state).toBe('missing')
+    expect(downloads()).toBe(0)
+  })
+
+  it('refresh не заказывает загрузок сверх предела', async () => {
+    const { service, downloads } = makeService()
+    await service.refresh(many(65))
+    // Ровно 64, а не 65: иначе один запрос заказывал бы столько загрузок,
+    // сколько дескрипторов уместилось в тело
+    expect(downloads()).toBe(64)
+  })
+})
+
 describe('refresh', () => {
   it('обновление не раздувает счётчик памяти', async () => {
     // Забыть вычесть байты выброшенного набора — значит растить счётчик на
