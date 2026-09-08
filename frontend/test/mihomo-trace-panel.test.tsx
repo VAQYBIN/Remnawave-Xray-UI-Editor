@@ -25,6 +25,15 @@ function rows() {
   return within(screen.getByRole('list', { name: 'Правила' })).getAllByRole('listitem')
 }
 
+/** Настоящий разбор документа без единого правила */
+function traceEmpty(): MihomoTraceResult {
+  return traceMihomo(
+    parseMihomo('mode: rule\n'),
+    { address: 'a.com', port: 443, network: 'tcp' },
+    { loaded: false, answers: {}, missing: [] },
+  )
+}
+
 describe('MihomoTracePanel', () => {
   it('называет победившее правило и его цель', () => {
     render(<MihomoTracePanel result={result} onClose={noop} onSelectRule={noop} />)
@@ -50,17 +59,13 @@ describe('MihomoTracePanel', () => {
 
   /**
    * Панель держала ветку «Правил в документе нет — трассировать нечего», а
-   * дойти до неё было нельзя: `traceMihomo` оставляет `winner` пустым РОВНО
-   * при остановке прохода. Документ без правил приходит сюда дефолтным
-   * маршрутом — это и проверяем настоящим разбором, а не собранным вручную
-   * результатом: только он доказывает, что снесённая ветка была мёртвой.
+   * дойти до неё было нельзя: победитель пуст РОВНО при остановке прохода.
+   * Документ без правил приходит сюда дефолтным маршрутом — это и проверяем
+   * настоящим разбором, а не собранным вручную результатом: только он
+   * доказывает, что снесённая ветка была мёртвой.
    */
   it('документ без правил показывает дефолтный маршрут, а не «трассировать нечего»', () => {
-    const empty = traceMihomo(parseMihomo('mode: rule\n'), { address: 'a.com', port: 443, network: 'tcp' }, {
-      loaded: false,
-      answers: {},
-      missing: [],
-    })
+    const empty = traceEmpty()
     expect(empty.winner).toEqual({ ruleIndex: null, target: 'DIRECT' })
     render(<MihomoTracePanel result={empty} onClose={noop} onSelectRule={noop} />)
     const summary = summaryOf()
@@ -139,9 +144,12 @@ describe('MihomoTracePanel', () => {
     expect(screen.queryByText(note)).not.toBeInTheDocument()
     second.unmount()
 
-    // Правил нет вовсе
+    // Правил нет вовсе. Результат берётся настоящим разбором, а не собранным
+    // вручную: раньше здесь стоял литерал без победителя и без остановки —
+    // состояние, которого `traceMihomo` не производит, а `MihomoTraceOutcome`
+    // теперь и не разрешает выразить
     render(
-      <MihomoTracePanel result={{ verdicts: [], caveats: [] }} onClose={noop} onSelectRule={noop} />,
+      <MihomoTracePanel result={traceEmpty()} onClose={noop} onSelectRule={noop} />,
     )
     expect(screen.queryByText(note)).not.toBeInTheDocument()
   })

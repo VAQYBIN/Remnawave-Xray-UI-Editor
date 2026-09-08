@@ -48,14 +48,39 @@ export interface MihomoRuleVerdict {
   sets?: { name: string; count: number }[]
 }
 
-export interface MihomoTraceResult {
-  verdicts: MihomoRuleVerdict[]
-  /** ruleIndex === null — ни одно правило не совпало и MATCH в списке нет */
-  winner?: { ruleIndex: number | null; target: string }
-  /** Правило, на котором проход остановлен: проверить его редактор не может */
-  stopped?: { index: number; reason: string }
-  caveats: string[]
+/** Куда уйдёт трафик; ruleIndex === null — ни одно правило не совпало и MATCH в списке нет */
+export interface MihomoTraceWinner {
+  ruleIndex: number | null
+  target: string
 }
+
+/** Правило, на котором проход остановлен: проверить его редактор не может */
+export interface MihomoTraceStop {
+  index: number
+  reason: string
+}
+
+/**
+ * Исход прохода — РОВНО одно из двух, и это сказано типом, а не соглашением.
+ * Победитель есть всегда, кроме остановки: список, пройденный до конца без
+ * совпадений, получает дефолтный `DIRECT`, поэтому «ни того, ни другого» не
+ * бывает даже у документа без правил. «Оба сразу» не бывает тем более:
+ * ниже остановки не выполняется ничего.
+ *
+ * Раньше оба поля были просто необязательными, и тип разрешал все четыре
+ * сочетания. Расплачивалась за это панель — мёртвой защитной веткой, которая
+ * читалась как поддержанный сценарий; а следующий её читатель мог бы вывести
+ * победителя, не спросив об остановке, и получить уверенный неверный ответ
+ * там, где весь смысл разбора — честно сказать «не знаю».
+ */
+export type MihomoTraceOutcome =
+  | { winner: MihomoTraceWinner; stopped?: never }
+  | { winner?: never; stopped: MihomoTraceStop }
+
+export type MihomoTraceResult = {
+  verdicts: MihomoRuleVerdict[]
+  caveats: string[]
+} & MihomoTraceOutcome
 
 /** Условие правила: тип и значение — то же, из чего состоит и само правило */
 interface Cond {
@@ -781,8 +806,8 @@ export function traceMihomo(
   }
 
   const verdicts: MihomoRuleVerdict[] = []
-  let winner: MihomoTraceResult['winner']
-  let stopped: MihomoTraceResult['stopped']
+  let winner: MihomoTraceWinner | undefined
+  let stopped: MihomoTraceStop | undefined
   const notes: Notes = { opened: [], passed: [] }
 
   const entries = rulesOf(md)
@@ -819,14 +844,16 @@ export function traceMihomo(
     break
   }
 
+  if (stopped !== undefined) {
+    // Победителя нет и придумать его нечем: всё, что ниже остановки, не разбиралось
+    return { verdicts, stopped, caveats: collectCaveats(ctx, undefined, notes) }
+  }
+
   // Дошли до конца списка и ни одно правило не совпало. MATCH в таком документе
   // нет по построению (он совпадает всегда), и весь неподошедший трафик ядро
   // отправляет напрямую.
-  if (winner === undefined && stopped === undefined) {
-    winner = { ruleIndex: null, target: 'DIRECT' }
-  }
-
-  return { verdicts, winner, stopped, caveats: collectCaveats(ctx, winner, notes) }
+  const settled: MihomoTraceWinner = winner ?? { ruleIndex: null, target: 'DIRECT' }
+  return { verdicts, winner: settled, caveats: collectCaveats(ctx, settled, notes) }
 }
 
 /** Что случилось по дороге и требует объяснения — сам вердикт об этом молчит */
@@ -898,7 +925,7 @@ function cacheAgeCaveats(ctx: Ctx): string[] {
 
 function collectCaveats(
   ctx: Ctx,
-  winner: MihomoTraceResult['winner'],
+  winner: MihomoTraceWinner | undefined,
   notes: Notes,
 ): string[] {
   const caveats: string[] = []

@@ -3,7 +3,7 @@
 // прохода по адресу есть ОСТАНОВКА, которой у Xray не бывает. Общая обёртка
 // свелась бы к двум ветками почти на каждый блок.
 
-import type { MihomoTraceResult } from '../../entities/mihomo/trace'
+import type { MihomoTraceOutcome, MihomoTraceResult } from '../../entities/mihomo/trace'
 import type { MatchState } from '../../entities/xray'
 import { Button } from '../../shared/ui'
 import { groupDigits } from '../../shared/lib/format'
@@ -18,24 +18,24 @@ const STATE_LABEL: Record<MatchState, string> = {
  * Итог трассы. Состояний ровно три, и это ВЕСЬ их список: остановка прохода,
  * дефолтный маршрут (`ruleIndex === null`) и победившее правило.
  *
- * Четвёртого — «правил в документе нет» — не бывает: `traceMihomo` оставляет
- * `winner` пустым РОВНО при остановке, а во всех остальных случаях, включая
- * документ вовсе без правил, ставит дефолтный `DIRECT`. Такая ветка здесь
- * стояла и была недостижима: мёртвый текст, читавшийся как поддержанный
- * сценарий (находка ревью). Осталась только проверка ради сужения типа —
- * связь `winner`/`stopped` типом не выражена, — и она ничего не обещает.
+ * Четвёртого — «правил в документе нет» — не бывает: победитель пуст РОВНО при
+ * остановке, а во всех остальных случаях, включая документ вовсе без правил,
+ * стоит дефолтный `DIRECT`. Раньше это было соглашением, и здесь стояла мёртвая
+ * защитная ветка, читавшаяся как поддержанный сценарий (находка ревью). Теперь
+ * это `MihomoTraceOutcome`: после проверки остановки победитель определён по
+ * типу, и защищаться не от чего.
  */
-function Verdict({ winner, stopped }: Pick<MihomoTraceResult, 'winner' | 'stopped'>) {
-  // Ответа нет и придумывать его нельзя: правило выше могло совпасть, и тогда
-  // всё, что ниже, не выполняется вовсе
-  if (stopped !== undefined) {
+function Verdict({ outcome }: { outcome: MihomoTraceOutcome }) {
+  if (outcome.stopped !== undefined) {
     return (
       <span className="field-warning">
-        {`Проход остановлен на правиле #${stopped.index + 1}: ${stopped.reason}. Куда уйдёт трафик, редактор сказать не может.`}
+        {`Проход остановлен на правиле #${outcome.stopped.index + 1}: ${outcome.stopped.reason}. Куда уйдёт трафик, редактор сказать не может.`}
       </span>
     )
   }
-  if (winner === undefined) return null
+  // Ответа нет и придумывать его нельзя: правило выше могло совпасть, и тогда
+  // всё, что ниже, не выполняется вовсе
+  const { winner } = outcome
   if (winner.ruleIndex === null) {
     return (
       <>
@@ -63,10 +63,11 @@ export function MihomoTracePanel({
   onSelectRule: (index: number) => void
   onOpenGeo?: () => void
 }) {
-  const { winner, stopped } = result
+  // Разбирать `result` на переменные нельзя: связь победителя с остановкой живёт
+  // в типе результата, и деструктуризация её теряет
   // Проход оборвался, только если он на чём-то остановился или кого-то выбрал:
   // дефолтный маршрут (ruleIndex === null) значит, что список пройден целиком
-  const truncated = stopped !== undefined || typeof winner?.ruleIndex === 'number'
+  const truncated = result.stopped !== undefined || typeof result.winner?.ruleIndex === 'number'
 
   return (
     <aside className="trace-panel">
@@ -79,7 +80,7 @@ export function MihomoTracePanel({
       </div>
 
       <div className="trace-winner" aria-label="Итог трассировки">
-        <Verdict winner={winner} stopped={stopped} />
+        <Verdict outcome={result} />
       </div>
 
       {result.caveats.length > 0 && (
@@ -104,7 +105,7 @@ export function MihomoTracePanel({
             key={v.index}
             className="trace-rule"
             data-state={v.state}
-            data-winner={v.index === winner?.ruleIndex || undefined}
+            data-winner={v.index === result.winner?.ruleIndex || undefined}
           >
             <button type="button" className="trace-rule-head" onClick={() => onSelectRule(v.index)}>
               <span className="trace-rule-no">{`#${v.index + 1}`}</span>
@@ -135,7 +136,7 @@ export function MihomoTracePanel({
           список и документ без правил ничего не скрывают, и сообщать им не о чем */}
       {truncated && (
         <p className="muted trace-pass-note">
-          {stopped !== undefined
+          {result.stopped !== undefined
             ? 'Показаны правила, до которых дошёл проход: ниже остановившего правила список не выполняется.'
             : 'Показаны правила, до которых дошёл проход: ниже победившего правила список не выполняется.'}
         </p>
