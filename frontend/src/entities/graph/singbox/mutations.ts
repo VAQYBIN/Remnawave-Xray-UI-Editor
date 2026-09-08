@@ -253,9 +253,13 @@ export function outboundByTag(doc: SingboxDoc, tag: string): SingboxOutbound | u
  * и искать по новому значило бы не найти ничего.
  */
 export function withOutboundAt(doc: SingboxDoc, tag: string, next: SingboxOutbound): SingboxDoc {
-  const at = findOutbound(doc, tag)
-  if (at < 0) return doc
+  const slot = findOutboundSlot(doc, tag)
+  if (slot === null) return doc
   const copy = clone(doc)
-  copy.outbounds![at] = next
+  if (slot.key === 'endpoints') {
+    copy.endpoints![slot.at] = next as unknown as Record<string, unknown>
+  } else {
+    copy.outbounds![slot.at] = next
+  }
   return copy
 }

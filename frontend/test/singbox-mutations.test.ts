@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseSingbox } from '../src/entities/singbox/parse'
-import type { SingboxDoc } from '../src/entities/singbox/types'
+import type { SingboxDoc, SingboxOutbound } from '../src/entities/singbox/types'
 import {
   addRule,
   connectSingbox,
@@ -165,5 +165,12 @@ describe('правки структуры sing-box', () => {
     expect(after.doc!.endpoints).toHaveLength(0)
     expect(after.doc!.outbounds).toHaveLength(1)
     expect(outboundByTag(withEndpoint, 'wg')?.type).toBe('wireguard')
+    // Писатель обязан видеть ровно то же, что читатель: иначе форма на карточке
+    // конечной точки принимала бы правку и молча возвращала прежний документ
+    const renamed = withOutboundAt(withEndpoint, 'wg', {
+      type: 'wireguard',
+      tag: 'wg-2',
+    } as SingboxOutbound)
+    expect(renamed.endpoints![0]!.tag).toBe('wg-2')
   })
 })
