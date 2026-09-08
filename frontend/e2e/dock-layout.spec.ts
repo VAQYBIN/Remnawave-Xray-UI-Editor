@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { MIHOMO_UUID, UUID, mockApi, mockMihomo } from './mocks'
+import { MIHOMO_UUID, TEMPLATE_UUID, UUID, mockApi, mockMihomo, mockTemplates } from './mocks'
 
 // Раскрытый инструмент уходит во вторую строку дока. Проверяем не пиксели, а
 // само свойство: док растёт вниз, а не вширь — иначе он снова накроет правую
@@ -104,3 +104,81 @@ for (const width of [1280, 1100, 900]) {
     expect(saveRight).toBeLessThanOrEqual(width + 1)
   })
 }
+
+// Те же измерения на редакторе ПРОФИЛЯ. Причина раздутой колонки жила в общем
+// `.wb-topbar`, а лечение — тоже общее, но проверено было только на Mihomo;
+// у профиля свой набор кнопок топбара и свой док (шире: там ещё «+ Рецепт»),
+// поэтому «у соседа зелено» здесь ничего не доказывает.
+for (const width of [1280, 1100, 900]) {
+  test(`док и топбар профиля остаются в окне на ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await mockApi(page)
+    await page.goto(`/profiles/${UUID}`)
+    await page.evaluate(() => document.fonts.ready)
+
+    // Мерим КНОПКИ, а не коробку дока. Коробка честно держится в окне и без
+    // переноса — просто её содержимое из неё вываливается, и мимо такой
+    // проверки мутация «убрать flex-wrap» проходила зелёной.
+    const buttons = await page.locator('.wb-dock').evaluate((el) => {
+      const rects = [...el.querySelectorAll('button')].map((b) => b.getBoundingClientRect())
+      return { left: Math.min(...rects.map((r) => r.left)), right: Math.max(...rects.map((r) => r.right)) }
+    })
+    expect(buttons.left, 'левый край кнопок дока').toBeGreaterThanOrEqual(-1)
+    expect(buttons.right, 'правый край кнопок дока').toBeLessThanOrEqual(width + 1)
+
+    await page.getByRole('button', { name: 'Куда пойдёт трафик' }).click()
+    await expect(page.getByLabel('Адрес')).toBeVisible()
+
+    const bar = page.locator('.trace-bar')
+    const metrics = await bar.evaluate((el) => ({
+      right: el.getBoundingClientRect().right,
+      inputs: [...el.querySelectorAll('input:not([inputmode="numeric"])')].map(
+        (i) => i.getBoundingClientRect().width,
+      ),
+    }))
+    expect(metrics.right, 'правый край строки трассировки').toBeLessThanOrEqual(width + 1)
+    expect(Math.min(...metrics.inputs), 'самое узкое поле').toBeGreaterThan(80)
+
+    const saveRight = await page
+      .getByRole('button', { name: 'Сохранить в панель' })
+      .evaluate((el) => el.getBoundingClientRect().right)
+    expect(saveRight, 'правый край кнопки сохранения').toBeLessThanOrEqual(width + 1)
+  })
+}
+
+// Самый широкий док из трёх — у редактора шаблона Xray: 1145px против 1107 у
+// профиля и 565 у Mihomo (замер на окне 1600px). Проверка стоит на нём отдельно
+// именно поэтому: порог переноса задан его шириной, и подвинуть его молча —
+// значит вернуть кнопки за край окна на всех остальных.
+test('док редактора шаблона Xray — самый широкий — остаётся в окне на 900px', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 })
+  await mockApi(page)
+  await mockTemplates(page)
+  await page.goto(`/templates/${TEMPLATE_UUID}`)
+  await page.locator('.wb-dock').waitFor()
+  await page.evaluate(() => document.fonts.ready)
+
+  const buttons = await page.locator('.wb-dock').evaluate((el) => {
+    const rects = [...el.querySelectorAll('button')].map((b) => b.getBoundingClientRect())
+    return { left: Math.min(...rects.map((r) => r.left)), right: Math.max(...rects.map((r) => r.right)) }
+  })
+  expect(buttons.left, 'левый край кнопок дока').toBeGreaterThanOrEqual(-1)
+  expect(buttons.right, 'правый край кнопок дока').toBeLessThanOrEqual(901)
+})
+
+// Обратная сторона переноса: там, где места хватает, док обязан остаться ОДНОЙ
+// строкой. Без явной `width: max-content` перенос обнуляет min-content дока, и
+// панель React Flow (абсолютная, `left: 50%`) сжимается до половины холста —
+// док становится двухстрочным на пустом месте (замер: 770px на окне 1600px).
+// Оба края при этом в окне, поэтому проверки выше такую потерю не увидят.
+test('на широком окне док остаётся одной строкой', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await mockApi(page)
+  await page.goto(`/profiles/${UUID}`)
+  await page.locator('.wb-dock').waitFor()
+  await page.evaluate(() => document.fonts.ready)
+
+  const height = await page.locator('.wb-dock').evaluate((el) => el.getBoundingClientRect().height)
+  // Строка — 48px, две — 96px: порог посередине различает их с запасом
+  expect(height, 'высота дока').toBeLessThan(70)
+})
