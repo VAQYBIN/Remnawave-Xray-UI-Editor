@@ -1746,13 +1746,13 @@ export class RuleSetService {
 - [ ] **Шаг 1: падающий тест сервиса**
 
 ```ts
-// backend/test/ruleset-service.test.ts
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { RuleSetService, type RuleSetDescriptor } from '../src/ruleset/service.js'
+import { zstdCompressSync } from 'node:zlib'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { LIMITS, RuleSetService, type RuleSetDescriptor } from '../src/ruleset/service.js'
 
 const DIR = join(import.meta.dirname, 'fixtures', 'ruleset')
 const newDir = () => mkdtemp(join(tmpdir(), 'ruleset-svc-'))
@@ -1765,13 +1765,15 @@ function net(files: Record<string, Uint8Array | number>) {
     asked,
     opts: {
       lookupImpl: PUBLIC_LOOKUP,
-      fetchImpl: async (url: string) => {
+      fetchImpl: (async (url: string) => {
         asked.push(url)
         const hit = files[url]
         if (hit === undefined) return new Response('', { status: 404 })
         if (typeof hit === 'number') return new Response('', { status: hit })
-        return new Response(hit, { status: 200 })
-      },
+        // Копия ради типа: Buffer из readFileSync — Uint8Array<ArrayBufferLike>,
+        // а телу ответа нужен Uint8Array<ArrayBuffer>
+        return new Response(new Uint8Array(hit), { status: 200 })
+      }) as unknown as typeof fetch,
     },
   }
 }
@@ -1788,6 +1790,23 @@ const http = (over: Partial<RuleSetDescriptor> = {}): RuleSetDescriptor => ({
 const FACEIT = readFileSync(join(DIR, 'faceit.mrs'))
 const PRIVATE_IPS = readFileSync(join(DIR, 'geoip-private.mrs'))
 
+/** Собранный вручную `.mrs` с видом `classical`: такого файла в экосистеме нет */
+function classicalMrs(): Buffer {
+  const header = Buffer.alloc(21)
+  header.write('MRS', 0, 'latin1')
+  header[3] = 1
+  header[4] = 2 // classical
+  header.writeBigInt64BE(3n, 5)
+  header.writeBigInt64BE(0n, 13)
+  return zstdCompressSync(header)
+}
+
+const reasonOf = (a: unknown): string => (a as { reason: string }).reason
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('RuleSetService', () => {
   it('домен внутри набора — да, снаружи — нет', async () => {
     const { opts } = net({ 'https://example.com/faceit.mrs': FACEIT })
@@ -1802,7 +1821,9 @@ describe('RuleSetService', () => {
     const { opts } = net({ 'https://example.com/p.mrs': PRIVATE_IPS })
     const svc = new RuleSetService(await newDir(), opts)
     const d = http({ name: 'p', url: 'https://example.com/p.mrs', behavior: 'ipcidr' })
-    expect((await svc.match({ address: 'x', ip: '10.0.0.1' }, [d])).p).toMatchObject({ state: 'yes' })
+    expect((await svc.match({ address: 'x', ip: '10.0.0.1' }, [d])).p).toMatchObject({
+      state: 'yes',
+    })
     expect((await svc.match({ address: 'x', ip: '8.8.8.8' }, [d])).p).toMatchObject({ state: 'no' })
     expect((await svc.match({ address: 'x' }, [d])).p).toMatchObject({ state: 'no' })
   })
@@ -1827,12 +1848,94 @@ describe('RuleSetService', () => {
     expect(asked).toEqual([])
   })
 
+  it('inline перечитывает payload, а не помнит прошлый под тем же именем', async () => {
+    const { opts } = net({})
+    const svc = new RuleSetService(await newDir(), opts)
+    const first: RuleSetDescriptor = {
+      name: 'i',
+      kind: 'inline',
+      payload: ['+.example.com'],
+      behavior: 'domain',
+      format: 'yaml',
+    }
+    expect((await svc.match({ address: 'a.example.com' }, [first])).i).toMatchObject({
+      state: 'yes',
+    })
+    // Документ поправили: имя то же, содержимое другое
+    const second = { ...first, payload: ['+.other.com'] }
+    expect((await svc.match({ address: 'a.example.com' }, [second])).i).toMatchObject({
+      state: 'no',
+    })
+  })
+
+  it('текстовый набор доменов различает +. , *. , ведущую точку и точное имя', async () => {
+    const { opts } = net({})
+    const svc = new RuleSetService(await newDir(), opts)
+    const set = (payload: string[]): RuleSetDescriptor => ({
+      name: 'i',
+      kind: 'inline',
+      payload,
+      behavior: 'domain',
+      format: 'yaml',
+    })
+    const ask = async (payload: string[], address: string) =>
+      (await svc.match({ address }, [set(payload)])).i
+
+    expect(await ask(['+.example.com'], 'example.com')).toMatchObject({ state: 'yes' })
+    expect(await ask(['+.example.com'], 'a.b.example.com')).toMatchObject({ state: 'yes' })
+    expect(await ask(['*.example.com'], 'a.example.com')).toMatchObject({ state: 'yes' })
+    expect(await ask(['*.example.com'], 'a.b.example.com')).toMatchObject({ state: 'no' })
+    expect(await ask(['*.example.com'], 'example.com')).toMatchObject({ state: 'no' })
+    expect(await ask(['.example.com'], 'a.example.com')).toMatchObject({ state: 'yes' })
+    expect(await ask(['.example.com'], 'example.com')).toMatchObject({ state: 'no' })
+    expect(await ask(['example.com'], 'EXAMPLE.COM')).toMatchObject({ state: 'yes' })
+    expect(await ask(['example.com'], 'a.example.com')).toMatchObject({ state: 'no' })
+    expect(await ask(['example.com'], 'notexample.com')).toMatchObject({ state: 'no' })
+  })
+
+  it('текстовый набор подсетей считает по CIDR и пропускает неразбираемые строки', async () => {
+    const { opts } = net({})
+    const svc = new RuleSetService(await newDir(), opts)
+    const d: RuleSetDescriptor = {
+      name: 'i',
+      kind: 'inline',
+      payload: ['не адрес', '10.0.0.0/8', '2001:db8::/32', '1.2.3.4/64'],
+      behavior: 'ipcidr',
+      format: 'yaml',
+    }
+    expect((await svc.match({ address: 'x', ip: '10.1.2.3' }, [d])).i).toMatchObject({
+      state: 'yes',
+    })
+    expect((await svc.match({ address: 'x', ip: '2001:db8::1' }, [d])).i).toMatchObject({
+      state: 'yes',
+    })
+    expect((await svc.match({ address: 'x', ip: '11.0.0.1' }, [d])).i).toMatchObject({ state: 'no' })
+    // Строка с невозможной длиной префикса выброшена, а не растянута на весь мир
+    expect((await svc.match({ address: 'x', ip: '1.2.3.4' }, [d])).i).toMatchObject({ state: 'no' })
+  })
+
+  it('подсеть без длины префикса — ровно один адрес', async () => {
+    const { opts } = net({})
+    const svc = new RuleSetService(await newDir(), opts)
+    const d: RuleSetDescriptor = {
+      name: 'i',
+      kind: 'inline',
+      payload: ['1.2.3.4'],
+      behavior: 'ipcidr',
+      format: 'yaml',
+    }
+    expect((await svc.match({ address: 'x', ip: '1.2.3.4' }, [d])).i).toMatchObject({
+      state: 'yes',
+    })
+    expect((await svc.match({ address: 'x', ip: '1.2.3.5' }, [d])).i).toMatchObject({ state: 'no' })
+  })
+
   it('404 даёт unavailable с кодом, а не «не совпало»', async () => {
     const { opts } = net({})
     const svc = new RuleSetService(await newDir(), opts)
     const answer = await svc.match({ address: 'x' }, [http()])
     expect(answer.faceit).toMatchObject({ state: 'unavailable' })
-    expect((answer.faceit as { reason: string }).reason).toMatch(/404/)
+    expect(reasonOf(answer.faceit)).toMatch(/404/)
   })
 
   it('битый файл даёт unavailable, а не исключение', async () => {
@@ -1840,6 +1943,79 @@ describe('RuleSetService', () => {
     const svc = new RuleSetService(await newDir(), opts)
     const answer = await svc.match({ address: 'x' }, [http()])
     expect(answer.faceit).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.faceit)).toMatch(/не распаковывается/)
+  })
+
+  it('вид из документа сверяется с видом из файла', async () => {
+    const { opts } = net({ 'https://example.com/faceit.mrs': PRIVATE_IPS })
+    const svc = new RuleSetService(await newDir(), opts)
+    const answer = await svc.match({ address: 'x', ip: '10.0.0.1' }, [http()])
+    expect(answer.faceit).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.faceit)).toMatch(/«domain».+«ipcidr»/)
+  })
+
+  it('вид classical в формате mrs не считается', async () => {
+    const { opts } = net({ 'https://example.com/faceit.mrs': classicalMrs() })
+    const svc = new RuleSetService(await newDir(), opts)
+    const answer = await svc.match({ address: 'x' }, [http({ behavior: 'classical' })])
+    expect(answer.faceit).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.faceit)).toMatch(/classical в формате mrs/)
+  })
+
+  it('mrs встроенным в документ не бывает', async () => {
+    const { opts } = net({})
+    const svc = new RuleSetService(await newDir(), opts)
+    const answer = await svc.match({ address: 'x' }, [
+      { name: 'i', kind: 'inline', payload: [], behavior: 'domain', format: 'mrs' },
+    ])
+    expect(answer.i).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.i)).toMatch(/mrs не бывает встроенным/)
+  })
+
+  it('набор без ссылки — причина про ссылку, а не про сеть', async () => {
+    const { opts, asked } = net({})
+    const svc = new RuleSetService(await newDir(), opts)
+    const answer = await svc.match({ address: 'x' }, [http({ url: undefined })])
+    expect(answer.faceit).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.faceit)).toMatch(/не указана ссылка/)
+    expect(asked).toEqual([])
+  })
+
+  it('слишком длинный classical не отдаётся целиком', async () => {
+    const lines = Array.from({ length: LIMITS.classicalLines + 1 }, (_, i) => `- DOMAIN,a${i}.com`)
+    const yaml = Buffer.from(`payload:\n${lines.join('\n')}\n`)
+    const { opts } = net({ 'https://example.com/c.yaml': yaml })
+    const svc = new RuleSetService(await newDir(), opts)
+    const answer = await svc.match({ address: 'x' }, [
+      http({ name: 'c', url: 'https://example.com/c.yaml', behavior: 'classical', format: 'yaml' }),
+    ])
+    expect(answer.c).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.c)).toMatch(String(LIMITS.classicalLines))
+  })
+
+  it('не наш отказ наружу не пересказывается', async () => {
+    // Каталог кэша не создаётся: путь упирается в обычный файл. Отказ файловой
+    // системы — наша ошибка, а не состояние набора
+    const file = join(await newDir(), 'not-a-dir')
+    writeFileSync(file, 'x')
+    const { opts } = net({ 'https://example.com/faceit.mrs': FACEIT })
+    const svc = new RuleSetService(file, opts)
+    const answer = await svc.match({ address: 'x' }, [http()])
+    expect(answer.faceit).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.faceit)).toBe('не удалось прочитать набор')
+  })
+
+  it('один упавший набор не отменяет ответы по остальным', async () => {
+    const file = join(await newDir(), 'not-a-dir')
+    writeFileSync(file, 'x')
+    const { opts } = net({ 'https://example.com/faceit.mrs': FACEIT })
+    const svc = new RuleSetService(file, opts)
+    const answer = await svc.match({ address: 'a.example.com' }, [
+      http(),
+      { name: 'i', kind: 'inline', payload: ['+.example.com'], behavior: 'domain', format: 'yaml' },
+    ])
+    expect(answer.faceit).toMatchObject({ state: 'unavailable' })
+    expect(answer.i).toMatchObject({ state: 'yes' })
   })
 
   it('второй запрос берёт файл из кэша', async () => {
@@ -1850,23 +2026,61 @@ describe('RuleSetService', () => {
     expect(asked).toHaveLength(1)
   })
 
+  it('через час набор перечитывается, а до часа — нет', async () => {
+    const { opts, asked } = net({ 'https://example.com/faceit.mrs': FACEIT })
+    const svc = new RuleSetService(await newDir(), opts)
+    const t0 = Date.now()
+    vi.useFakeTimers({ toFake: ['Date'], now: t0 })
+
+    await svc.match({ address: 'faceit.com' }, [http()])
+    vi.setSystemTime(t0 + 59 * 60 * 1000)
+    await svc.match({ address: 'faceit.com' }, [http()])
+    expect(asked).toHaveLength(1)
+
+    vi.setSystemTime(t0 + 61 * 60 * 1000)
+    await svc.match({ address: 'faceit.com' }, [http()])
+    expect(asked).toHaveLength(2)
+  })
+
+  it('interval длиннее часа удерживает набор, а короче часа — не учащает загрузку', async () => {
+    const { opts, asked } = net({ 'https://example.com/faceit.mrs': FACEIT })
+    const svc = new RuleSetService(await newDir(), opts)
+    const t0 = Date.now()
+    vi.useFakeTimers({ toFake: ['Date'], now: t0 })
+
+    // Час — нижняя граница: секунда из документа её не опускает
+    await svc.match({ address: 'faceit.com' }, [http({ intervalSec: 1 })])
+    vi.setSystemTime(t0 + 30 * 60 * 1000)
+    await svc.match({ address: 'faceit.com' }, [http({ intervalSec: 1 })])
+    expect(asked).toHaveLength(1)
+
+    // А длинный interval из документа соблюдается как есть
+    const long = http({ name: 'long', url: 'https://example.com/faceit.mrs', intervalSec: 24 * 3600 })
+    vi.setSystemTime(t0 + 5 * 3600 * 1000)
+    await svc.match({ address: 'faceit.com' }, [long])
+    expect(asked).toHaveLength(1)
+  })
+
   it('наборы сверх предела отвечают unavailable, но остальные считаются', async () => {
     const { opts } = net({ 'https://example.com/faceit.mrs': FACEIT })
     const svc = new RuleSetService(await newDir(), opts)
     const many = Array.from({ length: 70 }, (_, i) => http({ name: `n${i}` }))
     const answer = await svc.match({ address: 'faceit.com' }, many)
     expect(answer.n0).toMatchObject({ state: 'yes' })
+    expect(answer.n63).toMatchObject({ state: 'yes' })
+    expect(answer.n64).toMatchObject({ state: 'unavailable' })
     expect(answer.n69).toMatchObject({ state: 'unavailable' })
-    expect((answer.n69 as { reason: string }).reason).toMatch(/64/)
+    expect(reasonOf(answer.n69)).toMatch(/64/)
   })
 
   it('внутренний адрес отклоняется защитой от SSRF', async () => {
     const svc = new RuleSetService(await newDir(), {
       lookupImpl: async () => [{ address: '127.0.0.1' }],
-      fetchImpl: async () => new Response('', { status: 200 }),
+      fetchImpl: (async () => new Response('', { status: 200 })) as unknown as typeof fetch,
     })
     const answer = await svc.match({ address: 'x' }, [http({ url: 'https://internal/a.mrs' })])
     expect(answer.faceit).toMatchObject({ state: 'unavailable' })
+    expect(reasonOf(answer.faceit)).toMatch(/внутреннюю сеть/)
   })
 })
 ```
@@ -1879,7 +2093,6 @@ describe('RuleSetService', () => {
 - [ ] **Шаг 3: реализация сервиса**
 
 ```ts
-// backend/src/ruleset/service.ts
 // Загрузка и опрос наборов правил, на которые ссылается документ шаблона.
 //
 // Разделение с фронтендом проходит по инструменту: `domain` и `ipcidr` считаем
@@ -1914,6 +2127,7 @@ export interface RuleSetDescriptor {
   payload?: string[]
   behavior: RuleBehavior
   format: 'mrs' | 'yaml' | 'text'
+  /** Секунды из документа; сервис сам поднимает до часа, если меньше */
   intervalSec?: number
 }
 
@@ -1930,10 +2144,16 @@ type Parsed =
   | { kind: 'ipcidr'; matcher: IpMatcher; count: number; bytes: number }
   | { kind: 'classical'; lines: string[]; count: number; bytes: number }
 
+/** Разобранный набор помнится не навсегда: у него тот же срок годности, что у файла */
+interface Remembered {
+  parsed: Parsed
+  expiresAt: number
+}
+
 export class RuleSetService {
   private readonly cache: RuleSetCache
   /** Разобранное держим в памяти: набор подсетей крупной страны разбирается заметно */
-  private readonly parsed = new Map<string, Parsed>()
+  private readonly parsed = new Map<string, Remembered>()
   private parsedBytes = 0
 
   constructor(
@@ -1958,6 +2178,9 @@ export class RuleSetService {
       }
     }
 
+    // Ни одна из этих задач не отклоняется: иначе Promise.all завершился бы на
+    // первом же отказе, не дождавшись соседей, и часть наборов осталась бы без
+    // ответа вовсе
     await Promise.all(
       allowed.map(async (set) => {
         try {
@@ -1970,12 +2193,9 @@ export class RuleSetService {
             // разбираться с его документом вместо нашей ошибки
             reason: err instanceof RuleSetError ? err.message : 'не удалось прочитать набор',
           }
-          if (!(err instanceof RuleSetError)) throw err
         }
       }),
-    ).catch(() => {
-      // Одно упавшее не должно отменять остальные: ответы уже разложены выше
-    })
+    )
 
     return answers
   }
@@ -1995,42 +2215,51 @@ export class RuleSetService {
 
   private async load(set: RuleSetDescriptor): Promise<Parsed> {
     if (set.kind === 'inline') {
+      if (set.format === 'mrs') throw new RuleSetError('Формат mrs не бывает встроенным в документ')
+      // Встроенный набор не запоминаем: ключом было бы имя, а содержимое
+      // правится вместе с документом — запомненное отвечало бы за прошлую
+      // редакцию. Разбор списка строк и не стоит того, чтобы его беречь.
+      // Через parsePayload эти строки НЕ идут: там разбирается документ с
+      // ключом payload, а здесь уже готовые записи — второй разбор их потерял бы
       const lines = set.payload ?? []
-      return this.build(set, lines.join('\n'), null, `inline:${set.name}`)
+      return this.fromLines(set, lines, lines.join('\n').length)
     }
     if (set.url === undefined) throw new RuleSetError('У набора не указана ссылка')
 
     const cacheKey = `${set.url}|${set.behavior}|${set.format}`
     const hit = this.parsed.get(cacheKey)
-    if (hit !== undefined) return hit
+    if (hit !== undefined && hit.expiresAt > Date.now()) return hit.parsed
 
     const ttl = Math.max(LIMITS.minTtlMs, (set.intervalSec ?? 0) * 1000)
     const cached = await this.cache.read(set.url, ttl)
-    const bytes =
-      cached?.bytes ??
-      (await fetchExternalBytes(set.url, { ...this.net, maxBytes: LIMITS.wireBytes }).catch(
-        (err: unknown) => {
-          throw new RuleSetError(
-            `не удалось скачать: ${err instanceof Error ? err.message : String(err)}`,
-          )
-        },
-      ))
-    if (cached === null) await this.cache.write(set.url, bytes)
 
-    return this.build(set, null, bytes, cacheKey)
+    let bytes: Uint8Array
+    let loadedAt: number
+    if (cached !== null) {
+      bytes = cached.bytes
+      loadedAt = cached.loadedAt
+    } else {
+      bytes = await fetchExternalBytes(set.url, {
+        ...this.net,
+        maxBytes: LIMITS.wireBytes,
+      }).catch((err: unknown) => {
+        throw new RuleSetError(
+          `не удалось скачать: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      })
+      loadedAt = Date.now()
+      await this.cache.write(set.url, bytes)
+    }
+
+    const parsed = this.build(set, bytes)
+    this.remember(cacheKey, parsed, loadedAt + ttl)
+    return parsed
   }
 
-  private build(
-    set: RuleSetDescriptor,
-    text: string | null,
-    bytes: Uint8Array | null,
-    cacheKey: string,
-  ): Parsed {
-    const size = bytes?.byteLength ?? text?.length ?? 0
-    let parsed: Parsed
+  private build(set: RuleSetDescriptor, bytes: Uint8Array): Parsed {
+    const size = bytes.byteLength
 
     if (set.format === 'mrs') {
-      if (bytes === null) throw new RuleSetError('Формат mrs не бывает встроенным в документ')
       const file = parseMrs(bytes, LIMITS.plainBytes)
       if (file.behavior !== set.behavior) {
         // Документ обещал одно, файл содержит другое: считать по файлу — значит
@@ -2042,56 +2271,60 @@ export class RuleSetService {
       if (file.behavior === 'classical') {
         throw new RuleSetError('вид classical в формате mrs не встречается')
       }
-      parsed =
-        file.behavior === 'domain'
-          ? {
-              kind: 'domain',
-              matcher: domainMatcher(readDomainSet(file.body)),
-              count: file.count,
-              bytes: size,
-            }
-          : {
-              kind: 'ipcidr',
-              matcher: ipMatcher(readIpCidrSet(file.body)),
-              count: file.count,
-              bytes: size,
-            }
-    } else {
-      const source = text ?? Buffer.from(bytes!).toString('utf8')
-      const lines = parsePayload(source, set.format)
-      if (set.behavior === 'classical') {
-        if (lines.length > LIMITS.classicalLines) {
-          throw new RuleSetError(`в наборе больше ${LIMITS.classicalLines} строк`)
-        }
-        parsed = { kind: 'classical', lines, count: lines.length, bytes: size }
-      } else if (set.behavior === 'domain') {
-        parsed = {
-          kind: 'domain',
-          matcher: domainSetFromLines(lines),
-          count: lines.length,
-          bytes: size,
-        }
-      } else {
-        parsed = {
-          kind: 'ipcidr',
-          matcher: ipCidrSetFromLines(lines),
-          count: lines.length,
-          bytes: size,
-        }
-      }
+      return file.behavior === 'domain'
+        ? {
+            kind: 'domain',
+            matcher: domainMatcher(readDomainSet(file.body)),
+            count: file.count,
+            bytes: size,
+          }
+        : {
+            kind: 'ipcidr',
+            matcher: ipMatcher(readIpCidrSet(file.body)),
+            count: file.count,
+            bytes: size,
+          }
     }
 
-    this.remember(cacheKey, parsed)
-    return parsed
+    return this.fromLines(set, parsePayload(Buffer.from(bytes).toString('utf8'), set.format), size)
+  }
+
+  /** Разбор общий для текстового файла и для встроенного в документ списка */
+  private fromLines(set: RuleSetDescriptor, lines: string[], size: number): Parsed {
+    if (set.behavior === 'classical') {
+      if (lines.length > LIMITS.classicalLines) {
+        throw new RuleSetError(`в наборе больше ${LIMITS.classicalLines} строк`)
+      }
+      return { kind: 'classical', lines, count: lines.length, bytes: size }
+    }
+    if (set.behavior === 'domain') {
+      return {
+        kind: 'domain',
+        matcher: domainSetFromLines(lines),
+        count: lines.length,
+        bytes: size,
+      }
+    }
+    return {
+      kind: 'ipcidr',
+      matcher: ipCidrSetFromLines(lines),
+      count: lines.length,
+      bytes: size,
+    }
   }
 
   /** Разобранное вытесняем по объёму: счётчик, а не число наборов */
-  private remember(key: string, parsed: Parsed): void {
-    this.parsed.set(key, parsed)
+  private remember(key: string, parsed: Parsed, expiresAt: number): void {
+    const previous = this.parsed.get(key)
+    if (previous !== undefined) this.parsedBytes -= previous.parsed.bytes
+    // Перезапись не должна оставлять ключ на прежнем месте очереди: свежий
+    // набор вытесняется последним, а не первым
+    this.parsed.delete(key)
+    this.parsed.set(key, { parsed, expiresAt })
     this.parsedBytes += parsed.bytes
     while (this.parsedBytes > LIMITS.parsedBytes && this.parsed.size > 1) {
       const oldest = this.parsed.keys().next().value as string
-      this.parsedBytes -= this.parsed.get(oldest)?.bytes ?? 0
+      this.parsedBytes -= this.parsed.get(oldest)?.parsed.bytes ?? 0
       this.parsed.delete(oldest)
     }
   }
@@ -2131,9 +2364,14 @@ export interface DomainMatcher {
 - [ ] **Шаг 4: реализация текстовых наборов**
 
 ```ts
-// backend/src/ruleset/textSets.ts
-import { ipToBytes } from '../geo/match.js'
+// Текстовые наборы `domain` и `ipcidr` разбираются в простые структуры:
+// собирать ради них сжатый бор незачем — он нужен только чтобы ЧИТАТЬ то, что
+// уже собрало ядро. Текстовые наборы доменов в экосистеме редки и малы, поэтому
+// линейного сравнения достаточно.
+import type { GeoCidr } from '../geo/dat.js'
+import { ipMatches, ipToBytes } from '../geo/match.js'
 import type { DomainMatcher } from './domainSet.js'
+import type { IpMatcher } from './ipcidrSet.js'
 
 /**
  * Запись текстового набора доменов. Правила те же, что у списка `domain` в
@@ -2235,7 +2473,6 @@ app.post('/api/tools/ruleset/match', async (req) => {
 - [ ] **Шаг 7: тест роута**
 
 ```ts
-// backend/test/ruleset-routes.test.ts
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -2253,10 +2490,12 @@ beforeEach(async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'xui-ruleset-routes-'))
   app = await buildServer(makeTestConfig({ dataDir }), {
     remnawave: makeStubRemnawave(),
-    // Сеть подменена: тест не ходит наружу даже случайно
+    // Сеть подменена: тест не ходит наружу даже случайно. Код 503 выбран
+    // нарочно узнаваемым — по нему видно, что отвечал именно подменённый
+    // сервис, а не собранный сервером по умолчанию
     ruleset: new RuleSetService(dataDir, {
       lookupImpl: async () => [{ address: '93.184.216.34' }],
-      fetchImpl: async () => new Response('', { status: 404 }),
+      fetchImpl: (async () => new Response('', { status: 503 })) as unknown as typeof fetch,
     }),
   })
   cookie = await loginCookie(app)
@@ -2287,10 +2526,49 @@ describe('POST /api/tools/ruleset/match', () => {
             behavior: 'domain',
             format: 'yaml',
           },
+          {
+            name: 'miss',
+            kind: 'inline',
+            payload: ['+.other.com'],
+            behavior: 'domain',
+            format: 'yaml',
+          },
         ],
       },
     })
     expect(res.statusCode).toBe(200)
+    expect(res.json().answers.i).toMatchObject({ state: 'yes' })
+    expect(res.json().answers.miss).toMatchObject({ state: 'no' })
+  })
+
+  it('недоступный набор — 200 с причиной по нему, а не отказ на весь запрос', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tools/ruleset/match',
+      headers: { cookie },
+      payload: {
+        target: { address: 'a.example.com' },
+        sets: [
+          {
+            name: 'net',
+            kind: 'http',
+            url: 'https://example.com/a.mrs',
+            behavior: 'domain',
+            format: 'mrs',
+          },
+          {
+            name: 'i',
+            kind: 'inline',
+            payload: ['+.example.com'],
+            behavior: 'domain',
+            format: 'yaml',
+          },
+        ],
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().answers.net).toMatchObject({ state: 'unavailable' })
+    expect(res.json().answers.net.reason).toMatch(/503/)
     expect(res.json().answers.i).toMatchObject({ state: 'yes' })
   })
 
@@ -2300,6 +2578,25 @@ describe('POST /api/tools/ruleset/match', () => {
       url: '/api/tools/ruleset/match',
       headers: { cookie },
       payload: { target: {}, sets: [] },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('заведомо абсурдный список наборов схема не пропускает', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tools/ruleset/match',
+      headers: { cookie },
+      payload: {
+        target: { address: 'a.example.com' },
+        sets: Array.from({ length: 201 }, (_, i) => ({
+          name: `n${i}`,
+          kind: 'inline',
+          payload: [],
+          behavior: 'domain',
+          format: 'yaml',
+        })),
+      },
     })
     expect(res.statusCode).toBe(400)
   })
@@ -2314,6 +2611,24 @@ describe('POST /api/tools/ruleset/match', () => {
 
 Выполнить: `npm test -w backend`
 Ожидается: PASS.
+
+**Три дефекта первой редакции этого плана, найденные при исполнении.** Код
+выше уже исправлен, но знать о них стоит — они не очевидны:
+
+1. `inline`-наборы гнались через `parsePayload`, то есть готовый список
+   записей разбирался как YAML-документ с ключом `payload`.
+2. `Promise.all(...).catch(() => {})` не спасает: `Promise.all` завершается
+   на ПЕРВОМ отказе, и наборы, ещё летящие в этот момент, остались бы без
+   ответа вовсе. Ответы складываются внутри каждой ветки, а наружу отказ не
+   пробрасывается.
+3. Разобранное держалось в памяти вечно: TTL управлял только диском. У
+   записи в памяти должен быть свой срок.
+
+И одна ловушка в тестах: подмену `deps.ruleset` нельзя проверять заглушкой,
+которая отвечает тем же кодом, что и живая сеть. В первой редакции тест
+получал `404` и от заглушки, и от настоящего `example.com` — то есть не
+ловил подмену И нарушал запрет на сетевые обращения. Заглушка обязана
+отвечать узнаваемо.
 
 - [ ] **Шаг 9: мутации**
 
