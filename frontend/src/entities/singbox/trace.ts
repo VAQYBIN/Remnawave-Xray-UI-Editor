@@ -19,7 +19,7 @@
 // (`entities/xray/traceMatch`). Своя копия разбора IPv4/IPv6 была бы второй
 // реализацией одного и того же и разошлась бы с первой на первом же IPv6.
 
-import { ipInCidr, isIpAddress, type MatchState } from '../xray/traceMatch'
+import { ipInCidr, isIpAddress, type MatchState, type TraceTarget } from '../xray/traceMatch'
 import { defaultRoute } from './outbounds'
 import {
   CHECKABLE_CONDITIONS,
@@ -88,13 +88,50 @@ interface Cond {
 const YES: Cond = { state: 'yes' }
 const NO: Cond = { state: 'no' }
 
-/** Цель трассировки в том виде, в каком её видит разбор условий */
+/**
+ * Цель трассировки в том виде, в каком её видит разбор условий.
+ *
+ * Снаружи она приходит общим `TraceTarget` — тем же, что заполняет `TraceBar` и
+ * читают трассировки Xray и Mihomo. План 1 завёл здесь свою голую строку, и с
+ * ней `port`/`port_range` вынужденно останавливали проход, хотя спека числит их
+ * проверяемыми. Вторая форма цели рядом с общей была расхождением, а не
+ * упрощением.
+ */
 interface Ctx {
-  /** Что ввёл пользователь: домен либо адрес */
-  target: string
-  targetIsIp: boolean
+  /** Имя запроса; пусто, если цель задана адресом */
+  host: string
+  /** Адрес назначения: сама цель, если это IP, либо поле «IP назначения» */
+  ip: string | undefined
+  port: number
+  network: 'tcp' | 'udp'
   /** Может ли ядро узнать домен запроса, которого в цели нет */
   sniffs: boolean
+}
+
+function contextOf(doc: SingboxDoc, target: TraceTarget): Ctx {
+  const address = target.address.trim()
+  const targetIsIp = isIpAddress(address)
+  return {
+    host: targetIsIp ? '' : address,
+    // IP берётся из цели, если она сама адрес, иначе из поля, которое заполнил
+    // пользователь: домены сервер не резолвит, и выдумывать адрес нельзя
+    ip: targetIsIp ? address : target.ip?.trim() || undefined,
+    port: target.port,
+    network: target.network,
+    sniffs: documentSniffs(doc),
+  }
+}
+
+/** `1000:2000`, `:2000`, `1000:` — форма ядра (sing-box, route rule port_range) */
+function parsePortRange(raw: string): { from: number; to: number } | null {
+  const at = raw.indexOf(':')
+  if (at < 0) return null
+  const from = raw.slice(0, at).trim()
+  const to = raw.slice(at + 1).trim()
+  const lo = from === '' ? 0 : Number(from)
+  const hi = to === '' ? 65535 : Number(to)
+  if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo > hi) return null
+  return { from: lo, to: hi }
 }
 
 function values(raw: unknown): string[] {
@@ -154,11 +191,15 @@ function domainAgainstIp(ctx: Ctx): Cond {
   }
 }
 
-/** Условие по адресу назначения, когда цель — домен */
+/**
+ * Условие по адресу назначения, когда цель — домен, а поле «IP назначения» в
+ * цели пусто. Причина называет и выход из положения: адрес домену даст DNS уже
+ * в работе, но пользователь может вписать его сам — сервер домены не резолвит.
+ */
 function ipAgainstDomain(key: string): Cond {
   return {
     state: 'unknown',
-    reason: `условие «${key}» смотрит на адрес назначения, а его для домена даст DNS уже в работе — редактору он неизвестен`,
+    reason: `условие «${key}» смотрит на адрес назначения: домену его даст DNS уже в работе, а поле «IP назначения» в цели не заполнено`,
   }
 }
 
@@ -167,19 +208,19 @@ function checkCondition(ctx: Ctx, key: string, raw: unknown): Cond {
 
   switch (key) {
     case 'domain':
-      if (ctx.targetIsIp) return domainAgainstIp(ctx)
-      return values(raw).includes(ctx.target) ? YES : NO
+      if (ctx.host === '') return domainAgainstIp(ctx)
+      return values(raw).includes(ctx.host) ? YES : NO
     case 'domain_suffix':
-      if (ctx.targetIsIp) return domainAgainstIp(ctx)
-      return values(raw).some((s) => matchesSuffix(ctx.target, s)) ? YES : NO
+      if (ctx.host === '') return domainAgainstIp(ctx)
+      return values(raw).some((s) => matchesSuffix(ctx.host, s)) ? YES : NO
     case 'domain_keyword':
-      if (ctx.targetIsIp) return domainAgainstIp(ctx)
-      return values(raw).some((s) => ctx.target.includes(s)) ? YES : NO
+      if (ctx.host === '') return domainAgainstIp(ctx)
+      return values(raw).some((s) => ctx.host.includes(s)) ? YES : NO
     case 'domain_regex': {
-      if (ctx.targetIsIp) return domainAgainstIp(ctx)
+      if (ctx.host === '') return domainAgainstIp(ctx)
       for (const pattern of values(raw)) {
         try {
-          if (new RegExp(pattern).test(ctx.target)) return YES
+          if (new RegExp(pattern).test(ctx.host)) return YES
         } catch {
           // Выражение автора шаблона может быть невалидным для JS — это не повод
           // падать и не повод считать промахом
@@ -189,11 +230,12 @@ function checkCondition(ctx: Ctx, key: string, raw: unknown): Cond {
       return NO
     }
     case 'ip_cidr': {
-      if (!ctx.targetIsIp) return ipAgainstDomain(key)
+      const ip = ctx.ip
+      if (ip === undefined) return ipAgainstDomain(key)
       const cidrs = values(raw)
       let sawUsable = false
       for (const cidr of cidrs) {
-        const hit = ipInCidr(ctx.target, cidr)
+        const hit = ipInCidr(ip, cidr)
         // Неразбираемую подсеть пропускаем, но помним: если разобралась хоть
         // одна, «нет» честное — остальные ядро отвергнет вместе с документом
         if (hit === null) continue
@@ -220,12 +262,35 @@ function checkCondition(ctx: Ctx, key: string, raw: unknown): Cond {
           reason: `у ключа «${key}» значение не true: выключено оно или требует публичный адрес — по документу не определить`,
         }
       }
-      if (!ctx.targetIsIp) return ipAgainstDomain(key)
-      return PRIVATE_RANGES.some((cidr) => ipInCidr(ctx.target, cidr) === true) ? YES : NO
+      const ip = ctx.ip
+      if (ip === undefined) return ipAgainstDomain(key)
+      return PRIVATE_RANGES.some((cidr) => ipInCidr(ip, cidr) === true) ? YES : NO
     }
     case 'port':
-    case 'port_range':
-      return { state: 'unknown', reason: 'порт назначения в цели трассировки не задан' }
+      return values(raw).some((p) => Number(p) === ctx.port) ? YES : NO
+    case 'port_range': {
+      const ranges = values(raw)
+      let usable = false
+      for (const range of ranges) {
+        const parsed = parsePortRange(range)
+        if (parsed === null) continue
+        usable = true
+        if (ctx.port >= parsed.from && ctx.port <= parsed.to) return YES
+      }
+      if (usable) return NO
+      // Неразбираемый диапазон — это не промах: ядро отвергнет такой документ
+      // вместе с правилом, и делать вид, что правило не совпало, значит дать
+      // уверенный ответ по строке, смысла которой мы не знаем
+      return {
+        state: 'unknown',
+        reason:
+          ranges.length === 0
+            ? `у условия «${key}» не задано ни одного диапазона`
+            : `диапазон портов «${ranges.join(', ')}» не разбирается`,
+      }
+    }
+    case 'network':
+      return values(raw).some((n) => n === ctx.network) ? YES : NO
     default:
       return { state: 'unknown', reason: reasonFor(key, raw) }
   }
@@ -247,7 +312,6 @@ function reasonFor(key: string, raw: unknown): string {
     inbound: 'зависит от того, каким входом пришло соединение',
     protocol: 'протокол определяется сниффингом уже в работе',
     client: 'клиент определяется сниффингом уже в работе',
-    network: 'транспорт цели трассировки неизвестен',
   }
   const exact = named[key]
   if (exact !== undefined) return exact
@@ -323,11 +387,10 @@ function documentSniffs(doc: SingboxDoc): boolean {
   return inbounds.some((inbound) => inbound.sniff === true)
 }
 
-export function traceSingbox(doc: SingboxDoc, target: string): SingboxTraceResult {
+export function traceSingbox(doc: SingboxDoc, target: TraceTarget): SingboxTraceResult {
   const verdicts: SingboxRuleVerdict[] = []
   const caveats: string[] = []
-  const query = target.trim()
-  if (query === '') {
+  if (target.address.trim() === '') {
     // Ответить «пойдёт по умолчанию» было бы уверенным ответом на незаданный
     // вопрос: пустая строка не промахивается мимо правил, она их не спрашивает
     return {
@@ -336,11 +399,7 @@ export function traceSingbox(doc: SingboxDoc, target: string): SingboxTraceResul
       stopped: { index: null, reason: 'цель трассировки не задана — о каком запросе спрашивают, неизвестно' },
     }
   }
-  const ctx: Ctx = {
-    target: query,
-    targetIsIp: isIpAddress(query),
-    sniffs: documentSniffs(doc),
-  }
+  const ctx = contextOf(doc, target)
 
   for (const [index, rule] of rulesOf(doc).entries()) {
     const res = judge(ctx, rule)
