@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { parseMihomo } from '../src/entities/mihomo'
-import { geoKeysOfMihomo, parseClassicalEntry, traceMihomo } from '../src/entities/mihomo/trace'
+import {
+  geoKeysOfMihomo,
+  geoKeysOfRuleSetLines,
+  parseClassicalEntry,
+  traceMihomo,
+} from '../src/entities/mihomo/trace'
 import type { RuleSetAnswers } from '../src/entities/mihomo/trace'
 import type { GeoAnswers, TraceTarget } from '../src/entities/xray'
 import { mihomoFixture } from './helpers'
@@ -1023,5 +1028,127 @@ describe('трассировка Mihomo: оговорка про прокси п
     )
     expect(shared).toHaveLength(1)
     expect(shared[0]).toMatch(/«a», «b»/)
+  })
+})
+
+describe('пометки о наборе в вердикте', () => {
+  const answers = (over: Partial<RuleSetAnswers> = {}): RuleSetAnswers => ({
+    answers: { ads: { state: 'yes', count: 15_511 } },
+    pending: false,
+    ...over,
+  })
+
+  it('вердикт правила несёт имя набора и число записей', () => {
+    const res = traceMihomo(doc('RULE-SET,ads,REJECT', 'MATCH,D'), T(), NO_GEO, answers())
+    // Без числа «не совпало» по набору из ста тысяч доменов неотличимо от
+    // «не совпало» по пустому
+    expect(res.verdicts[0]!.sets).toEqual([{ name: 'ads', count: 15_511 }])
+  })
+
+  it('правило без наборов пометки не несёт', () => {
+    const res = traceMihomo(doc('DOMAIN,a.com,A'), T(), NO_GEO, answers())
+    expect(res.verdicts[0]!.sets).toBeUndefined()
+  })
+
+  it('набор внутри логического условия помечается тоже', () => {
+    const res = traceMihomo(
+      doc('OR,((DOMAIN,zzz.com),(RULE-SET,ads)),A', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      answers(),
+    )
+    expect(res.verdicts[0]!.sets).toEqual([{ name: 'ads', count: 15_511 }])
+  })
+
+  it('недоступный набор пометки не даёт: содержимого не было', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,ads,REJECT', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      { answers: { ads: { state: 'unavailable', reason: '404' } }, pending: false },
+    )
+    expect(res.verdicts[0]!.sets).toBeUndefined()
+    expect(res.stopped?.reason).toMatch(/404/)
+  })
+
+  it('один набор в двух ветвях условия помечается один раз', () => {
+    const res = traceMihomo(
+      doc('OR,((RULE-SET,ads),(RULE-SET,ads)),A', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      { answers: { ads: { state: 'no', count: 7 } }, pending: false },
+    )
+    expect(res.verdicts[0]!.sets).toEqual([{ name: 'ads', count: 7 }])
+  })
+
+  it('пометка не переносится на следующее правило без своего набора', () => {
+    // Правило 0 обращается к набору и не совпадает, проход идёт дальше.
+    // Правило 1 своих наборов не спрашивает — оно не обязано унаследовать
+    // пометку соседа только из-за общего журнала обращений
+    const res = traceMihomo(
+      doc('RULE-SET,ads,REJECT', 'DOMAIN,a.com,A', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      { answers: { ads: { state: 'no', count: 3 } }, pending: false },
+    )
+    expect(res.verdicts[1]!.sets).toBeUndefined()
+  })
+})
+
+describe('оговорка о давности кэша', () => {
+  const withLoadedAt = (loadedAt: number): RuleSetAnswers => ({
+    answers: { ads: { state: 'no', count: 3, loadedAt } },
+    pending: false,
+  })
+
+  it('набор старше суток даёт оговорку', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,ads,REJECT', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      withLoadedAt(Date.now() - 30 * 60 * 60 * 1000),
+    )
+    expect(res.caveats.join(' ')).toMatch(/«ads»[\s\S]*кэша/)
+  })
+
+  it('свежий набор оговорки не даёт: предупреждать не о чем', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,ads,REJECT', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      withLoadedAt(Date.now() - 60 * 1000),
+    )
+    expect(res.caveats.join(' ')).not.toMatch(/кэша/)
+  })
+})
+
+describe('geo-ключи из строк набора classical', () => {
+  it('собирает ключи из строк, включая логические условия', () => {
+    expect(
+      geoKeysOfRuleSetLines([
+        'GEOSITE,cn',
+        'DOMAIN,a.com',
+        'AND,((GEOIP,ru),(DST-PORT,443))',
+        'не правило',
+      ]),
+    ).toEqual(['geosite:cn', 'geoip:ru'])
+  })
+
+  it('повторы не дублируются', () => {
+    expect(geoKeysOfRuleSetLines(['GEOSITE,cn', 'GEOSITE,cn'])).toEqual(['geosite:cn'])
+  })
+
+  it('строка GEOSITE внутри набора решается, когда ответ базы есть', () => {
+    // Ровно тот случай, из-за которого проход вставал на каждом наборе
+    // classical с geo-строкой: ключ не попадал в запрос к базе
+    const geo: GeoAnswers = { loaded: true, answers: { 'geosite:cn': false }, missing: [] }
+    const res = traceMihomo(
+      doc('RULE-SET,region,PROXY', 'MATCH,D'),
+      T(),
+      geo,
+      { answers: { region: { state: 'lines', lines: ['GEOSITE,cn'], count: 1 } }, pending: false },
+    )
+    expect(res.stopped).toBeUndefined()
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
   })
 })

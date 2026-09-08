@@ -40,6 +40,12 @@ export interface MihomoRuleVerdict {
   target?: string
   /** Почему правило не проверено (state === 'unknown') */
   reason?: string
+  /**
+   * Наборы, к чьему СОДЕРЖИМОМУ обратилось это правило, с числом записей.
+   * Пусто у правил без наборов и у набора, который оказался недоступен:
+   * содержимого там не было, и хвастаться нечем.
+   */
+  sets?: { name: string; count: number }[]
 }
 
 export interface MihomoTraceResult {
@@ -64,8 +70,8 @@ interface Cond {
  * потому что это правила Mihomo и их вычислитель — здесь.
  */
 export type RuleSetAnswer =
-  | { state: 'yes' | 'no'; count: number }
-  | { state: 'lines'; lines: string[]; count: number }
+  | { state: 'yes' | 'no'; count: number; loadedAt?: number }
+  | { state: 'lines'; lines: string[]; count: number; loadedAt?: number }
   | { state: 'unavailable'; reason: string }
 
 export interface RuleSetAnswers {
@@ -328,6 +334,13 @@ interface Ctx {
    * оговорка о прокси провайдера.
    */
   usedSets: Set<string>
+  /**
+   * Обращения к содержимому наборов по порядку. `usedSets` отвечает на вопрос
+   * «пользовались ли набором вообще» (оговорка про прокси), а здесь нужен
+   * порядок: по нему вердикт узнаёт, к каким наборам обратилось ИМЕННО ЭТО
+   * правило, не разбирая условие второй раз.
+   */
+  usedOrder: { name: string; count: number; loadedAt?: number }[]
 }
 
 /**
@@ -516,6 +529,7 @@ function evalCondition(ctx: Ctx, cond: Cond): CondResult {
     // опираются на файл, который редактор взял напрямую. Оговорка о прокси
     // провайдера считается по этому множеству
     ctx.usedSets.add(payload)
+    ctx.usedOrder.push({ name: payload, count: answer.count, loadedAt: answer.loadedAt })
     if (answer.state === 'lines') return evalClassical(ctx, payload, answer.lines)
     return answer.state === 'yes' ? YES : NO
   }
@@ -620,6 +634,22 @@ function walkSubRule(ctx: Ctx, name: string, seen: Set<string>): Judged {
   return { state: 'no', via: name }
 }
 
+/**
+ * Наборы, к которым обратилось одно правило. Считается срезом журнала
+ * обращений, а не вторым разбором условия: `RULE-SET` бывает и внутри
+ * `AND`/`OR`/`NOT`, и повторять ради пометки весь спуск незачем.
+ */
+function setsUsedSince(ctx: Ctx, from: number): MihomoRuleVerdict['sets'] {
+  const seen = new Set<string>()
+  const out: { name: string; count: number }[] = []
+  for (const use of ctx.usedOrder.slice(from)) {
+    if (seen.has(use.name)) continue
+    seen.add(use.name)
+    out.push({ name: use.name, count: use.count })
+  }
+  return out.length === 0 ? undefined : out
+}
+
 /** Вердикт одного правила целиком: условие плюс цель, куда уйдёт трафик */
 function judgeRule(ctx: Ctx, rule: MihomoRule | null, seen: Set<string>): Judged {
   if (rule === null) {
@@ -648,6 +678,15 @@ function judgeRule(ctx: Ctx, rule: MihomoRule | null, seen: Set<string>): Judged
   return res.state === 'yes' ? { state: 'yes', target: rule.target } : res
 }
 
+/** Geo-ключи одного условия, включая вложенные в AND/OR/NOT */
+function collectGeoKeys(cond: Cond, push: (key: string) => void): void {
+  if (cond.type === 'GEOSITE' && cond.payload) return push(`geosite:${cond.payload}`)
+  if (cond.type === 'GEOIP' && cond.payload) return push(`geoip:${cond.payload}`)
+  if (cond.type === 'AND' || cond.type === 'OR' || cond.type === 'NOT') {
+    for (const nested of parseConditions(cond.payload ?? '') ?? []) collectGeoKeys(nested, push)
+  }
+}
+
 /**
  * Все geo-ключи документа — по ним трассировщик спрашивает бэкенд. Обход тот же,
  * что у самой трассировки: ключ бывает и внутри логического условия, и в
@@ -659,23 +698,37 @@ export function geoKeysOfMihomo(md: MihomoDoc): string[] {
     if (!keys.includes(key)) keys.push(key)
   }
 
-  const fromCond = (cond: Cond) => {
-    if (cond.type === 'GEOSITE' && cond.payload) return push(`geosite:${cond.payload}`)
-    if (cond.type === 'GEOIP' && cond.payload) return push(`geoip:${cond.payload}`)
-    if (cond.type === 'AND' || cond.type === 'OR' || cond.type === 'NOT') {
-      for (const nested of parseConditions(cond.payload ?? '') ?? []) fromCond(nested)
-    }
-  }
-
   for (const entry of rulesOf(md)) {
     if (entry.rule === null) continue
-    fromCond({ type: entry.rule.type, payload: entry.rule.payload })
+    collectGeoKeys({ type: entry.rule.type, payload: entry.rule.payload }, push)
   }
   for (const { name } of subRuleEntries(md)) {
     for (const rule of subRuleRules(md, name) ?? []) {
       if (rule === null) continue
-      fromCond({ type: rule.type, payload: rule.payload })
+      collectGeoKeys({ type: rule.type, payload: rule.payload }, push)
     }
+  }
+  return keys
+}
+
+/**
+ * Geo-ключи из строк набора `behavior: classical`. Строки там — полноценные
+ * правила Mihomo, и `GEOSITE`/`GEOIP` встречаются в них наравне с документом.
+ *
+ * Без этого проход останавливался на КАЖДОМ таком наборе, а причина вводила в
+ * заблуждение: «ответа базы по «geosite:cn» нет» — ответа не было потому, что
+ * мы о нём не спрашивали. Ключи документа собирает `geoKeysOfMihomo`, а эти
+ * приезжают вторым кругом: пока набор не скачан, знать о них неоткуда.
+ */
+export function geoKeysOfRuleSetLines(lines: string[]): string[] {
+  const keys: string[] = []
+  const push = (key: string) => {
+    if (!keys.includes(key)) keys.push(key)
+  }
+  for (const line of lines) {
+    const entry = parseClassicalEntry(line)
+    if (entry === null) continue
+    collectGeoKeys({ type: entry.type, payload: entry.payload }, push)
   }
   return keys
 }
@@ -723,6 +776,7 @@ export function traceMihomo(
     ),
     ruleSets,
     usedSets: new Set(),
+    usedOrder: [],
   }
 
   const verdicts: MihomoRuleVerdict[] = []
@@ -732,7 +786,9 @@ export function traceMihomo(
 
   const entries = rulesOf(md)
   for (const entry of entries) {
+    const mark = ctx.usedOrder.length
     const res = judgeRule(ctx, entry.rule, new Set())
+    const sets = setsUsedSince(ctx, mark)
     verdicts.push({
       index: entry.index,
       state: res.state,
@@ -740,6 +796,7 @@ export function traceMihomo(
       // SUB-RULE она приходит из подсписка); у остальных — то, что написано
       target: res.target ?? entry.rule?.target,
       reason: res.reason,
+      ...(sets === undefined ? {} : { sets }),
     })
     if (res.state === 'unknown') {
       stopped = { index: entry.index, reason: res.reason ?? 'проверить это правило редактор не может' }
@@ -808,6 +865,36 @@ function proxyCaveats(ctx: Ctx): string[] {
   })
 }
 
+/**
+ * Порог, после которого о кэше стоит предупреждать. Набор, скачанный час назад,
+ * предупреждения не стоит — оно превратилось бы в шум на каждой трассировке и
+ * перестало бы читаться.
+ */
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Содержимое набора редактор берёт из своего кэша, и оно может отстать от того,
+ * что скачает клиент. Времени здесь НЕ форматируем: `relativeTime` живёт в
+ * `shared/lib`, а слой `entities` в проекте `shared` не импортирует, и второй
+ * форматтер ради одной строки — это ровно то разъезжание двух реализаций, на
+ * котором план 1 уже ловил ошибку. Поэтому называем факт и отсылаем туда, где
+ * время и кнопка «Обновить» уже есть.
+ */
+function cacheAgeCaveats(ctx: Ctx): string[] {
+  const now = Date.now()
+  const names: string[] = []
+  for (const use of ctx.usedOrder) {
+    if (use.loadedAt === undefined || now - use.loadedAt <= STALE_AFTER_MS) continue
+    if (!names.includes(use.name)) names.push(use.name)
+  }
+  if (names.length === 0) return []
+  const list = names.map((n) => `«${n}»`).join(', ')
+  const head = names.length === 1 ? `Набор ${list} получен` : `Наборы ${list} получены`
+  return [
+    `${head} из кэша больше суток назад — у клиента содержимое может быть новее. Когда набор загружен и как его обновить, показывает диалог «Наборы правил».`,
+  ]
+}
+
 function collectCaveats(
   ctx: Ctx,
   winner: MihomoTraceResult['winner'],
@@ -838,6 +925,7 @@ function collectCaveats(
     )
   }
   caveats.push(...proxyCaveats(ctx))
+  caveats.push(...cacheAgeCaveats(ctx))
   if (!ctx.geo.loaded && usesGeo(ctx.md)) {
     caveats.push('Geo-базы не загружены: вердикты по GEOSITE и GEOIP неизвестны.')
   }
