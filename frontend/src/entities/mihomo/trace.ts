@@ -77,7 +77,7 @@ export interface RuleSetAnswers {
 const NO_RULE_SETS: RuleSetAnswers = { answers: {}, pending: false }
 
 /** Условие без цели: то, из чего состоит и правило, и строка набора classical */
-interface ConditionLike {
+export interface ConditionLike {
   type: string
   payload?: string
   modifiers: string[]
@@ -361,7 +361,17 @@ export function parseClassicalEntry(line: string): ConditionLike | null {
   if (parts.length < 2) return null
   const type = parts[0]!.trim()
   if (type === '') return null
-  return { type, payload: parts[1], modifiers: parts.slice(2) }
+  // Пробелы обрезаем у ВСЕХ полей, а не только у типа. У правил самого
+  // документа эта вольность безобидна: их текст писал пользователь и видит его
+  // глазами. Здесь строка приехала из чужого скачанного файла, оформление
+  // которого пользователь не контролирует, а цена — уверенно неверный ответ:
+  // «DOMAIN-SUFFIX, google.com» не совпал бы с google.com, а «DOMAIN,a.com, src»
+  // посчитался бы условием по назначению вместо условия по источнику
+  return {
+    type,
+    payload: parts[1]?.trim(),
+    modifiers: parts.slice(2).map((m) => m.trim()),
+  }
 }
 
 /**
@@ -474,7 +484,13 @@ function evalCondition(ctx: Ctx, cond: Cond): CondResult {
     // недоступен»: в первом случае мы не спрашивали или ещё не дождались, во
     // втором спросили и получили отказ с причиной. Оба — остановка, но текст
     // должен называть, что именно произошло.
-    const answer = ctx.ruleSets.answers[payload]
+    // Имя набора приходит из документа, а `answers` — обычный объект. Набор с
+    // именем `toString` или `constructor` иначе нашёл бы член Object.prototype,
+    // и вместо остановки получилось бы молчаливое «не совпало». Тот же класс
+    // ошибки, ради которого бэкенд канонизирует хэш через Object.create(null)
+    const answer = Object.hasOwn(ctx.ruleSets.answers, payload)
+      ? ctx.ruleSets.answers[payload]
+      : undefined
     if (answer === undefined) {
       return {
         state: 'unknown',

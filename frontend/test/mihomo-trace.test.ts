@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseMihomo } from '../src/entities/mihomo'
-import { geoKeysOfMihomo, traceMihomo } from '../src/entities/mihomo/trace'
+import { geoKeysOfMihomo, parseClassicalEntry, traceMihomo } from '../src/entities/mihomo/trace'
 import type { RuleSetAnswers } from '../src/entities/mihomo/trace'
 import type { GeoAnswers, TraceTarget } from '../src/entities/xray'
 import { mihomoFixture } from './helpers'
@@ -846,5 +846,61 @@ describe('трассировка Mihomo: правила по процессу', 
       NO_GEO,
     )
     expect(logical.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+})
+
+// Строки набора приезжают из чужого файла: оформление их пользователь не
+// контролирует и глазами не видит, поэтому вольности разбора здесь дороже, чем
+// в правилах самого документа
+describe('трассировка Mihomo: разбор строк набора classical', () => {
+  const lines = (...ls: string[]): RuleSetAnswers =>
+    sets({ c: { state: 'lines', lines: ls, count: ls.length } })
+
+  it('пробел после запятой не мешает совпадению', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'google.com' }),
+      NO_GEO,
+      lines('DOMAIN-SUFFIX, google.com'),
+    )
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+
+  it('модификатор с пробелом остаётся модификатором', () => {
+    // Иначе условие по ИСТОЧНИКУ посчиталось бы условием по назначению
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'a.com' }),
+      NO_GEO,
+      lines('DOMAIN,a.com, src'),
+    )
+    expect(res.stopped?.index).toBe(0)
+    expect(res.stopped?.reason).toMatch(/src/)
+  })
+
+  it('parseClassicalEntry: два поля, лишние запятые, скобки', () => {
+    expect(parseClassicalEntry('PROCESS-NAME,uTorrent.exe')).toEqual({
+      type: 'PROCESS-NAME',
+      payload: 'uTorrent.exe',
+      modifiers: [],
+    })
+    expect(parseClassicalEntry('IP-CIDR,10.0.0.0/8,no-resolve')).toEqual({
+      type: 'IP-CIDR',
+      payload: '10.0.0.0/8',
+      modifiers: ['no-resolve'],
+    })
+    expect(parseClassicalEntry('AND,((DOMAIN,a.com))')?.payload).toBe('((DOMAIN,a.com))')
+    expect(parseClassicalEntry('MATCH')).toBeNull()
+    expect(parseClassicalEntry('')).toBeNull()
+    expect(parseClassicalEntry(',значение')).toBeNull()
+  })
+})
+
+describe('трассировка Mihomo: имя набора из чужого документа', () => {
+  it('имя, совпадающее с членом Object.prototype, не даёт молчаливого «не совпало»', () => {
+    // `answers['toString']` в обычном объекте вернёт функцию, а не undefined
+    const res = traceMihomo(doc('RULE-SET,toString,VPN', 'MATCH,D'), T(), NO_GEO, sets({}))
+    expect(res.stopped?.index).toBe(0)
+    expect(res.winner).toBeUndefined()
   })
 })
