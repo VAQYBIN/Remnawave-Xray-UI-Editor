@@ -185,3 +185,38 @@ describe('MihomoTracePanel', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
+
+describe('пометка о наборе', () => {
+  it('называет набор и число записей', () => {
+    render(
+      <MihomoTracePanel
+        result={{
+          verdicts: [
+            { index: 0, state: 'no', target: 'REJECT', sets: [{ name: 'ads', count: 15_511 }] },
+          ],
+          winner: { ruleIndex: null, target: 'DIRECT' },
+          caveats: [],
+        }}
+        onClose={() => {}}
+        onSelectRule={() => {}}
+      />,
+    )
+    expect(screen.getByText(/набор «ads»/)).toBeInTheDocument()
+    expect(screen.getByText(/15 511/)).toBeInTheDocument()
+  })
+
+  it('у правила без наборов пометки нет', () => {
+    render(
+      <MihomoTracePanel
+        result={{
+          verdicts: [{ index: 0, state: 'no', target: 'REJECT' }],
+          winner: { ruleIndex: null, target: 'DIRECT' },
+          caveats: [],
+        }}
+        onClose={() => {}}
+        onSelectRule={() => {}}
+      />,
+    )
+    expect(screen.queryByText(/набор «/)).toBeNull()
+  })
+})

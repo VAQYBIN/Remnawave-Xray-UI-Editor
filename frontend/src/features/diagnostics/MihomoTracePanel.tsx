@@ -6,6 +6,7 @@
 import type { MihomoTraceResult } from '../../entities/mihomo/trace'
 import type { MatchState } from '../../entities/xray'
 import { Button } from '../../shared/ui'
+import { groupDigits } from '../../shared/lib/format'
 
 const STATE_LABEL: Record<MatchState, string> = {
   yes: 'совпало',
@@ -110,11 +111,20 @@ export function MihomoTracePanel({
               <span className={`trace-badge trace-badge-${v.state}`}>{STATE_LABEL[v.state]}</span>
               {v.target && <span className="metric metric-accent">{v.target}</span>}
             </button>
-            {v.reason && (
+            {(v.reason || v.sets) && (
               <div className="trace-fields">
-                <span className="trace-field" data-state={v.state}>
-                  {v.reason}
-                </span>
+                {v.reason && (
+                  <span className="trace-field" data-state={v.state}>
+                    {v.reason}
+                  </span>
+                )}
+                {v.sets?.map((set) => (
+                  // «Не совпало» по набору из ста тысяч доменов и «не совпало»
+                  // по пустому выглядят одинаково, а значат разное
+                  <span key={set.name} className="trace-set">
+                    {`набор «${set.name}» — записей: ${groupDigits(set.count)}`}
+                  </span>
+                ))}
               </div>
             )}
           </li>
