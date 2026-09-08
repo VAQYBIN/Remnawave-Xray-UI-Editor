@@ -333,4 +333,17 @@ describe('подсказки Mihomo', () => {
     const option = (complete('dns:\n  ‸\n')?.options ?? []).find((o) => o.label === 'enhanced-mode')
     expect(String(option?.info ?? '')).toMatch(/fake-ip|redir-host|режим/i)
   })
+
+  /**
+   * Описание раздела одно на обоих потребителей: подсказку при наборе и
+   * наведение на уже написанный ключ (`mihomo-hover.test.ts`). Раньше секции
+   * доставалось здесь только НАЗВАНИЕ («DNS»), то есть ярлык вместо объяснения.
+   */
+  it('ключ-раздел в корне предлагается с описанием, а не с названием секции', () => {
+    const options = complete('‸\n')?.options ?? []
+    const info = (label: string) => String(options.find((o) => o.label === label)?.info ?? '')
+    expect(info('dns')).toContain('резолвер')
+    expect(info('rules')).toContain('первое совпавшее')
+    expect(info('sub-rules')).toContain('SUB-RULE')
+  })
 })

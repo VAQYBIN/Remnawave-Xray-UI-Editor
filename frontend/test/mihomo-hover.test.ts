@@ -111,6 +111,68 @@ describe('наведение на YAML-вкладке', () => {
     expect(hoverAt(flow, inside(flow, 'fake-ip'))).toBeNull()
   })
 
+  /**
+   * Ключи-контейнеры молчали, и молчали хуже всего: `dns`, `rules`, `proxies` —
+   * самые крупные слова документа, и читатель чужого шаблона упирался ровно в
+   * них. Причина была не в незнании: `fieldFor` ищет ключ СРЕДИ ПОЛЕЙ секции, а
+   * `dns` — имя самой секции, поля с таким именем в ней нет и быть не может.
+   * Подсказка при наборе эти же ключи описывала — то есть редактор их знал и
+   * забывал, стоило их написать.
+   */
+  it('ключи-контейнеры корня описаны', () => {
+    const text = [
+      'proxies:',
+      '  - name: A',
+      'proxy-groups: []',
+      'rules:',
+      '  - MATCH,DIRECT',
+      'sub-rules:',
+      '  ru:',
+      '    - MATCH,DIRECT',
+      'rule-providers: {}',
+      'proxy-providers: {}',
+      'dns:',
+      '  enable: true',
+      'tun:',
+      '  enable: true',
+      'sniffer:',
+      '  enable: true',
+      'profile:',
+      '  store-selected: true',
+      '',
+    ].join('\n')
+    for (const key of [
+      'proxies:',
+      'proxy-groups:',
+      'rules:',
+      'sub-rules:',
+      'rule-providers:',
+      'proxy-providers:',
+      'dns:',
+      'tun:',
+      'sniffer:',
+      'profile:',
+    ]) {
+      const found = hoverAt(text, inside(text, key))
+      expect(found?.key, key).toBe(key.slice(0, -1))
+      expect(found?.field.doc.length ?? 0, key).toBeGreaterThan(20)
+    }
+  })
+
+  it('вложенный ключ секции описан по-своему, а не описанием контейнера', () => {
+    // `dns` внутри группы — не секция DNS документа: одноимённый ключ на другом
+    // уровне обязан либо описываться своим словарём, либо молчать
+    const text = ['dns:', '  enable: true', 'proxy-groups:', '  - name: A', '    dns: 1', ''].join('\n')
+    expect(hoverAt(text, inside(text, 'dns:\n'))?.field.doc).toContain('резолвер')
+    expect(hoverAt(text, inside(text, 'dns: 1'))).toBeNull()
+  })
+
+  it('вложенное отображение составного ключа описано так же, как в подсказке', () => {
+    const text = ['remnawave:', '  includeHiddenHosts: true', ''].join('\n')
+    const found = hoverAt(text, inside(text, 'remnawave'))
+    expect(found?.field.doc).toContain('includeHiddenHosts')
+  })
+
   it('разметка тултипа несёт ключ, описание и значения', () => {
     const found = hoverAt(DOC, inside(DOC, 'enhanced-mode'))
     const dom = renderHoverTooltip(found!.key, found!.field)

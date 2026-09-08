@@ -6,7 +6,14 @@
 import { hoverTooltip, type Tooltip } from '@codemirror/view'
 import type { MihomoField } from '../../../entities/mihomo'
 import { renderHoverTooltip } from '../hoverTooltipDom'
-import { contextAt, fieldFor } from './context'
+import {
+  containerKey,
+  contextAt,
+  fieldFor,
+  nestedNamespace,
+  type MihomoContainerKey,
+  type MihomoCursor,
+} from './context'
 
 // «  - name: A» — отступ и дефис, имя ключа, пробелы до двоеточия
 const LINE_KEY_RE = /^(\s*(?:-\s+)?)([A-Za-z0-9_.-]+)(\s*):/
@@ -16,6 +23,8 @@ interface Hovered {
   /** Что подсвечивать тултипом: сам ключ либо его значение */
   from: number
   to: number
+  /** Ключ стоит в нулевой колонке, то есть принадлежит корню документа */
+  atRoot: boolean
 }
 
 /** Ключ строки под курсором и подсвечиваемый диапазон, либо null */
@@ -29,8 +38,10 @@ function hoveredKey(text: string, pos: number): Hovered | null {
   const keyFrom = lineStart + match[1].length
   const keyTo = keyFrom + match[2].length
   const colon = keyTo + match[3].length
+  // Нулевая колонка И без дефиса: ключ корня, а не элемента списка
+  const atRoot = match[1] === ''
   if (pos >= keyFrom && pos <= keyTo) {
-    return { key: match[2], from: keyFrom, to: keyTo }
+    return { key: match[2], from: keyFrom, to: keyTo, atRoot }
   }
   if (pos <= colon) return null
 
@@ -42,12 +53,16 @@ function hoveredKey(text: string, pos: number): Hovered | null {
   const from = colon + 1 + lead
   const to = from + value.length
   if (pos < from || pos > to) return null
-  return { key: match[2], from, to }
+  return { key: match[2], from, to, atRoot }
 }
 
 export interface MihomoHover {
   key: string
-  field: MihomoField
+  /**
+   * Поле словаря либо описание раздела: у ключа-контейнера (`dns`, `rules`)
+   * поля в словаре нет и быть не может — за ним стоит не значение, а раздел.
+   */
+  field: MihomoField | MihomoContainerKey
   /** Диапазон подсветки в тексте */
   from: number
   to: number
@@ -66,9 +81,26 @@ export function hoverAt(text: string, pos: number): MihomoHover | null {
   // здесь второй проверкой, а описание ключа той же строки — из контекста ключа
   const cursor = contextAt(text, pos)
   if (cursor === null) return null
-  const field = fieldFor(cursor, hovered.key)
+  const field = fieldFor(cursor, hovered.key) ?? sectionOrNamespace(cursor, hovered)
   if (field === undefined) return null
   return { key: hovered.key, field, from: hovered.from, to: hovered.to }
+}
+
+/**
+ * Ключ, за которым стоит раздел, а не значение. Таких два вида, и словарь
+ * секции не описывает ни один: контейнер корня (`dns`, `rules` — имя СЕКЦИИ или
+ * список, поля с таким именем внутри секции нет) и вложенное отображение
+ * составного ключа (`remnawave` при `remnawave.includeHiddenHosts`).
+ *
+ * Требование «в нулевой колонке» для первого вида существенно: `dns` внутри
+ * записи группы — не секция DNS документа, и описывать его её словами значило
+ * бы соврать. Такой ключ по-прежнему молчит.
+ */
+function sectionOrNamespace(cursor: MihomoCursor, hovered: Hovered): MihomoContainerKey | undefined {
+  // Вложенное отображение бывает и в корне (`remnawave`), поэтому второй путь
+  // пробуется всегда — контейнер лишь идёт первым
+  const container = hovered.atRoot ? containerKey(hovered.key) : undefined
+  return container ?? nestedNamespace(cursor.section, hovered.key)
 }
 
 export function mihomoHover() {

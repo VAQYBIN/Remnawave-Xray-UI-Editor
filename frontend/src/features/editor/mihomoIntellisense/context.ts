@@ -17,6 +17,100 @@ import {
   type MihomoSectionName,
 } from '../../../entities/mihomo'
 
+/**
+ * Ключ, за которым стоит не значение, а целый раздел документа. В словаре
+ * `docSchema` таких нет намеренно: он питает ещё и формы инспектора, и `rules`
+ * стал бы там текстовым полем поверх списка правил. Описания живут здесь, и
+ * читают их ОБА потребителя — список ключей корня и наведение: пока они лежали
+ * внутри `complete.ts`, подсказка при наборе эти ключи описывала, а наведение
+ * на уже написанные молчало.
+ */
+export interface MihomoContainerKey {
+  key: string
+  doc: string
+  /** Отображение или список — тултип показывает это значком типа */
+  type: 'map' | 'list'
+}
+
+const CONTAINER_KEYS: MihomoContainerKey[] = [
+  {
+    key: 'proxies',
+    type: 'list',
+    doc: 'Список серверов. В шаблоне подписки обычно пуст: если панель подставит хосты, они попадут сюда, по маркеру `# LEAVE THIS LINE!`.',
+  },
+  {
+    key: 'proxy-groups',
+    type: 'list',
+    doc: 'Группы выбора и балансировки: селекторы, url-test, fallback и прочие.',
+  },
+  {
+    key: 'rules',
+    type: 'list',
+    doc: 'Правила маршрутизации. Проверяются сверху вниз, побеждает первое совпавшее; трафик, не подошедший ни под одно, уходит напрямую.',
+  },
+  {
+    key: 'sub-rules',
+    type: 'map',
+    doc: 'Именованные подсписки правил для SUB-RULE. Если в подсписке не совпало ни одно правило, проход возвращается в основной список.',
+  },
+  {
+    key: 'proxy-providers',
+    type: 'map',
+    doc: 'Внешние источники серверов: файл или URL, с интервалом обновления.',
+  },
+  {
+    key: 'rule-providers',
+    type: 'map',
+    doc: 'Внешние наборы правил: файл или URL, с интервалом обновления.',
+  },
+  {
+    key: 'dns',
+    type: 'map',
+    doc: 'Встроенный резолвер ядра: серверы, режим fake-ip, политики по доменам. Работает, когда внутри стоит enable: true, иначе имена резолвит система.',
+  },
+  {
+    key: 'tun',
+    type: 'map',
+    doc: 'Приём трафика через виртуальный сетевой интерфейс: система отдаёт ядру весь трафик, а не только направленный в его порты. Требует прав в системе.',
+  },
+  {
+    key: 'sniffer',
+    type: 'map',
+    doc: 'Определение домена по содержимому соединения (SNI у TLS, Host у HTTP). Нужен, когда клиент пришёл сразу по IP: без него правила по доменам такой трафик не увидят.',
+  },
+  {
+    key: 'profile',
+    type: 'map',
+    doc: 'Что ядро помнит между перезапусками: выбранного участника группы и соответствия fake-ip.',
+  },
+]
+
+/** Описание ключа-контейнера ВЕРХНЕГО уровня, если он нам знаком */
+export function containerKey(key: string): MihomoContainerKey | undefined {
+  return CONTAINER_KEYS.find((c) => c.key === key)
+}
+
+/** Контейнеры, у которых нет своей секции словаря — остальные придут из него */
+export function plainContainerKeys(): MihomoContainerKey[] {
+  return CONTAINER_KEYS.filter((c) => sectionForKey(c.key) === undefined)
+}
+
+/**
+ * Вложенное отображение составного ключа (`remnawave`, `override`,
+ * `health-check`): описания у него нет, зато есть перечень листьев — его и
+ * показываем. Один текст на подсказку и на наведение, чтобы не разошлись.
+ */
+export function nestedNamespace(
+  section: MihomoSectionName,
+  head: string,
+): MihomoContainerKey | undefined {
+  const leaves = fieldsOf(section)
+    .filter((f) => f.key.startsWith(`${head}.`))
+    .map((f) => f.key.slice(head.length + 1))
+  if (leaves.length === 0) return undefined
+  return { key: head, type: 'map', doc: `Вложенное отображение: ${leaves.join(', ')}` }
+}
+
 export interface MihomoCursor {
   section: MihomoSectionName
   parts: PathParts

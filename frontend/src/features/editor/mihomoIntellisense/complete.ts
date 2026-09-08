@@ -11,7 +11,15 @@ import {
   type MihomoField,
   type MihomoSectionName,
 } from '../../../entities/mihomo'
-import { contextAt, fieldFor, nestedIn, type MihomoCursor } from './context'
+import {
+  containerKey,
+  contextAt,
+  fieldFor,
+  nestedIn,
+  nestedNamespace,
+  plainContainerKeys,
+  type MihomoCursor,
+} from './context'
 
 /**
  * Секции, которые в корне документа лежат под собственным именем (`dns`, `tun`,
@@ -21,31 +29,6 @@ import { contextAt, fieldFor, nestedIn, type MihomoCursor } from './context'
 const SECTION_KEYS = Object.keys(MIHOMO_SECTIONS).filter(
   (name) => sectionForKey(name) === name,
 ) as MihomoSectionName[]
-
-/**
- * Ключи-контейнеры корня. В словаре их нет намеренно: `docSchema` питает и
- * формы инспектора, и `rules` там стал бы текстовым полем поверх списка правил.
- * Поэтому описания живут здесь — они нужны ровно подсказкам.
- */
-const CONTAINER_KEYS: { key: string; doc: string }[] = [
-  {
-    key: 'proxies',
-    doc: 'Список серверов. В шаблоне подписки обычно пуст: если панель подставит хосты, они попадут сюда, по маркеру `# LEAVE THIS LINE!`.',
-  },
-  {
-    key: 'proxy-groups',
-    doc: 'Группы выбора и балансировки: селекторы, url-test, fallback и прочие.',
-  },
-  { key: 'rules', doc: 'Правила маршрутизации. Побеждает первое совпавшее.' },
-  {
-    key: 'proxy-providers',
-    doc: 'Внешние источники серверов: файл или URL, с интервалом обновления.',
-  },
-  {
-    key: 'rule-providers',
-    doc: 'Внешние наборы правил: файл или URL, с интервалом обновления.',
-  },
-]
 
 // Уже набранная часть ключа или значения — её подсказка заменяет
 const TYPED_RE = /[^\s:]*$/
@@ -109,10 +92,8 @@ function keyCompletions(
       label: head,
       type: 'namespace',
       detail: 'map',
-      info: `Вложенное отображение: ${fields
-        .filter((f) => f.key.startsWith(`${head}.`))
-        .map((f) => f.key.slice(head.length + 1))
-        .join(', ')}`,
+      // Тот же текст, что показывает наведение на уже написанный ключ
+      info: nestedNamespace(section, head)?.doc,
       apply: head + mapSuffix,
     })
   }
@@ -124,15 +105,18 @@ function keyCompletions(
         label: name,
         type: 'namespace',
         detail: 'map',
-        info: MIHOMO_SECTIONS[name].title,
+        // Название секции — подпись для формы инспектора, а не объяснение;
+        // если описание раздела есть, показываем его
+        info: containerKey(name)?.doc ?? MIHOMO_SECTIONS[name].title,
         apply: name + mapSuffix,
       })
     }
-    for (const container of CONTAINER_KEYS) {
+    for (const container of plainContainerKeys()) {
       if (taken.has(container.key)) continue
       options.push({
         label: container.key,
         type: 'namespace',
+        detail: container.type,
         info: container.doc,
         apply: container.key + mapSuffix,
       })
