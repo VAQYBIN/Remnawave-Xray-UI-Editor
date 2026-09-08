@@ -18,20 +18,29 @@ const httpSet = (over: Partial<RuleSetDescriptor> = {}): RuleSetDescriptor => ({
   ...over,
 })
 
-/** Сервис с подменённой сетью; счётчик загрузок виден тесту */
+/** Сервис с подменённой сетью; счётчик загрузок и выключатель видны тесту */
 function makeService(body: Buffer = FACEIT) {
   const dataDir = mkdtempSync(join(tmpdir(), 'xui-rs-status-'))
   let downloads = 0
+  let offline = false
   const service = new RuleSetService(dataDir, {
     lookupImpl: async () => [{ address: '93.184.216.34' }],
     fetchImpl: (async () => {
       downloads++
+      if (offline) return new Response('', { status: 503 })
       // Копия ради типа: Buffer из readFileSync — Uint8Array<ArrayBufferLike>,
       // а телу ответа нужен Uint8Array<ArrayBuffer> (как в ruleset-service.test.ts)
       return new Response(new Uint8Array(body))
     }) as unknown as typeof fetch,
   })
-  return { service, dataDir, downloads: () => downloads }
+  return {
+    service,
+    dataDir,
+    downloads: () => downloads,
+    goOffline: () => {
+      offline = true
+    },
+  }
 }
 
 describe('status', () => {
@@ -186,6 +195,30 @@ describe('refresh', () => {
     expect(downloads()).toBe(2)
     await service.refresh(sets, ['second'])
     expect(downloads()).toBe(3)
+  })
+
+  it('неудачное обновление не теряет уже загруженное', async () => {
+    // Прежде `refresh` выбрасывал файл кэша и разобранное ДО загрузки, и одно
+    // нажатие «Обновить» при недоступном сервере превращало работающую
+    // трассировку в остановку: вернуть набор было нечем до восстановления сети.
+    // Отказ обязан оставлять всё как было
+    const { service, goOffline } = makeService()
+    const set = httpSet()
+    expect(await service.match({ address: 'faceit.com' }, [set])).toMatchObject({
+      faceit: { state: 'yes' },
+    })
+
+    goOffline()
+    const items = await service.refresh([set])
+    expect(items[0]).toMatchObject({ state: 'error' })
+    expect(items[0]?.reason).toMatch(/503/)
+
+    // Набор на месте: и по состоянию, и по ответу на ту же цель
+    const after = await service.status([set])
+    expect(after[0]).toMatchObject({ state: 'ready', count: 2 })
+    expect(await service.match({ address: 'faceit.com' }, [set])).toMatchObject({
+      faceit: { state: 'yes' },
+    })
   })
 
   it('неудача загрузки доезжает причиной, а не молчаливым «не загружен»', async () => {

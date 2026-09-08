@@ -71,15 +71,6 @@ export class RuleSetCache {
     }
   }
 
-  /** Выбросить файл, чтобы следующая загрузка пошла в сеть */
-  async remove(url: string): Promise<void> {
-    try {
-      await rm(join(this.dir, this.nameOf(url)))
-    } catch {
-      // Файла и не было — цель достигнута
-    }
-  }
-
   async write(url: string, bytes: Uint8Array): Promise<void> {
     await mkdir(this.dir, { recursive: true })
     const path = join(this.dir, this.nameOf(url))

@@ -2,7 +2,7 @@
 // («что у редактора есть на руках и насколько оно свежее»), заданный про другой
 // источник данных.
 import { useState } from 'react'
-import type { RuleSetDescriptor } from '../../entities/mihomo/ruleSets'
+import { FILE_SET_REASON, type RuleSetDescriptor } from '../../entities/mihomo/ruleSets'
 import {
   useRefreshRuleSets,
   useRuleSetStatus,
@@ -19,13 +19,20 @@ import { RuleSetBrowser } from './RuleSetBrowser'
  * спрятать строку — значит соврать, что набора нет в документе.
  */
 function localReason(set: RuleSetDescriptor): string | null {
-  if (set.kind === 'file') return 'лежит в файле у клиента — сервер такой файл не видит'
+  if (set.kind === 'file') return FILE_SET_REASON
   if (set.kind === 'unsupported') return set.reason
   return null
 }
 
-function stateText(item: RuleSetStatusItem | undefined): string {
-  if (item === undefined) return 'состояние ещё не пришло'
+/**
+ * `failed` — запрос состояния отказал. Ответа по этому набору не будет вовсе
+ * (у хука `retry: false`), и «состояние ещё не пришло» было бы обещанием, а не
+ * правдой: причина стоит красной строкой выше, и строка набора не должна ей
+ * противоречить. Тот же класс ошибки уже чинили в просмотрщике, где отказ
+ * загрузки выглядел как «набор пуст».
+ */
+function stateText(item: RuleSetStatusItem | undefined, failed: boolean): string {
+  if (item === undefined) return failed ? 'состояние не получено' : 'состояние ещё не пришло'
   if (item.state === 'missing') return 'ещё не загружен'
   if (item.state === 'error') return item.reason ?? 'не читается'
   const when =
@@ -113,8 +120,14 @@ export function RuleSetsDialog({
                       <span className="rs-tags">
                         {'behavior' in set ? `${set.behavior} · ${set.format}` : '—'}
                       </span>
-                      <span className={reason || item?.state === 'error' ? 'field-warning' : 'muted'}>
-                        {reason ?? stateText(item)}
+                      <span
+                        className={
+                          reason || item?.state === 'error' || (item === undefined && status.isError)
+                            ? 'field-warning'
+                            : 'muted'
+                        }
+                      >
+                        {reason ?? stateText(item, status.isError)}
                       </span>
                       <span className="rs-metrics">
                         {item?.count !== undefined && (
@@ -124,7 +137,11 @@ export function RuleSetsDialog({
                           <span className="metric">{formatBytes(item.bytes)}</span>
                         )}
                       </span>
-                      {reason === null && (
+                      {/* Кнопка только у сетевых наборов: содержимое встроенного
+                          лежит в самом документе, и `refresh` на бэкенде такие
+                          наборы отфильтровывает — кнопка помигала бы «Обновляю…»
+                          и вернула бы ровно то же состояние */}
+                      {set.kind === 'http' && (
                         <Button
                           variant="ghost"
                           aria-label={`Обновить набор ${set.name}`}

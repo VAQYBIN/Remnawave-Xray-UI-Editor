@@ -110,7 +110,7 @@ function downloadReason(err: unknown): string {
   if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'имя хоста не разрешается'
   if (code === 'ECONNREFUSED') return 'соединение отклонено'
   if (code === 'ETIMEDOUT' || /timeout|timed out/i.test(message)) return 'истекло время ожидания'
-  if (/^Сервер ответил /.test(message) || /больше d+ байт/.test(message)) return message
+  if (/^Сервер ответил /.test(message) || /больше \d+ байт/.test(message)) return message
   if (/внутреннюю сеть|Некорректная ссылка|должна начинаться|редирект/i.test(message)) return message
   return message
 }
@@ -202,8 +202,6 @@ export class RuleSetService {
         loadedAt: parsed.loadedAt,
       }
     }
-    // Без IP в цели набор подсетей не совпадает: резолвить домены сервер не
-    // берётся, а догадка здесь стоила бы неверного маршрута
     // Без IP в цели набор подсетей не отвечает НИЧЕГО — и «нет» здесь было бы
     // ложью. Ядро в этом случае домен резолвит и проверяет полученный адрес;
     // какой он выйдет, мы не знаем. Сказать «не совпало» значило бы отправить
@@ -254,11 +252,27 @@ export class RuleSetService {
     }
   }
 
-  private async loadUncached(set: RuleSetDescriptor, cacheKey: string): Promise<Parsed> {
+  /**
+   * `fresh` — не спрашивать кэш и качать заново. Именно НЕ спрашивать, а не
+   * «сначала выбросить»: выброшенный файл при неудачной загрузке уже не
+   * вернуть, и одно нажатие «Обновить» при недоступном сервере превращало бы
+   * работающую трассировку в остановку. Кэш и разобранное заменяются только
+   * после успеха — на отказе всё остаётся как было (находка финального ревью).
+   */
+  /** Перекачать набор заново, не трогая прежнюю копию до успеха */
+  private async reload(set: RuleSetDescriptor): Promise<Parsed> {
+    return this.loadUncached(set, `${set.url}|${set.behavior}|${set.format}`, true)
+  }
+
+  private async loadUncached(
+    set: RuleSetDescriptor,
+    cacheKey: string,
+    fresh = false,
+  ): Promise<Parsed> {
     if (set.url === undefined) throw new RuleSetError('У набора не указана ссылка')
 
     const ttl = Math.max(this.limits.minTtlMs, (set.intervalSec ?? 0) * 1000)
-    const cached = await this.cache.read(set.url, ttl)
+    const cached = fresh ? null : await this.cache.read(set.url, ttl)
 
     let bytes: Uint8Array
     let loadedAt: number
@@ -481,9 +495,11 @@ export class RuleSetService {
     )
     const failures = new Map<string, string>()
     await this.pool(wanted, async (set) => {
-      await this.forget(set)
       try {
-        await this.load(set)
+        // Прежняя копия остаётся на месте до самого конца: `reload` заменит и
+        // файл, и разобранное только тогда, когда новая копия действительно
+        // скачалась и разобралась
+        await this.reload(set)
       } catch (err) {
         failures.set(
           set.name,
@@ -496,18 +512,6 @@ export class RuleSetService {
       const reason = failures.get(item.name)
       return reason === undefined ? item : { ...item, state: 'error' as const, reason }
     })
-  }
-
-  /** Забыть набор целиком: и разобранное, и файл — иначе `load` вернёт старое */
-  private async forget(set: RuleSetDescriptor): Promise<void> {
-    if (set.url === undefined) return
-    const cacheKey = `${set.url}|${set.behavior}|${set.format}`
-    const remembered = this.parsed.get(cacheKey)
-    if (remembered !== undefined) {
-      this.parsedBytes -= remembered.parsed.bytes
-      this.parsed.delete(cacheKey)
-    }
-    await this.cache.remove(set.url)
   }
 
   /**

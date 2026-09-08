@@ -27,7 +27,11 @@ import { effectiveTarget,
   type MihomoTraceResult,
   type RuleSetAnswers,
 } from '../../entities/mihomo/trace'
-import { ruleSetDescriptors, type RuleSetDescriptor } from '../../entities/mihomo/ruleSets'
+import {
+  FILE_SET_REASON,
+  ruleSetDescriptors,
+  type RuleSetDescriptor,
+} from '../../entities/mihomo/ruleSets'
 import {
   connectMihomo,
   disconnectMihomo,
@@ -174,7 +178,7 @@ export function useMihomoDraft({
       if (set.kind === 'file') {
         answers[set.name] = {
           state: 'unavailable',
-          reason: 'набор лежит в файле у клиента — серверу такой файл недоступен',
+          reason: FILE_SET_REASON,
         }
       } else if (set.kind === 'unsupported') {
         answers[set.name] = { state: 'unavailable', reason: set.reason }

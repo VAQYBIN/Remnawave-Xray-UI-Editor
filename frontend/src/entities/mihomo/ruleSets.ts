@@ -28,6 +28,13 @@ export type RuleSetDescriptor =
   /** Вид или формат редактору незнаком; выдумывать их нельзя */
   | { name: string; kind: 'unsupported'; reason: string }
 
+/**
+ * Почему набор из файла клиента недоступен. Строка одна на всё приложение:
+ * её называет и трассировка, и диалог состояния, и разъехаться они не должны —
+ * пользователь прочёл бы про один набор две разные причины.
+ */
+export const FILE_SET_REASON = 'набор лежит в файле у клиента — серверу такой файл недоступен'
+
 const BEHAVIORS = new Set<string>(['domain', 'ipcidr', 'classical'])
 const FORMATS = new Set<string>(['mrs', 'yaml', 'text'])
 
