@@ -846,6 +846,36 @@ describe('трассировка Mihomo: правила по процессу', 
       NO_GEO,
     )
     expect(logical.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+
+    // Вторая половина обещания: тот же путь через строку набора classical.
+    // Без этого имя теста обещало покрытие, которого в нём не было
+    const inSet = traceMihomo(doc('RULE-SET,c,VPN', 'MATCH,D'), t, NO_GEO, {
+      answers: { c: { state: 'lines', lines: ['PROCESS-NAME,chrome.exe'], count: 1 } },
+      pending: false,
+    })
+    expect(inSet.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+
+  it('подстановка совпадает с ядром, когда в самом значении есть «*»', () => {
+    // Порядок веток в разборе шаблона значим: если сравнение с символом строки
+    // идёт раньше проверки на «*», литеральная звёздочка значения съедает
+    // шаблонную, откатываться некуда — и получается «не совпало» там, где ядро
+    // совпадает. Перебор нашёл 546 таких пар
+    const t = T({ process: '/opt/a*b/run' })
+    const res = traceMihomo(doc('PROCESS-PATH-WILDCARD,/opt/a*,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+
+  it('путь без имени файла — остановка, а не ответ', () => {
+    const t = T({ process: 'C:\\Program Files\\Chrome\\' })
+    const exact = traceMihomo(doc('PROCESS-NAME,chrome.exe,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(exact.stopped?.index).toBe(0)
+    expect(exact.stopped?.reason).toMatch(/каталог/i)
+
+    // Особенно важно для «*»: на пустом имени он дал бы СОВПАДЕНИЕ
+    const anyName = traceMihomo(doc('PROCESS-NAME-WILDCARD,*,VPN', 'MATCH,D'), t, NO_GEO)
+    expect(anyName.stopped?.index).toBe(0)
+    expect(anyName.winner).toBeUndefined()
   })
 })
 

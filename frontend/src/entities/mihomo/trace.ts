@@ -151,15 +151,20 @@ function wildcardMatch(pattern: string, value: string): boolean {
   let mark = 0
   while (i < value.length) {
     const c = pattern[p]
-    if (p < pattern.length && (c === '?' || c === value[i])) {
-      p++
-      i++
-      continue
-    }
+    // Звёздочка ШАБЛОНА разбирается раньше сравнения с символом строки — так в
+    // `matchByString` ядра, и порядок здесь значим. При обратном порядке
+    // литеральная `*` в значении съедала бы шаблонную, точка отката не
+    // ставилась бы, и `/opt/a*b/run` против `/opt/a*` дал бы «не совпало» там,
+    // где ядро совпадает
     if (p < pattern.length && c === '*') {
       star = p
       mark = i
       p++
+      continue
+    }
+    if (p < pattern.length && (c === '?' || c === value[i])) {
+      p++
+      i++
       continue
     }
     if (star !== -1) {
@@ -213,7 +218,16 @@ function processCond(ctx: Ctx, type: string, payload: string): CondResult {
     }
     return matchProcess(type, payload, raw)
   }
-  const name = isPath ? (raw.split(/[\\/]/).pop() ?? raw) : raw
+  const name = isPath ? (raw.split(/[\\/]/).at(-1) ?? '') : raw
+  if (name === '') {
+    // Путь кончается разделителем: имени файла в нём нет. Молчать нельзя —
+    // `PROCESS-NAME,chrome.exe` сошёл бы за промах, а `PROCESS-NAME-WILDCARD,*`
+    // за совпадение с пустым именем
+    return {
+      state: 'unknown',
+      reason: `условие «${type}» сравнивает имя процесса, а в цели указан каталог без имени файла`,
+    }
+  }
   return matchProcess(type, payload, name)
 }
 
@@ -250,13 +264,6 @@ function parseOneCondition(text: string): Cond | null {
   return { type: type.trim(), payload: rest.join(',') || undefined }
 }
 
-/** Все метасимволы регулярного выражения, включая обе подстановки шаблона домена */
-const RE_META = /[.*+?^${}()|[\]\\]/g
-
-function escapeRe(value: string): string {
-  return value.replace(RE_META, '\\$&')
-}
-
 /** Домен по шаблону конкретного типа правила Mihomo */
 function matchDomain(type: string, pattern: string, address: string): MatchState {
   const a = address.toLowerCase()
@@ -265,22 +272,18 @@ function matchDomain(type: string, pattern: string, address: string): MatchState
   if (type === 'DOMAIN-SUFFIX') return a === p || a.endsWith(`.${p}`) ? 'yes' : 'no'
   if (type === 'DOMAIN-KEYWORD') return a.includes(p) ? 'yes' : 'no'
   if (type === 'DOMAIN-WILDCARD') {
-    // Подстановки ядра здесь ровно две: `*` — ноль или более ЛЮБЫХ символов,
-    // `?` — ровно один. Доки mihomo отдельно предупреждают, что это НЕ те
-    // подстановки, что в clash-form списках доменов (там `*` — один сегмент), и
-    // что `+` здесь обычный символ, а не квантификатор.
+    // Та же `wildcardMatch`, что и у правил по процессу, и это не совпадение:
+    // ядро для обоих зовёт одну функцию — `rules/common/domain_wildcard.go`
+    // передаёт шаблон в `wildcard.Match`, ровно как `rules/common/process.go`.
+    // Прежняя сборка регулярного выражения была второй реализацией той же
+    // грамматики и уже разошлась с первой на литеральной `*` в значении.
     //
-    // Шаблон приходит из чужого документа, поэтому экранируется всё, кроме двух
-    // подстановок: иначе `[` или `\` в имени превратили бы `new RegExp` в
-    // SyntaxError. try/catch — вторая застава: трассировка считается на каждую
-    // правку текста, ErrorBoundary в приложении нет, и исключение отсюда гасит
-    // весь редактор.
-    try {
-      const body = escapeRe(p).replace(/\\\*/g, '.*').replace(/\\\?/g, '.')
-      return new RegExp(`^${body}$`).test(a) ? 'yes' : 'no'
-    } catch {
-      return 'unknown'
-    }
+    // Подстановок ровно две: `*` — ноль или более ЛЮБЫХ символов, `?` — ровно
+    // один. Доки mihomo отдельно предупреждают, что это НЕ те подстановки, что
+    // в clash-form списках доменов (там `*` — один сегмент), и что `+` здесь
+    // обычный символ, а не квантификатор. Экранировать и ловить исключение
+    // больше не нужно: разбора выражения тут нет вовсе.
+    return wildcardMatch(p, a) ? 'yes' : 'no'
   }
   if (type === 'DOMAIN-REGEX') {
     // Регулярка автора шаблона может быть невалидной для JS — это не повод
