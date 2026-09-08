@@ -20,6 +20,10 @@ export interface SearchHit {
     | 'mihomo-rule'
     | 'mihomo-provider'
     | 'mihomo-hosts'
+    | 'singbox-inbound'
+    | 'singbox-rule'
+    | 'singbox-group'
+    | 'singbox-out'
   title: string
   /** Чем совпало — иначе в списке правил непонятно, почему они там */
   matchedOn: string

@@ -14,6 +14,10 @@ const KIND_LABEL: Record<SearchHit['kind'], string> = {
   'mihomo-rule': 'правило',
   'mihomo-provider': 'провайдер',
   'mihomo-hosts': 'подстановка',
+  'singbox-inbound': 'вход',
+  'singbox-rule': 'правило',
+  'singbox-group': 'группа',
+  'singbox-out': 'выход',
 }
 
 export function SearchBox({
