@@ -51,6 +51,9 @@ import defaultYaml from './fixtures/mihomo/default.yaml?raw'
 import simpleYaml from './fixtures/mihomo/simple.yaml?raw'
 import bundleYaml from './fixtures/mihomo/bundle.yaml?raw'
 import roscomvpnYaml from './fixtures/mihomo/roscomvpn.yaml?raw'
+import defaultSingbox from './fixtures/singbox/default.json?raw'
+import bundleSingbox from './fixtures/singbox/bundle.json?raw'
+import legacySingbox from './fixtures/singbox/legacy.json?raw'
 
 const mihomoFixtures = {
   default: defaultYaml,
@@ -68,4 +71,11 @@ const mihomoFixtures = {
  */
 export function mihomoFixture(name: keyof typeof mihomoFixtures): string {
   return mihomoFixtures[name]
+}
+
+const singboxFixtures = { default: defaultSingbox, bundle: bundleSingbox, legacy: legacySingbox }
+
+/** Настоящие шаблоны каталога sing-box; про `?raw` вместо `node:fs`/`node:url` — см. `mihomoFixture` выше */
+export function singboxFixture(name: keyof typeof singboxFixtures): string {
+  return singboxFixtures[name]
 }
