@@ -9,7 +9,6 @@ import type { EditorShellDraft } from '../src/features/editor/useDocumentDraft'
 function shellDraft(over: Partial<EditorShellDraft> = {}): EditorShellDraft {
   return {
     docKey: 'u-1',
-    storageKey: 'template:u-1',
     text: 'текст',
     dirty: false,
     issues: [],

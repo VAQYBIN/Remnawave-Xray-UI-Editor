@@ -29,7 +29,6 @@ export function validateCached(text: string): ReturnType<typeof validateXrayConf
 }
 
 export const xrayAdapter: DocumentAdapter<XrayConfig> = {
-  textTabLabel: 'JSON',
   parse: (text) => {
     const validation = validateCached(text)
     return {

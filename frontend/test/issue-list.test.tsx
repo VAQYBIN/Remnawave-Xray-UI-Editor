@@ -41,8 +41,15 @@ describe('IssueList', () => {
     expect(screen.getByText('странный уровень')).toBeInTheDocument()
   })
 
-  it('пустой список — прежнее сообщение', () => {
+  it('пустой список не выдумывает сообщения: их говорит вызывающий', () => {
+    // Ни один вызывающий сюда с пустым списком не приходит — оба показывают
+    // список только при непустых диагностиках, а «проблем нет» пишут сами и
+    // своими словами. Прежнее умолчание «Конфиг валиден» было второй копией
+    // того сообщения, до которой не доходило исполнение
     render(<IssueList issues={[]} />)
-    expect(screen.getByText('Конфиг валиден')).toBeInTheDocument()
+    expect(screen.queryByText('Конфиг валиден')).toBeNull()
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0)
+    // Список остаётся списком: ветки «вместо списка — абзац» здесь больше нет
+    expect(screen.getByRole('list')).toBeInTheDocument()
   })
 })

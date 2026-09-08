@@ -173,7 +173,6 @@ export function EditorShell({
               issues={draft.issues}
               onSelect={draft.selectIssue}
               canSelect={draft.canSelectIssue}
-              emptyLabel={validLabel}
             />
           </div>
         )}

@@ -15,7 +15,6 @@ interface ToyModel {
 
 // Документ — строки текста. Ядро не знает ни JSON, ни YAML, и это тест фиксирует.
 const toyAdapter: DocumentAdapter<ToyModel> = {
-  textTabLabel: 'TOY',
   parse: (text) => ({
     model: text.includes('!') ? undefined : { lines: text.split('\n') },
     issues: text.includes('!')

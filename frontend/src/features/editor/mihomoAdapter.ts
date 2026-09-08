@@ -8,7 +8,6 @@ import { mihomoIssueCounts, mihomoNodeIdForPath } from '../../entities/graph/mih
 import type { DocumentAdapter } from './documentAdapter'
 
 export const mihomoAdapter: DocumentAdapter<MihomoDoc> = {
-  textTabLabel: 'YAML',
   parse: (text) => {
     const md = parseMihomo(text)
     return {

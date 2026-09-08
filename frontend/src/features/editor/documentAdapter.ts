@@ -12,8 +12,6 @@ import type { GraphContext, IssueCount } from '../../entities/graph/types'
 import type { SearchHit } from '../../entities/graph/search'
 
 export interface DocumentAdapter<TModel> {
-  /** Подпись сегмента текстовой вкладки в топбаре: «JSON» или «YAML» */
-  textTabLabel: string
   /**
    * Разбор текста. `model === undefined` — документ не разбирается, граф не
    * строится, оболочка показывает пустое состояние. Диагностики возвращаются в

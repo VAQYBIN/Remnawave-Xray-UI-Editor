@@ -48,10 +48,6 @@ describe('адаптер Mihomo', () => {
   it('пустой документ модели не даёт', () => {
     expect(mihomoAdapter.parse('').model).toBeUndefined()
   })
-
-  it('подпись текстовой вкладки — YAML', () => {
-    expect(mihomoAdapter.textTabLabel).toBe('YAML')
-  })
 })
 
 describe('черновик Mihomo', () => {

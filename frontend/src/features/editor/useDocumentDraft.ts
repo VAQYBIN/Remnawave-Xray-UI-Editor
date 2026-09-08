@@ -64,8 +64,6 @@ export interface DocumentDraftOptions<TModel> {
 export interface EditorShellDraft {
   /** Uuid документа: он же адрес бэкапов в панели */
   docKey: string
-  /** Ключ локальных хранилищ: `<вид>:<uuid>` — черновик, история, позиции узлов */
-  storageKey: string
   text: string
   dirty: boolean
   issues: ValidationIssue[]
@@ -96,6 +94,8 @@ export interface EditorShellDraft {
 }
 
 export interface DocumentDraft<TModel> extends EditorShellDraft {
+  /** Ключ локальных хранилищ: `<вид>:<uuid>` — черновик, история, позиции узлов */
+  storageKey: string
   /** Контекст графа, с которым построен документ: его же ждёт TopologyView */
   ctx: GraphContext
   /** Текст, каким его отдала панель: левая сторона сравнения при сохранении */
