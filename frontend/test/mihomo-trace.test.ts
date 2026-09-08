@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseMihomo } from '../src/entities/mihomo'
 import { geoKeysOfMihomo, traceMihomo } from '../src/entities/mihomo/trace'
+import type { RuleSetAnswers } from '../src/entities/mihomo/trace'
 import type { GeoAnswers, TraceTarget } from '../src/entities/xray'
 import { mihomoFixture } from './helpers'
 
@@ -534,5 +535,182 @@ describe('трассировка Mihomo: модификатор no-resolve', () 
       NO_GEO,
     )
     expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+})
+
+const NO_SETS: RuleSetAnswers = { answers: {}, pending: false }
+const sets = (answers: RuleSetAnswers['answers'], pending = false): RuleSetAnswers => ({
+  answers,
+  pending,
+})
+
+describe('трассировка Mihomo: наборы правил', () => {
+  it('набор ответил «да» — правило побеждает', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,ads,REJECT', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      sets({ ads: { state: 'yes', count: 10 } }),
+    )
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'REJECT' })
+  })
+
+  it('набор ответил «нет» — проход идёт дальше', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,ads,REJECT', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      sets({ ads: { state: 'no', count: 10 } }),
+    )
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+    expect(res.stopped).toBeUndefined()
+  })
+
+  it('недоступный набор останавливает проход и называет причину', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,ads,REJECT', 'MATCH,D'),
+      T(),
+      NO_GEO,
+      sets({ ads: { state: 'unavailable', reason: 'сервер ответил 404' } }),
+    )
+    expect(res.stopped?.index).toBe(0)
+    expect(res.stopped?.reason).toMatch(/404/)
+    // Прежний текст обещал, что редактор наборы не скачивает, — это стало неправдой
+    expect(res.stopped?.reason).not.toMatch(/не скачивает/)
+  })
+
+  it('пока ответы едут, причина говорит именно это', () => {
+    const res = traceMihomo(doc('RULE-SET,ads,REJECT', 'MATCH,D'), T(), NO_GEO, sets({}, true))
+    expect(res.stopped?.reason).toMatch(/загружа/i)
+  })
+
+  it('без ответов вообще проход по-прежнему останавливается', () => {
+    const res = traceMihomo(doc('RULE-SET,ads,REJECT', 'MATCH,D'), T(), NO_GEO, NO_SETS)
+    expect(res.stopped?.index).toBe(0)
+  })
+
+  it('no-resolve на ipcidr решает без ответа набора', () => {
+    // Проверено в 8adf32e: содержимое файла на ответ не влияет
+    const text = [
+      'rule-providers:',
+      '  p:',
+      '    behavior: ipcidr',
+      '',
+      'rules:',
+      '  - RULE-SET,p,DIRECT,no-resolve',
+      '  - MATCH,D',
+      '',
+    ].join('\n')
+    const res = traceMihomo(parseMihomo(text), T(), NO_GEO, NO_SETS)
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+  })
+})
+
+describe('трассировка Mihomo: набор classical', () => {
+  const classical = (lines: string[]) =>
+    sets({ c: { state: 'lines', lines, count: lines.length } })
+
+  it('совпавшая строка набора выигрывает правило', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'a.com' }),
+      NO_GEO,
+      classical(['DOMAIN-SUFFIX,a.com']),
+    )
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+
+  it('набор — это ИЛИ: точное «да» перевешивает непроверяемую строку', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'a.com' }),
+      NO_GEO,
+      classical(['PROCESS-NAME,x.exe', 'DOMAIN-SUFFIX,a.com']),
+    )
+    expect(res.winner).toEqual({ ruleIndex: 0, target: 'VPN' })
+  })
+
+  it('непроверяемая строка без совпадений останавливает проход', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'zzz.com' }),
+      NO_GEO,
+      classical(['PROCESS-NAME,x.exe', 'DOMAIN-SUFFIX,a.com']),
+    )
+    expect(res.stopped?.index).toBe(0)
+    expect(res.stopped?.reason).toMatch(/PROCESS-NAME|процесс/i)
+  })
+
+  it('все строки промахнулись — набор не совпал, проход идёт дальше', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'zzz.com' }),
+      NO_GEO,
+      classical(['DOMAIN-SUFFIX,a.com', 'DOMAIN,b.com']),
+    )
+    expect(res.winner).toEqual({ ruleIndex: 1, target: 'D' })
+  })
+
+  it('строка, запрещённая ядром внутри classical, названа поимённо', () => {
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'zzz.com' }),
+      NO_GEO,
+      classical(['RULE-SET,other']),
+    )
+    expect(res.stopped?.reason).toMatch(/RULE-SET/)
+  })
+
+  it('названа ПЕРВАЯ непроверяемая строка набора, а не последняя', () => {
+    // Порядок здесь не косметика: причину читают, чтобы найти в наборе строку,
+    // из-за которой разбор встал, и ищут её сверху вниз — как её читает ядро
+    const forbidden = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'zzz.com' }),
+      NO_GEO,
+      classical(['RULE-SET,other', 'PROCESS-NAME,x.exe', 'UID,1000']),
+    )
+    expect(forbidden.stopped?.reason).toMatch(/RULE-SET/)
+    expect(forbidden.stopped?.reason).not.toMatch(/PROCESS-NAME/)
+    expect(forbidden.stopped?.reason).not.toMatch(/UID/)
+    // То же и когда первую неизвестность вернуло вычисление условия, а не разбор
+    const judged = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'zzz.com' }),
+      NO_GEO,
+      classical(['PROCESS-NAME,x.exe', 'UID,1000']),
+    )
+    expect(judged.stopped?.reason).toMatch(/PROCESS-NAME/)
+    expect(judged.stopped?.reason).not.toMatch(/UID/)
+    // И когда обе неизвестности пришли из одной ветки — запрещённых типов...
+    const twoForbidden = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'zzz.com' }),
+      NO_GEO,
+      classical(['RULE-SET,other', 'SUB-RULE,thing']),
+    )
+    expect(twoForbidden.stopped?.reason).toMatch(/RULE-SET,other/)
+    expect(twoForbidden.stopped?.reason).not.toMatch(/SUB-RULE/)
+    // ...и неразбираемых строк
+    const twoBroken = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'zzz.com' }),
+      NO_GEO,
+      classical(['garbage', 'junk']),
+    )
+    expect(twoBroken.stopped?.reason).toMatch(/garbage/)
+    expect(twoBroken.stopped?.reason).not.toMatch(/junk/)
+  })
+
+  it('строки classical идут без цели — три поля не требуются', () => {
+    // `PROCESS-NAME,uTorrent.exe` — это ДВА поля. Разбор правилом документа
+    // вернул бы null и потерял бы всю строку
+    const res = traceMihomo(
+      doc('RULE-SET,c,VPN', 'MATCH,D'),
+      T({ address: 'a.com' }),
+      NO_GEO,
+      classical(['DOMAIN,a.com']),
+    )
+    expect(res.winner?.ruleIndex).toBe(0)
   })
 })

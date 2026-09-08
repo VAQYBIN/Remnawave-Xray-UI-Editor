@@ -56,6 +56,35 @@ interface Cond {
   payload?: string
 }
 
+/**
+ * Ответ бэкенда по одному набору правил. Форма — ровно та, что отдаёт
+ * `backend/src/ruleset/service.ts`: `domain` и `ipcidr` считаются там (декодеры
+ * бора и диапазонов есть только на сервере), а `classical` приезжает строками,
+ * потому что это правила Mihomo и их вычислитель — здесь.
+ */
+export type RuleSetAnswer =
+  | { state: 'yes' | 'no'; count: number }
+  | { state: 'lines'; lines: string[]; count: number }
+  | { state: 'unavailable'; reason: string }
+
+export interface RuleSetAnswers {
+  answers: Record<string, RuleSetAnswer>
+  /** Ответы ещё едут: это «пока не знаем», а не «недоступен» */
+  pending: boolean
+}
+
+const NO_RULE_SETS: RuleSetAnswers = { answers: {}, pending: false }
+
+/** Условие без цели: то, из чего состоит и правило, и строка набора classical */
+interface ConditionLike {
+  type: string
+  payload?: string
+  modifiers: string[]
+}
+
+/** Ядро отвергает эти типы внутри classical при разборе набора */
+const FORBIDDEN_IN_CLASSICAL = new Set(['MATCH', 'RULE-SET', 'SUB-RULE'])
+
 /** Результат проверки условия; у 'unknown' причина обязательна */
 interface CondResult {
   state: MatchState
@@ -199,6 +228,8 @@ interface Ctx {
   geo: GeoAnswers
   /** Имена наборов правил, чьё содержимое — только подсети (`behavior: ipcidr`) */
   ipcidrProviders: Set<string>
+  /** Что бэкенд ответил по наборам правил документа */
+  ruleSets: RuleSetAnswers
 }
 
 /**
@@ -223,13 +254,82 @@ const IP_ONLY_TYPES = new Set(['IP-CIDR', 'IP-CIDR6', 'GEOIP'])
  * провайдера, которого в документе нет, `behavior` взять неоткуда — обоих
  * случаев здесь нет, и проход на них останавливается, как раньше.
  */
-function missesWithoutResolve(ctx: Ctx, rule: MihomoRule): boolean {
+function missesWithoutResolve(ctx: Ctx, rule: ConditionLike): boolean {
   if (!rule.modifiers.includes('no-resolve')) return false
   if (ctx.target.ip !== undefined) return false
   if (IP_ONLY_TYPES.has(rule.type)) return true
   return (
     rule.type === 'RULE-SET' && rule.payload !== undefined && ctx.ipcidrProviders.has(rule.payload)
   )
+}
+
+/**
+ * Строка набора `classical` — правило БЕЗ цели: ядро разбирает её
+ * `ParseRulePayload(rule, false)`. Обычный `parseRule` тут не годится: он ждёт
+ * три поля и на `PROCESS-NAME,uTorrent.exe` вернул бы null, потеряв всю строку.
+ */
+export function parseClassicalEntry(line: string): ConditionLike | null {
+  const parts = splitTopLevel(line.trim())
+  if (parts.length < 2) return null
+  const type = parts[0]!.trim()
+  if (type === '') return null
+  return { type, payload: parts[1], modifiers: parts.slice(2) }
+}
+
+/**
+ * Отказы, видные ДО разбора условия: они смотрят на модификаторы, а не на тип.
+ * Общие у правила документа и у строки набора — модификатор в строке набора
+ * значит ровно то же самое.
+ */
+function earlyRefusal(ctx: Ctx, rule: ConditionLike): CondResult | null {
+  // Модификатор `src` разворачивает условие на источник соединения, о котором
+  // цель трассировки ничего не знает: посчитать его как условие по назначению
+  // значило бы дать уверенный неверный ответ
+  if (rule.modifiers.includes('src')) {
+    return {
+      state: 'unknown',
+      reason: `модификатор src разворачивает «${rule.type}» на источник соединения — таких данных в цели трассировки нет`,
+    }
+  }
+  if (missesWithoutResolve(ctx, rule)) return NO
+  return null
+}
+
+/** Условие целиком: сперва отказы по модификаторам, потом разбор самого условия */
+function judgeCondition(ctx: Ctx, rule: ConditionLike): CondResult {
+  return earlyRefusal(ctx, rule) ?? evalCondition(ctx, { type: rule.type, payload: rule.payload })
+}
+
+/**
+ * Набор `classical` — это ИЛИ по его строкам (`classical_strategy.go`): ядро
+ * идёт по списку и возвращает true на первом совпавшем. Отсюда две
+ * несимметричные ветки. Точное «да» решает исход независимо от того, сколько
+ * строк рядом непроверяемы. А вот непроверяемая строка БЕЗ единого «да» делает
+ * неизвестным весь набор: счесть его промахом молча значило бы соврать — ровно
+ * то, ради запрета чего в этой трассировке заведена остановка.
+ */
+function evalClassical(ctx: Ctx, name: string, lines: string[]): CondResult {
+  let unknown: CondResult | null = null
+  for (const line of lines) {
+    const entry = parseClassicalEntry(line)
+    if (entry === null) {
+      unknown ??= { state: 'unknown', reason: `в наборе «${name}» не разбирается строка «${line}»` }
+      continue
+    }
+    if (FORBIDDEN_IN_CLASSICAL.has(entry.type)) {
+      unknown ??= {
+        state: 'unknown',
+        reason: `в наборе «${name}» строка «${line}»: ядро не принимает «${entry.type}» внутри classical`,
+      }
+      continue
+    }
+    const res = judgeCondition(ctx, entry)
+    if (res.state === 'yes') return YES
+    if (res.state === 'unknown') {
+      unknown ??= { state: 'unknown', reason: `в наборе «${name}»: ${res.reason}` }
+    }
+  }
+  return unknown ?? NO
 }
 
 function evalCondition(ctx: Ctx, cond: Cond): CondResult {
@@ -281,10 +381,25 @@ function evalCondition(ctx: Ctx, cond: Cond): CondResult {
     return payload.trim().toLowerCase() === ctx.target.network ? YES : NO
   }
   if (type === 'RULE-SET') {
-    return {
-      state: 'unknown',
-      reason: `набор правил «${payload}» лежит по ссылке: редактор его не скачивает и проверить не может`,
+    // Наборы редактор теперь скачивает (бэкенд опрашивает их по ссылке), и
+    // ответ бывает четырёх видов. «Ответа нет» — не то же самое, что «набор
+    // недоступен»: в первом случае мы не спрашивали или ещё не дождались, во
+    // втором спросили и получили отказ с причиной. Оба — остановка, но текст
+    // должен называть, что именно произошло.
+    const answer = ctx.ruleSets.answers[payload]
+    if (answer === undefined) {
+      return {
+        state: 'unknown',
+        reason: ctx.ruleSets.pending
+          ? `набор правил «${payload}» ещё загружается`
+          : `набор правил «${payload}»: содержимое редактору неизвестно`,
+      }
     }
+    if (answer.state === 'unavailable') {
+      return { state: 'unknown', reason: `набор правил «${payload}»: ${answer.reason}` }
+    }
+    if (answer.state === 'lines') return evalClassical(ctx, payload, answer.lines)
+    return answer.state === 'yes' ? YES : NO
   }
   if (NO_DATA_TYPES.has(type)) {
     return {
@@ -389,16 +504,10 @@ function judgeRule(ctx: Ctx, rule: MihomoRule | null, seen: Set<string>): Judged
   if (rule === null) {
     return { state: 'unknown', reason: 'строку правила разобрать не удалось' }
   }
-  // Модификатор `src` разворачивает условие на источник соединения, о котором
-  // цель трассировки ничего не знает: посчитать его как условие по назначению
-  // значило бы дать уверенный неверный ответ
-  if (rule.modifiers.includes('src')) {
-    return {
-      state: 'unknown',
-      reason: `модификатор src разворачивает «${rule.type}» на источник соединения — таких данных в цели трассировки нет`,
-    }
-  }
-  if (missesWithoutResolve(ctx, rule)) return NO
+  // Отказы по модификаторам проверяются ДО ветки SUB-RULE: `src` разворачивает
+  // на источник и её тоже
+  const early = earlyRefusal(ctx, rule)
+  if (early !== null) return early
   if (rule.type === 'SUB-RULE') {
     if (rule.payload === undefined) {
       return { state: 'unknown', reason: 'у правила SUB-RULE нет условия' }
@@ -459,6 +568,9 @@ export function traceMihomo(
   md: MihomoDoc,
   target: TraceTarget,
   geo: GeoAnswers,
+  // Значение по умолчанию обязательно: у traceMihomo есть вызывающие, которым
+  // наборы правил не нужны, и трогать их в этой задаче незачем
+  ruleSets: RuleSetAnswers = NO_RULE_SETS,
 ): MihomoTraceResult {
   // Цель-адрес и есть IP назначения: требовать вписать его второй раз незачем
   const effective: TraceTarget =
@@ -476,6 +588,7 @@ export function traceMihomo(
         .filter((p) => p.behavior?.trim().toLowerCase() === 'ipcidr')
         .map((p) => p.name),
     ),
+    ruleSets,
   }
 
   const verdicts: MihomoRuleVerdict[] = []
