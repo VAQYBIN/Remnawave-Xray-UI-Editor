@@ -43,6 +43,31 @@ RUN set -eu; \
     chmod +x /usr/local/bin/mihomo; \
     rm /tmp/mihomo.gz
 
+# Ядро sing-box для проверки шаблонов подписки (`sing-box check`). Приём тот же, что
+# у стадий xray и mihomo: закреплённая версия и контрольная сумма, архитектура — от
+# buildx. Архив — musl-сборка, а не «обычная» (glibc): та линкуется с системным
+# динамическим загрузчиком, которого в alpine (musl) нет, и не запускается вовсе —
+# проверено сборкой обеих архитектур.
+FROM alpine:3.24 AS singbox
+ARG TARGETARCH
+ARG SINGBOX_VERSION=1.13.21
+ARG SINGBOX_SHA256_AMD64=8864abb3b72a6b404445a8c25183c79cfa44a80def0d775ac79578e74fb980e7
+ARG SINGBOX_SHA256_ARM64=5cf4d77d21101a6f20ada0debb8a137dbb380e2c1e503abc33e1d307216fa9c1
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) asset="sing-box-${SINGBOX_VERSION}-linux-amd64-musl.tar.gz"; sha="$SINGBOX_SHA256_AMD64" ;; \
+      arm64) asset="sing-box-${SINGBOX_VERSION}-linux-arm64-musl.tar.gz"; sha="$SINGBOX_SHA256_ARM64" ;; \
+      *) echo "неподдерживаемая архитектура: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    apk add --no-cache curl tar; \
+    curl -fsSL -o /tmp/sing-box.tar.gz \
+      "https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/${asset}"; \
+    echo "${sha}  /tmp/sing-box.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/sing-box.tar.gz -C /tmp; \
+    mv "/tmp/sing-box-${SINGBOX_VERSION}-linux-${TARGETARCH}-musl/sing-box" /usr/local/bin/sing-box; \
+    chmod +x /usr/local/bin/sing-box; \
+    rm -rf /tmp/sing-box.tar.gz "/tmp/sing-box-${SINGBOX_VERSION}-linux-${TARGETARCH}-musl"
+
 FROM node:24-alpine AS backend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -65,8 +90,10 @@ ENV NODE_ENV=production
 ENV STATIC_DIR=/app/frontend/dist
 ENV XRAY_BIN=/usr/local/bin/xray
 ENV MIHOMO_BIN=/usr/local/bin/mihomo
+ENV SINGBOX_BIN=/usr/local/bin/sing-box
 COPY --from=xray /usr/local/bin/xray /usr/local/bin/xray
 COPY --from=mihomo /usr/local/bin/mihomo /usr/local/bin/mihomo
+COPY --from=singbox /usr/local/bin/sing-box /usr/local/bin/sing-box
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 RUN npm ci --workspace backend --omit=dev
