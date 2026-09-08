@@ -22,17 +22,23 @@ import {
 import { groupsOf } from '../../entities/mihomo/groups'
 import { effectiveTarget,
   geoKeysOfMihomo,
+  geoKeysOfRuleSetLines,
   traceMihomo,
   type MihomoTraceResult,
   type RuleSetAnswers,
 } from '../../entities/mihomo/trace'
-import { ruleSetDescriptors } from '../../entities/mihomo/ruleSets'
+import { ruleSetDescriptors, type RuleSetDescriptor } from '../../entities/mihomo/ruleSets'
 import {
   connectMihomo,
   disconnectMihomo,
   type MihomoRefusal,
 } from '../../entities/graph/mihomo/mutations'
-import type { GeoAnswers, PathParts } from '../../entities/xray'
+import {
+  formatPath,
+  type GeoAnswers,
+  type PathParts,
+  type ValidationIssue,
+} from '../../entities/xray'
 import type { GraphContext } from '../../entities/graph/types'
 import { useGeoMatch, useRuleSetMatch, type RuleSetQuery } from '../../shared/api'
 import { useDebounced } from '../../shared/lib/useDebounced'
@@ -91,6 +97,12 @@ export interface MihomoDraft extends DocumentDraft<MihomoDoc> {
   setImportOpen: (open: boolean) => void
   sectionsOpen: boolean
   setSectionsOpen: (open: boolean) => void
+  ruleSetsOpen: boolean
+  setRuleSetsOpen: (open: boolean) => void
+  /** Дескрипторы наборов документа: их же показывает диалог «Наборы правил» */
+  ruleSets: RuleSetDescriptor[]
+  /** Что из них сервер способен достать — только это и уходит на него */
+  askedSets: RuleSetQuery[]
 }
 
 export function useMihomoDraft({
@@ -110,6 +122,7 @@ export function useMihomoDraft({
   const [checkOpen, setCheckOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [sectionsOpen, setSectionsOpen] = useState(false)
+  const [ruleSetsOpen, setRuleSetsOpen] = useState(false)
   const md = core.model
 
   // Считаем и спрашиваем базу, когда ввод затих: иначе каждый символ адреса
@@ -119,11 +132,6 @@ export function useMihomoDraft({
   // доехать до бэкенда как адрес назначения, иначе набор подсетей и правило
   // IP-CIDR из документа ответят на один вопрос по-разному
   const settledTarget = useMemo(() => (settled ? effectiveTarget(settled) : settled), [settled])
-  // Спрашиваем базу только по тем ключам, что реально есть в правилах
-  const geoKeys = useMemo(() => (md ? geoKeysOfMihomo(md) : []), [md])
-  const geoQuery = useGeoMatch(
-    settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
-  )
 
   // Наборы правил документа делятся надвое ещё до запроса. На бэкенд уходят
   // только те, чьё содержимое он способен достать: `http` и `inline`. Набор из
@@ -180,14 +188,52 @@ export function useMihomoDraft({
       ? { target: { address: settledTarget.address, ip: settledTarget.ip }, sets: askedSets }
       : null,
   )
+
+  /**
+   * Запрос мог и не доехать: сеть, 500, тело больше предела роута. Ответов
+   * тогда нет ВООБЩЕ, и каждое правило `RULE-SET` вырождается в «содержимое
+   * редактору неизвестно» — настоящая причина теряется по дороге. Называем её
+   * по каждому спрошенному набору, тем же способом, каким называется отказ,
+   * приехавший с сервера.
+   */
+  const failedAnswers = useMemo<RuleSetAnswers['answers']>(() => {
+    if (!ruleSetQuery.isError) return {}
+    const reason = `запрос к серверу не удался: ${(ruleSetQuery.error as Error).message}`
+    const answers: RuleSetAnswers['answers'] = {}
+    for (const set of askedSets) answers[set.name] = { state: 'unavailable', reason }
+    return answers
+  }, [ruleSetQuery.isError, ruleSetQuery.error, askedSets])
+
+  // Порядок склейки — от менее к более точному; ответ сервера перекрывает всё
   const ruleSetAnswers = useMemo<RuleSetAnswers>(
     () => ({
-      answers: { ...localAnswers, ...(ruleSetQuery.data?.answers ?? {}) },
+      answers: { ...localAnswers, ...failedAnswers, ...(ruleSetQuery.data?.answers ?? {}) },
       // «Ещё едет» — это не «недоступен»: пока ответы в пути, трассировка
       // обязана останавливаться с ЭТОЙ причиной, а не выдавать промах
       pending: ruleSetQuery.isFetching,
     }),
-    [localAnswers, ruleSetQuery.data, ruleSetQuery.isFetching],
+    [localAnswers, failedAnswers, ruleSetQuery.data, ruleSetQuery.isFetching],
+  )
+
+  // Строки набора `classical` — такие же правила Mihomo, и GEOSITE/GEOIP в них
+  // надо спрашивать наравне с правилами документа. Ключи приезжают вторым
+  // кругом: пока набор не скачан, знать о них неоткуда — поэтому запрос к базе
+  // после прихода наборов уходит ещё раз, и это не лишний вызов, а
+  // единственный способ узнать вопрос
+  const setGeoKeys = useMemo(() => {
+    const lines: string[] = []
+    for (const answer of Object.values(ruleSetQuery.data?.answers ?? {})) {
+      if (answer.state === 'lines') lines.push(...answer.lines)
+    }
+    return geoKeysOfRuleSetLines(lines)
+  }, [ruleSetQuery.data])
+
+  const geoKeys = useMemo(() => {
+    const fromDoc = md ? geoKeysOfMihomo(md) : []
+    return [...new Set([...fromDoc, ...setGeoKeys])]
+  }, [md, setGeoKeys])
+  const geoQuery = useGeoMatch(
+    settledTarget ? { domain: settledTarget.address, ip: settledTarget.ip, keys: geoKeys } : null,
   )
 
   const trace = useMemo(
@@ -196,6 +242,39 @@ export function useMihomoDraft({
         ? traceMihomo(md, settledTarget, geoQuery.data ?? NO_GEO, ruleSetAnswers)
         : undefined,
     [md, settledTarget, geoQuery.data, ruleSetAnswers],
+  )
+
+  /**
+   * Недоступный набор — ПРЕДУПРЕЖДЕНИЕ, а не ошибка: документ от нашей
+   * неспособности скачать чужой файл корректным быть не перестаёт, и клиент его
+   * загрузит. Поэтому сохранение не блокируется.
+   *
+   * Пока цель трассировки не задана, сетевых ответов нет — и предупреждений о
+   * них тоже: утверждать, что набор недоступен, не спросив о нём, было бы
+   * выдумкой. А про набор из файла клиента и про незнакомый вид сказать можно
+   * сразу: их состояние от сети не зависит.
+   */
+  const ruleSetIssues = useMemo<ValidationIssue[]>(() => {
+    const out: ValidationIssue[] = []
+    for (const set of ruleSets) {
+      const answer = Object.hasOwn(ruleSetAnswers.answers, set.name)
+        ? ruleSetAnswers.answers[set.name]
+        : undefined
+      if (answer?.state !== 'unavailable') continue
+      const parts: PathParts = ['rule-providers', set.name]
+      out.push({
+        parts,
+        path: formatPath(parts),
+        message: `Набор правил «${set.name}» редактор проверить не может: ${answer.reason}`,
+        level: 'warning',
+      })
+    }
+    return out
+  }, [ruleSets, ruleSetAnswers])
+
+  const issues = useMemo(
+    () => (ruleSetIssues.length === 0 ? core.issues : [...core.issues, ...ruleSetIssues]),
+    [core.issues, ruleSetIssues],
   )
 
   /**
@@ -221,6 +300,13 @@ export function useMihomoDraft({
 
   return {
     ...core,
+    // Диагностики по наборам приклеиваются здесь, а не в useDocumentDraft:
+    // состояние набора выводится из `md`, а `md` приходит ИЗ него — передать их
+    // внутрь значило бы замкнуть круг. Меняются ровно два поля: `errorCount`
+    // не трогаем (это предупреждения), `nodeIssues` — тоже (узла у пути
+    // `rule-providers` на графе нет по устройству графа)
+    issues,
+    warningCount: core.warningCount + ruleSetIssues.length,
     md,
     setField: (parts, key, value) => {
       if (md === undefined) return
@@ -294,5 +380,9 @@ export function useMihomoDraft({
     setImportOpen,
     sectionsOpen,
     setSectionsOpen,
+    ruleSetsOpen,
+    setRuleSetsOpen,
+    ruleSets,
+    askedSets,
   }
 }

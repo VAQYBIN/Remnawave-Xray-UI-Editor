@@ -437,4 +437,164 @@ describe('трассировка спрашивает наборы правил'
     await waitFor(() => expect(result.current.trace).toBeDefined(), { timeout: 3000 })
     expect(setBodies).toEqual([])
   })
+
+  it('успешный ответ сервера не перекрывается локальным отказом: state остаётся "yes"', async () => {
+    answer = respond({ net: { state: 'yes', count: 3 } })
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace?.winner?.ruleIndex).toBe(0), { timeout: 3000 })
+    expect(result.current.trace?.winner?.target).toBe('A')
+    expect(result.current.trace?.verdicts[0]?.state).toBe('yes')
+    expect(result.current.trace?.verdicts[0]?.sets).toEqual([{ name: 'net', count: 3 }])
+  })
+
+  it('успевший ответ переживает последующий отказ сети: старые данные не тонут в failedAnswers', async () => {
+    // Ловит мутацию порядка склейки: TanStack Query на неудачном ПОВТОРНОМ
+    // запросе держит isError=true, но НЕ обнуляет ранее полученный data —
+    // так что данные и отказ существуют одновременно, и порядок спреда решает,
+    // кто победит. Правильный порядок — данные последними, они и должны
+    // остаться победителем; переставленный порядок вернул бы «запрос не удался»
+    // поверх всё ещё годного кэша.
+    answer = respond({ net: { state: 'yes', count: 3 } })
+    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.trace?.verdicts[0]?.state).toBe('yes'), { timeout: 3000 })
+
+    // Тот же запрос (тот же ключ) на этот раз отказывает — стухший успешный
+    // ответ у TanStack Query остаётся в кэше рядом с новой ошибкой
+    answer = Promise.resolve(
+      new Response(JSON.stringify({ message: 'Сервер недоступен' }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    await act(async () => {
+      await qc.refetchQueries({ queryKey: ['ruleset-match'], type: 'all' })
+      // notifyManager у TanStack Query планирует уведомление подписчиков
+      // отдельным тиком — без него React не успевает перерендерить хук до
+      // следующей проверки
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(result.current.trace?.verdicts[0]?.state).toBe('yes')
+    expect(result.current.trace?.stopped).toBeUndefined()
+  })
+})
+
+describe('наборы правил: отказы и диагностики', () => {
+  const DOC = [
+    'rule-providers:',
+    '  ads:',
+    '    type: http',
+    '    behavior: domain',
+    '    format: mrs',
+    '    url: https://example.com/ads.mrs',
+    '  local:',
+    '    type: file',
+    '    behavior: domain',
+    '    path: ./local.yaml',
+    'rules:',
+    '  - RULE-SET,ads,REJECT',
+    '  - MATCH,PROXY',
+    '',
+  ].join('\n')
+
+  const json = (body: unknown, status = 200) =>
+    Promise.resolve(
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+  /** Куда и с чем ходили: по этому видно, о чём спросили базу */
+  let calls: { url: string; body: Record<string, unknown> }[] = []
+  /** Ответ ручки наборов держится здесь: тест решает, каким он будет */
+  let matchResponse: () => Promise<Response>
+
+  beforeEach(() => {
+    useDraftStore.setState({ drafts: {} })
+    useHistoryStore.setState({ stacks: {} })
+    qc.clear()
+    calls = []
+    matchResponse = () =>
+      json({ answers: { ads: { state: 'unavailable', reason: 'не удалось скачать: 404' } } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        calls.push({ url, body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> })
+        if (url.includes('/api/tools/ruleset/match')) return matchResponse()
+        if (url.includes('/api/tools/geo/match')) {
+          return json({ loaded: true, answers: {}, missing: [] })
+        }
+        throw new Error(`Неожиданный запрос: ${url}`)
+      }),
+    )
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const target = { address: 'a.com', port: 443, network: 'tcp' as const }
+
+  it('сбой запроса называет причину по каждому спрошенному набору', async () => {
+    // Без этого отказ на границе роута обнулял ответы по ВСЕМУ документу, и
+    // каждое правило получало общее «содержимое редактору неизвестно»
+    matchResponse = () => json({ message: 'Тело великовато' }, 500)
+    const { result } = draft(DOC)
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(
+      () => expect(result.current.trace?.stopped?.reason).toMatch(/запрос к серверу не удался/),
+      { timeout: 3000 },
+    )
+    expect(result.current.trace?.stopped?.reason).toMatch(/Тело великовато/)
+  })
+
+  it('недоступный набор и набор из файла клиента становятся предупреждениями', async () => {
+    const { result } = draft(DOC)
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(() => expect(result.current.issues.some((i) => i.path.includes('ads'))).toBe(true), {
+      timeout: 3000,
+    })
+    const issue = result.current.issues.find((i) => i.path.includes('ads'))!
+    // Предупреждение, а не ошибка: документ корректен, и сохранение не
+    // блокируется нашей неспособностью скачать чужой файл
+    expect(issue.level).toBe('warning')
+    expect(issue.message).toMatch(/404/)
+    expect(result.current.issues.some((i) => i.path.includes('local'))).toBe(true)
+    // Счётчик в статус-баре обязан их видеть, иначе список и число разойдутся
+    expect(result.current.warningCount).toBeGreaterThanOrEqual(2)
+  })
+
+  it('без цели трассировки сетевых предупреждений нет: мы ещё не спрашивали', async () => {
+    const { result } = draft(DOC)
+    await waitFor(() => expect(result.current.md).toBeDefined())
+    // Утверждать, что набор недоступен, не спросив о нём, было бы выдумкой
+    expect(result.current.issues.some((i) => i.path.includes('ads'))).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  it('geo-ключи спрашиваются и по строкам набора classical', async () => {
+    const doc = [
+      'rule-providers:',
+      '  region:',
+      '    type: http',
+      '    behavior: classical',
+      '    url: https://example.com/region.yaml',
+      'rules:',
+      '  - RULE-SET,region,PROXY',
+      '  - MATCH,D',
+      '',
+    ].join('\n')
+    matchResponse = () =>
+      json({ answers: { region: { state: 'lines', lines: ['GEOSITE,cn'], count: 1 } } })
+    const { result } = draft(doc)
+    act(() => result.current.setTraceTarget(target))
+    await waitFor(
+      () => {
+        const geo = calls.filter((c) => c.url.includes('/api/tools/geo/match')).at(-1)
+        expect((geo?.body.keys as string[] | undefined) ?? []).toContain('geosite:cn')
+      },
+      { timeout: 3000 },
+    )
+    expect(result.current.md).toBeDefined()
+  })
 })
