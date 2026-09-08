@@ -46,11 +46,26 @@ function matchDomainEntry(entry: string, target: string): boolean {
 export function ipCidrSetFromLines(lines: string[]): IpMatcher {
   const cidrs: GeoCidr[] = []
   for (const line of lines) {
-    const [addr, len] = line.trim().split('/')
-    const ip = addr === undefined ? null : ipToBytes(addr)
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    const slash = trimmed.indexOf('/')
+    const ip = ipToBytes(slash < 0 ? trimmed : trimmed.slice(0, slash))
     if (ip === null) continue // строку, которую не разобрали, молча пропускаем
-    const prefix = len === undefined ? ip.length * 8 : Number(len)
-    if (!Number.isInteger(prefix) || prefix < 0 || prefix > ip.length * 8) continue
+    const bits = ip.length * 8
+
+    let prefix = bits
+    if (slash >= 0) {
+      const lenText = trimmed.slice(slash + 1)
+      // Только десятичные цифры, и ничего больше. `Number` здесь опасен именно
+      // тем, что почти всегда прав: у записи с лишней косой (`10.0.0.0/`) он
+      // берёт пустую строку за НОЛЬ, и набор превращается в `0.0.0.0/0` —
+      // «совпадает со всем». Одна опечатка в чужом наборе делала бы правило
+      // `RULE-SET` совпавшим для любого адреса, и трассировка уверенно называла
+      // бы неверный маршрут. Заодно `Number` принимает `0x8` и ` 8 `.
+      if (!/^[0-9]{1,3}$/.test(lenText)) continue
+      prefix = Number(lenText)
+    }
+    if (prefix > bits) continue
     cidrs.push({ ip, prefix })
   }
   return { has: (ip: string) => ipMatches(cidrs, ip) }

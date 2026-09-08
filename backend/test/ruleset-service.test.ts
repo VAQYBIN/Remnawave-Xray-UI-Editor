@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
@@ -245,6 +246,19 @@ describe('RuleSetService', () => {
     expect(reasonOf(answer.c)).toMatch(String(LIMITS.classicalLines))
   })
 
+  it('ровно предельное число строк classical ещё принимается', async () => {
+    // Границу пиннем с обеих сторон: с одним только «на одну больше» сдвиг
+    // сравнения с `>` на `>=` оставался бы зелёным
+    const lines = Array.from({ length: LIMITS.classicalLines }, (_, i) => `- DOMAIN,a${i}.com`)
+    const yaml = Buffer.from(`payload:\n${lines.join('\n')}\n`)
+    const { opts } = net({ 'https://example.com/c.yaml': yaml })
+    const svc = new RuleSetService(await newDir(), opts)
+    const answer = await svc.match({ address: 'x' }, [
+      http({ name: 'c', url: 'https://example.com/c.yaml', behavior: 'classical', format: 'yaml' }),
+    ])
+    expect(answer.c).toMatchObject({ state: 'lines', count: LIMITS.classicalLines })
+  })
+
   it('не наш отказ наружу не пересказывается', async () => {
     // Каталог кэша не создаётся: путь упирается в обычный файл. Отказ файловой
     // системы — наша ошибка, а не состояние набора
@@ -258,16 +272,47 @@ describe('RuleSetService', () => {
   })
 
   it('один упавший набор не отменяет ответы по остальным', async () => {
-    const file = join(await newDir(), 'not-a-dir')
-    writeFileSync(file, 'x')
-    const { opts } = net({ 'https://example.com/faceit.mrs': FACEIT })
-    const svc = new RuleSetService(file, opts)
-    const answer = await svc.match({ address: 'a.example.com' }, [
-      http(),
-      { name: 'i', kind: 'inline', payload: ['+.example.com'], behavior: 'domain', format: 'yaml' },
+    // Сосед обязан быть ЕЩЁ В ПОЛЁТЕ в момент отказа. Со встроенным набором
+    // тест был зелёным и на дефектном коде: у inline нет ни одного настоящего
+    // await, и ответ по нему успевал лечь в первом же микротаске
+    // Отказ обязан быть ТОЧЕЧНЫМ: сломав кэш целиком, мы уронили бы и соседа,
+    // и тест снова доказывал бы не то. Подкладываем каталог ровно на то имя,
+    // под которым кэш сохранит первый набор, — запись файла туда не пройдёт
+    const dir = await newDir()
+    const boomUrl = 'https://example.com/faceit.mrs'
+    await mkdir(join(dir, 'rulesets', createHash('sha256').update(boomUrl).digest('hex')), {
+      recursive: true,
+    })
+    const svc = new RuleSetService(dir, {
+      lookupImpl: PUBLIC_LOOKUP,
+      fetchImpl: (async (url: string) => {
+        if (url.endsWith('slow.mrs')) {
+          await new Promise((resolve) => setTimeout(resolve, 30))
+          return new Response(new Uint8Array(FACEIT), { status: 200 })
+        }
+        return new Response(new Uint8Array(FACEIT), { status: 200 })
+      }) as unknown as typeof fetch,
+    })
+    const answer = await svc.match({ address: 'faceit.com' }, [
+      http({ name: 'boom' }),
+      http({ name: 'slow', url: 'https://example.com/slow.mrs' }),
     ])
-    expect(answer.faceit).toMatchObject({ state: 'unavailable' })
-    expect(answer.i).toMatchObject({ state: 'yes' })
+    expect(answer.boom).toMatchObject({ state: 'unavailable' })
+    expect(answer.slow).toMatchObject({ state: 'yes' })
+  })
+
+  it('одна ссылка в документе скачивается один раз', async () => {
+    // Наборы документа грузятся разом, и одна ссылка встречается в нём не раз:
+    // без дедупликации это кратный трафик и запись в один файл кэша из
+    // нескольких мест сразу
+    const { opts, asked } = net({ 'https://example.com/faceit.mrs': FACEIT })
+    const svc = new RuleSetService(await newDir(), opts)
+    await svc.match({ address: 'faceit.com' }, [
+      http({ name: 'a' }),
+      http({ name: 'b' }),
+      http({ name: 'c' }),
+    ])
+    expect(asked).toHaveLength(1)
   })
 
   it('второй запрос берёт файл из кэша', async () => {

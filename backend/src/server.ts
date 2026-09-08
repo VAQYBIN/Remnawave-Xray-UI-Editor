@@ -85,11 +85,11 @@ export async function buildServer(
   )
   app.decorate('xray', deps.xray ?? new XrayService(config.xrayBin, config.dataDir))
   app.decorate('mihomo', deps.mihomo ?? new MihomoService(config.mihomoBin, config.dataDir))
-  app.decorate(
-    'ruleset',
-    deps.ruleset ??
-      new RuleSetService(config.dataDir, { allowPrivate: config.geoAllowPrivateUrls }),
-  )
+  // GEO_ALLOW_PRIVATE_URLS сюда НЕ передаётся, хотя у geo он есть. Разница в
+  // происхождении ссылки: адрес geo-базы задаёт администратор в настройках, а
+  // ссылку набора правил приносит документ шаблона — открывать по этому флагу
+  // внутреннюю сеть чужому документу значило бы расширить его смысл молча
+  app.decorate('ruleset', deps.ruleset ?? new RuleSetService(config.dataDir))
   app.decorate(
     'catalog',
     deps.catalog ?? new CatalogService({ allowPrivate: config.geoAllowPrivateUrls }),

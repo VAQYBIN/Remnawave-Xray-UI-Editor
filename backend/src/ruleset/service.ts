@@ -55,10 +55,29 @@ interface Remembered {
   expiresAt: number
 }
 
+/**
+ * Причина неудачной загрузки по-русски. Сообщения undici английские и
+ * технические («fetch failed», «getaddrinfo ENOTFOUND»), а пользователь читает
+ * их как состояние своего набора. Незнакомое пропускаем как есть: выдуманный
+ * перевод хуже непонятного оригинала, а сам `err` доезжает в `cause`.
+ */
+function downloadReason(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  const code = (err as { code?: string; cause?: { code?: string } }).code ?? (err as { cause?: { code?: string } }).cause?.code
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'имя хоста не разрешается'
+  if (code === 'ECONNREFUSED') return 'соединение отклонено'
+  if (code === 'ETIMEDOUT' || /timeout|timed out/i.test(message)) return 'истекло время ожидания'
+  if (/^Сервер ответил /.test(message) || /больше d+ байт/.test(message)) return message
+  if (/внутреннюю сеть|Некорректная ссылка|должна начинаться|редирект/i.test(message)) return message
+  return message
+}
+
 export class RuleSetService {
   private readonly cache: RuleSetCache
   /** Разобранное держим в памяти: набор подсетей крупной страны разбирается заметно */
   private readonly parsed = new Map<string, Remembered>()
+  /** Загрузки в полёте: одна ссылка в документе встречается не раз */
+  private readonly loading = new Map<string, Promise<Parsed>>()
   private parsedBytes = 0
 
   constructor(
@@ -135,6 +154,24 @@ export class RuleSetService {
     const hit = this.parsed.get(cacheKey)
     if (hit !== undefined && hit.expiresAt > Date.now()) return hit.parsed
 
+    // Наборы одного документа грузятся разом, и одна ссылка встречается в нём
+    // не раз. Без этой карты каждый её экземпляр качал бы файл сам и писал бы
+    // в один и тот же путь кэша одновременно с соседями: лишний трафик кратно
+    // числу повторов и чтение поверх недописанного файла
+    const inFlight = this.loading.get(cacheKey)
+    if (inFlight !== undefined) return inFlight
+    const started = this.loadUncached(set, cacheKey)
+    this.loading.set(cacheKey, started)
+    try {
+      return await started
+    } finally {
+      this.loading.delete(cacheKey)
+    }
+  }
+
+  private async loadUncached(set: RuleSetDescriptor, cacheKey: string): Promise<Parsed> {
+    if (set.url === undefined) throw new RuleSetError('У набора не указана ссылка')
+
     const ttl = Math.max(LIMITS.minTtlMs, (set.intervalSec ?? 0) * 1000)
     const cached = await this.cache.read(set.url, ttl)
 
@@ -148,9 +185,7 @@ export class RuleSetService {
         ...this.net,
         maxBytes: LIMITS.wireBytes,
       }).catch((err: unknown) => {
-        throw new RuleSetError(
-          `не удалось скачать: ${err instanceof Error ? err.message : String(err)}`,
-        )
+        throw new RuleSetError(`не удалось скачать: ${downloadReason(err)}`, { cause: err })
       })
       loadedAt = Date.now()
       await this.cache.write(set.url, bytes)
@@ -162,10 +197,14 @@ export class RuleSetService {
   }
 
   private build(set: RuleSetDescriptor, bytes: Uint8Array): Parsed {
-    const size = bytes.byteLength
+    // Размер меряем ПОСЛЕ распаковки. Байты с провода тут не годятся: у .mrs
+    // они впятеро меньше распакованного, и счётчик показывал бы 64 МБ там, где
+    // в памяти лежат сотни, — вытеснение не сработало бы ни разу
+    let size = bytes.byteLength
 
     if (set.format === 'mrs') {
       const file = parseMrs(bytes, LIMITS.plainBytes)
+      size = file.body.length
       if (file.behavior !== set.behavior) {
         // Документ обещал одно, файл содержит другое: считать по файлу — значит
         // ответить не на тот вопрос, который задало правило
