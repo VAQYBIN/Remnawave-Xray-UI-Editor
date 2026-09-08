@@ -24,6 +24,7 @@ import { YamlView } from '../editor/YamlView'
 import { GeoDataDialog } from '../diagnostics/GeoDataDialog'
 import { MihomoCheckDialog } from '../diagnostics/MihomoCheckDialog'
 import { MihomoTracePanel } from '../diagnostics/MihomoTracePanel'
+import { RuleSetsDialog } from '../diagnostics/RuleSetsDialog'
 import { TraceBar } from '../diagnostics/TraceBar'
 import { ImportTemplateDialog } from './ImportTemplateDialog'
 import { MihomoInspector } from '../topology/MihomoInspector'
@@ -216,6 +217,9 @@ function MihomoEditor({
           <Button variant="ghost" onClick={() => draft.setGeoOpen(true)}>
             Geo-базы
           </Button>
+          <Button variant="ghost" onClick={() => draft.setRuleSetsOpen(true)}>
+            Наборы правил
+          </Button>
         </>
       }
       statusExtra={saveError ? <span className="field-error">{saveError}</span> : emptyNotice}
@@ -318,6 +322,13 @@ function MihomoEditor({
       {/* Без «В правило»: приписать geo-ключ к правилу Mihomo умеет текст, а не
           этот диалог — его кнопка ведёт в мутации графа Xray */}
       <GeoDataDialog open={draft.geoOpen} onClose={() => draft.setGeoOpen(false)} />
+
+      <RuleSetsDialog
+        open={draft.ruleSetsOpen}
+        onClose={() => draft.setRuleSetsOpen(false)}
+        sets={draft.ruleSets}
+        asked={draft.askedSets}
+      />
     </EditorShell>
   )
 }

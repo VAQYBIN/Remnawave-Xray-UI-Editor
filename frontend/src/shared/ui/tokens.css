@@ -1649,3 +1649,48 @@ p { margin: 0 0 10px; }
 .geo-item-attr { color: var(--ember); font-size: 11px; }
 .geo-pager { display: flex; gap: 8px; align-items: center; }
 .geo-empty { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+
+/* Наборы правил: диалог состояния и просмотрщик содержимого. Свои классы, а не
+   переиспользованные geo-*: сходство диалогов внешнее, и связав их одним
+   набором правил, мы получили бы правку в geo, ломающую наборы */
+.rs-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rs-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) auto minmax(10rem, 1.5fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--rail);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+.rs-row[data-state='error'] { border-color: var(--ember-line); }
+.rs-row[data-state='local'] { opacity: 0.85; }
+.rs-name { font-size: var(--t-sm); overflow-wrap: anywhere; }
+.rs-tags { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
+.rs-metrics { display: flex; gap: 6px; align-items: center; }
+.rs-open { text-align: left; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; font: inherit; }
+.rs-open:hover { text-decoration: underline; }
+
+.rs-browser { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.rs-browser-head { display: flex; gap: 8px; align-items: center; }
+.rs-items {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--rail);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  max-height: 46vh;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rs-pager { display: flex; gap: 8px; align-items: center; }
+
+/* Пометка в разборе трассы: из какого набора пришёл ответ и сколько в нём записей */
+.trace-set { font-size: 11px; color: var(--ink-dim); }
+.trace-set + .trace-set { margin-left: 8px; }
