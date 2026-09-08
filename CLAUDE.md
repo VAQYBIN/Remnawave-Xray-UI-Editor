@@ -20,7 +20,8 @@ npm test -w backend                       # vitest бэкенда
 npm test -w frontend                      # vitest фронтенда
 npm run typecheck -w backend              # tsc --noEmit (аналогично -w frontend)
 npx vitest run test/auth.test.ts          # один тест-файл (из каталога workspace)
-npm run e2e -w frontend                   # Playwright e2e (перед первым запуском:
+npm run e2e -w frontend                   # Playwright e2e (перед первым запуском И после
+                                          # обновления playwright — у каждой версии свой билд:
                                           #   cd frontend && npx playwright install chromium)
 ```
 
