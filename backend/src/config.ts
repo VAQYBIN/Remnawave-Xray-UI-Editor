@@ -22,6 +22,9 @@ const envSchema = z.object({
   // Путь к ядру Mihomo для проверки шаблона подписки. Не найдено — проверка
   // отдаёт available: false, редактор продолжает работать.
   MIHOMO_BIN: z.string().min(1).default('mihomo'),
+  // Путь к ядру sing-box для проверки шаблона подписки (`sing-box check`). Не
+  // найдено — проверка отдаёт available: false, редактор продолжает работать.
+  SINGBOX_BIN: z.string().min(1).default('sing-box'),
 })
 
 export interface AppConfig {
@@ -36,6 +39,7 @@ export interface AppConfig {
   geoAllowPrivateUrls: boolean
   xrayBin: string
   mihomoBin: string
+  singboxBin: string
 }
 
 /**
@@ -79,5 +83,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     geoAllowPrivateUrls: e.GEO_ALLOW_PRIVATE_URLS,
     xrayBin: e.XRAY_BIN,
     mihomoBin: e.MIHOMO_BIN,
+    singboxBin: e.SINGBOX_BIN,
   }
 }

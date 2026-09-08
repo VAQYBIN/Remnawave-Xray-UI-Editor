@@ -23,6 +23,7 @@ export function makeTestConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     geoAllowPrivateUrls: false,
     xrayBin: 'xray',
     mihomoBin: 'mihomo',
+    singboxBin: 'sing-box',
     ...overrides,
   }
 }

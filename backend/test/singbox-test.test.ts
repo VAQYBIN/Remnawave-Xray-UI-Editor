@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { withDummyOutbounds } from '../src/singbox/dummyOutbounds.js'
 import { SingboxService } from '../src/singbox/service.js'
 import type { SpawnRunner } from '../src/proc/spawn.js'
+import { buildServer } from '../src/server.js'
+import { loginCookie, makeTestConfig } from './helpers.js'
+import { makeStubRemnawave } from './stub-remnawave.js'
 
 type Doc = {
   outbounds: { type: string; tag: string; outbounds?: string[]; remnawave?: unknown }[]
@@ -127,5 +130,51 @@ describe('проверка шаблона sing-box ядром', () => {
     const run: SpawnRunner = async () => ({ code: 1, output: '   \n\n' })
     const res = await new SingboxService('sing-box', tmpdir(), run).test(TEMPLATE)
     expect(res.errors).toEqual(['Ядро отклонило шаблон без объяснения'])
+  })
+})
+
+describe('роут проверки шаблона sing-box', () => {
+  it('отдаёт вердикт сервиса', async () => {
+    const singbox = {
+      test: vi.fn(async () => ({ available: true, ok: true, errors: [] })),
+    } as unknown as import('../src/singbox/service.js').SingboxService
+    const app = await buildServer(makeTestConfig(), { remnawave: makeStubRemnawave(), singbox })
+    const cookie = await loginCookie(app)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tools/singbox-test',
+      headers: { cookie },
+      payload: { templateJson: { outbounds: [] } },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ available: true, ok: true, errors: [] })
+  })
+
+  it('неразбираемое содержимое — 400 по-русски, а не 500 движка', async () => {
+    const singbox = {
+      test: vi.fn(async () => {
+        throw new SyntaxError('Unexpected token')
+      }),
+    } as unknown as import('../src/singbox/service.js').SingboxService
+    const app = await buildServer(makeTestConfig(), { remnawave: makeStubRemnawave(), singbox })
+    const cookie = await loginCookie(app)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tools/singbox-test',
+      headers: { cookie },
+      payload: { templateJson: 'не объект' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect((res.json() as { message: string }).message).toMatch(/разобрать/i)
+  })
+
+  it('требует вход', async () => {
+    const app = await buildServer(makeTestConfig(), { remnawave: makeStubRemnawave() })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tools/singbox-test',
+      payload: { templateJson: {} },
+    })
+    expect(res.statusCode).toBe(401)
   })
 })

@@ -10,6 +10,7 @@ import { registerWarpAccount, type WarpRegister } from '../tools/warp.js'
 const deriveSchema = z.object({ privateKey: z.string().min(1) })
 const xrayTestSchema = z.object({ config: z.unknown(), profileUuid: z.string().optional() })
 const mihomoSchema = z.object({ encodedTemplateYaml: z.string() })
+const singboxSchema = z.object({ templateJson: z.unknown() })
 
 /**
  * Дескриптор набора — общий для всех четырёх наборных роутов.
@@ -110,6 +111,20 @@ export const toolsRoutes: FastifyPluginAsync<ToolsRoutesOptions> = async (app, o
       // движка на английском
       if (error instanceof YAMLParseError) {
         return reply.status(400).send({ message: 'Не удалось разобрать шаблон как YAML' })
+      }
+      throw error
+    }
+  })
+
+  app.post('/api/tools/singbox-test', async (req, reply) => {
+    const { templateJson } = singboxSchema.parse(req.body)
+    try {
+      return await app.singbox.test(JSON.stringify(templateJson))
+    } catch (error) {
+      // Кнопку жмут именно тогда, когда с документом что-то не так: ответ
+      // обязан быть 400 по-русски, а не 500 движка по-английски
+      if (error instanceof SyntaxError) {
+        return reply.status(400).send({ message: 'Не удалось разобрать шаблон как JSON' })
       }
       throw error
     }
