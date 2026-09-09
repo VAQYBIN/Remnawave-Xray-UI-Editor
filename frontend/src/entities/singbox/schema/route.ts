@@ -115,7 +115,7 @@ export const ROUTE_RULE_FIELDS: FieldSchema[] = [
   bool('disable_cache', 'Не кэшировать ответ.', { when: when('action', 'resolve'), since: '1.12.0' }),
   bool('disable_optimistic_cache', 'Не отдавать протухший кэш.', { when: when('action', 'resolve'), since: '1.14.0' }),
   num('rewrite_ttl', 'Переписать TTL ответа.', { when: when('action', 'resolve'), since: '1.12.0' }),
-  str('client_subnet', 'EDNS0 client-subnet.', { when: when('action', 'resolve'), since: '1.12.0' }),
+  str('client_subnet', 'Подсеть клиента для EDNS0 (client-subnet).', { when: when('action', 'resolve'), since: '1.12.0' }),
 ]
 
 // `network_type` описан дважды: у route-options это отдельное поле действия,

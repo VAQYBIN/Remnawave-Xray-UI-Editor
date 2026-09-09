@@ -78,7 +78,7 @@ export const DNS_SERVER_FIELDS: FieldSchema[] = [
   str('address_resolver', 'Тег сервера, которым резолвить домен адреса.', { when: LEGACY, ref: 'dns-server', deprecated: removed('1.12.0', 'поле domain_resolver') }),
   en('address_strategy', 'Стратегия резолва домена адреса.', STRATEGY_VALUES, { when: LEGACY, deprecated: removed('1.12.0', 'поле strategy внутри domain_resolver') }),
   en('strategy', 'Какие адреса запрашивать по умолчанию.', STRATEGY_VALUES, { when: LEGACY, deprecated: removed('1.12.0', 'поле strategy в правиле DNS') }),
-  str('client_subnet', 'EDNS0 client-subnet.', { when: LEGACY, deprecated: removed('1.12.0', 'поле client_subnet в правиле DNS') }),
+  str('client_subnet', 'Подсеть клиента для EDNS0 (client-subnet).', { when: LEGACY, deprecated: removed('1.12.0', 'поле client_subnet в правиле DNS') }),
 
   // ── dial-поля: сетевым серверам ──
   ...withWhen(DIAL_FIELDS, when('type', ...DIAL_SERVERS, '')),
@@ -159,7 +159,7 @@ export const DNS_RULE_FIELDS: FieldSchema[] = [
   bool('disable_optimistic_cache', 'Не отдавать протухший кэш.', { when: options, since: '1.14.0' }),
   num('rewrite_ttl', 'Переписать TTL ответа.', { when: options }),
   str('timeout', 'Таймаут запроса.', { when: options, since: '1.14.0' }),
-  str('client_subnet', 'EDNS0 client-subnet.', { when: options }),
+  str('client_subnet', 'Подсеть клиента для EDNS0 (client-subnet).', { when: options }),
   bool('remove_client_subnet', 'Не отправлять client-subnet.', { when: options, since: '1.14.0' }),
   en('method', 'Как отклонять: default — REFUSED, drop — молча.', ['default', 'drop'], { when: when('action', 'reject') }),
   bool('no_drop', 'Не переходить в drop после частых срабатываний.', { when: when('action', 'reject') }),

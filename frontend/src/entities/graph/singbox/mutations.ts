@@ -6,10 +6,9 @@
 // молча, читается как поломка редактора, — поэтому причина обязательна и
 // переводится на русский в одном месте.
 
-import { applyOps, valueAt, type SchemaPath } from '../../../shared/schema'
 import { GROUP_OUTBOUND_TYPES, panelFillsGroup } from '../../singbox/outbounds'
 import { rulesOf } from '../../singbox/rules'
-import type { SingboxDoc, SingboxOutbound, SingboxRule } from '../../singbox/types'
+import type { SingboxDoc, SingboxRule } from '../../singbox/types'
 
 type NodeKind = 'inbound' | 'rule' | 'group' | 'out' | 'hosts' | 'builtin'
 
@@ -102,17 +101,6 @@ function findOutboundSlot(
   return found < 0 ? null : { key: 'endpoints', at: found }
 }
 
-/**
- * Тот же ответ наружу, но без индекса: инспектору нужен ВИД записи, а не её
- * позиция. Поля у списков разные — у конечной точки нет ни `server`, ни типов
- * outbound'а, — и форма, не знающая, что правит, записала бы в `endpoints`
- * `type: vless`. Позицию наружу не отдаём намеренно: собирать документ по
- * индексу за пределами этого файла означало бы завести второе место сборки.
- */
-export function outboundSlotOf(doc: SingboxDoc, tag: string): 'outbounds' | 'endpoints' | null {
-  return findOutboundSlot(doc, tag)?.key ?? null
-}
-
 /** Имя узла-цели по его id: и группа, и выход адресуются одним и тем же тегом */
 function targetTag(id: string): string | null {
   const to = split(id)
@@ -193,103 +181,7 @@ export function addRule(doc: SingboxDoc, rule: SingboxRule, at?: number): Singbo
   return next
 }
 
-export function moveRule(doc: SingboxDoc, index: number, dir: -1 | 1): SingboxEditResult {
-  if (ruleAt(doc, index) === undefined) return { refusal: 'not-found' }
-  return moveAt(doc, ['route', 'rules'], index, dir)
-}
-
 /** Где лежит выход с тегом — наружу, с индексом: инспектору нужен порядок в списке */
 export function outboundSlot(doc: SingboxDoc, tag: string): { key: 'outbounds' | 'endpoints'; at: number } | null {
   return findOutboundSlot(doc, tag)
-}
-
-/** Вставка в любой список по пути; отсутствующий список заводится по месту */
-export function insertAt(doc: SingboxDoc, listPath: SchemaPath, value: unknown, index?: number): SingboxDoc {
-  const list = valueAt(doc, listPath)
-  const length = Array.isArray(list) ? list.length : 0
-  return applyOps(doc, [{ op: 'insert', path: listPath, index: index ?? length, value }])
-}
-
-/** Перестановка соседей в любом списке; на краю и мимо списка — отказ */
-export function moveAt(doc: SingboxDoc, listPath: SchemaPath, index: number, dir: -1 | 1): SingboxEditResult {
-  const list = valueAt(doc, listPath)
-  const to = index + dir
-  if (!Array.isArray(list) || index < 0 || index >= list.length || to < 0 || to >= list.length) {
-    return { refusal: 'not-found' }
-  }
-  return { doc: applyOps(doc, [{ op: 'move', path: listPath, from: index, to }]) }
-}
-
-export function removeAtPath(doc: SingboxDoc, path: SchemaPath): SingboxDoc {
-  return applyOps(doc, [{ op: 'remove', path }])
-}
-
-export function removeAt(doc: SingboxDoc, nodeId: string): SingboxEditResult {
-  const node = split(nodeId)
-  if (node === null) return { refusal: 'not-found' }
-  if (node.kind === 'hosts') return { refusal: 'panel-hosts-edge' }
-  // Встроенное действие (reject, hijack-dns, bypass) — не запись документа, а
-  // узел, нарисованный по действию правила: удалять надо само правило
-  if (node.kind === 'builtin') return { refusal: 'invalid-pair' }
-
-  if (node.kind === 'rule') {
-    const index = Number(node.rest)
-    if (ruleAt(doc, index) === undefined) return { refusal: 'not-found' }
-    const next = clone(doc)
-    next.route!.rules = next.route!.rules!.filter((_, i) => i !== index)
-    return { doc: next }
-  }
-
-  if (node.kind === 'inbound') {
-    const list = Array.isArray(doc.inbounds) ? doc.inbounds : []
-    const at = list.findIndex((i) => i.tag === node.rest)
-    if (at < 0) return { refusal: 'not-found' }
-    const next = clone(doc)
-    next.inbounds = next.inbounds!.filter((_, i) => i !== at)
-    return { doc: next }
-  }
-
-  // Ссылки на удалённый тег в правилах и списках групп остаются висеть — их
-  // ловит валидация, а не молчаливая чистка: править чужие записи пользователь
-  // не просил (тот же выбор сделан в removeNode графа Xray)
-  const slot = findOutboundSlot(doc, node.rest)
-  if (slot === null) return { refusal: 'not-found' }
-  const next = clone(doc)
-  if (slot.key === 'endpoints') {
-    next.endpoints = next.endpoints!.filter((_, i) => i !== slot.at)
-  } else {
-    next.outbounds = next.outbounds!.filter((_, i) => i !== slot.at)
-  }
-  return { doc: next }
-}
-
-/**
- * Тип выхода по тегу — нужен формам и топологии, чтобы не разбирать документ второй раз.
- * Ищет в обоих списках по той же причине, что и `removeAt`: узел `out:<tag>` рисуется и
- * по `endpoints`, и инспектор на такой карточке иначе показал бы пустоту.
- */
-export function outboundByTag(doc: SingboxDoc, tag: string): SingboxOutbound | undefined {
-  const slot = findOutboundSlot(doc, tag)
-  if (slot === null) return undefined
-  return slot.key === 'endpoints'
-    ? (doc.endpoints![slot.at] as SingboxOutbound)
-    : doc.outbounds![slot.at]
-}
-
-/**
- * Замена элемента `outbounds` целиком. Форма отдаёт НОВЫЙ элемент, а не патч:
- * так она не обязана знать, где он лежит, а документ собирается ровно в одном
- * месте. Тег для поиска берётся ПРЕЖНИЙ — форма имеет право его переименовать,
- * и искать по новому значило бы не найти ничего.
- */
-export function withOutboundAt(doc: SingboxDoc, tag: string, next: SingboxOutbound): SingboxDoc {
-  const slot = findOutboundSlot(doc, tag)
-  if (slot === null) return doc
-  const copy = clone(doc)
-  if (slot.key === 'endpoints') {
-    copy.endpoints![slot.at] = next as unknown as Record<string, unknown>
-  } else {
-    copy.outbounds![slot.at] = next
-  }
-  return copy
 }

@@ -1,21 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { parseSingbox } from '../src/entities/singbox/parse'
-import type { SingboxDoc, SingboxOutbound } from '../src/entities/singbox/types'
+import type { SingboxDoc } from '../src/entities/singbox/types'
 import {
   addRule,
   connectSingbox,
   disconnectSingbox,
-  insertAt,
   isValidSingboxConnection,
-  moveAt,
-  moveRule,
-  outboundByTag,
   outboundSlot,
-  outboundSlotOf,
-  removeAt,
-  removeAtPath,
   singboxRefusalText,
-  withOutboundAt,
 } from '../src/entities/graph/singbox/mutations'
 
 function doc(json: string): SingboxDoc {
@@ -136,96 +128,16 @@ describe('правки структуры sing-box', () => {
     const inserted = addRule(BASE, { domain: 'c.com', outbound: 'direct' }, 0)
     expect(inserted.route!.rules![0]!.domain).toBe('c.com')
   })
-
-  it('правило переезжает вверх и вниз, а на границе отказывает', () => {
-    const down = moveRule(BASE, 0, 1)
-    expect(down.doc!.route!.rules![1]!.domain).toBe('a.com')
-    expect(moveRule(BASE, 0, -1).refusal).toBe('not-found')
-  })
-
-  it('замена элемента переживает переименование тега', () => {
-    // Ищем по ПРЕЖНЕМУ тегу: форма вправе его сменить, и поиск по новому не
-    // нашёл бы ничего, молча потеряв правку
-    const next = withOutboundAt(BASE, 'ss', { type: 'shadowsocks', tag: 'ss-2', server: '1.2.3.4' })
-    expect(next.outbounds![3]!.tag).toBe('ss-2')
-    expect(next.outbounds).toHaveLength(4)
-  })
-
-  it('удаляются и правило, и выход', () => {
-    expect(removeAt(BASE, 'rule:1').doc!.route!.rules).toHaveLength(1)
-    expect(removeAt(BASE, 'out:ss').doc!.outbounds).toHaveLength(3)
-    expect(removeAt(BASE, 'hosts:panel').refusal).toBe('panel-hosts-edge')
-  })
-
-  it('конечная точка удаляется и читается тем же узлом, что и выход', () => {
-    // Граф рисует `endpoints` карточкой `out:<tag>` наравне с `outbounds`.
-    // Отвечать «не найдено» про узел, который пользователь видит на холсте,
-    // значит объяснять отказ несуществующей причиной
-    const withEndpoint = doc(`{
-      "outbounds": [{"type":"direct","tag":"direct"}],
-      "endpoints": [{"type":"wireguard","tag":"wg","address":["10.0.0.2/32"]}]
-    }`)
-    const after = removeAt(withEndpoint, 'out:wg')
-    expect(after.refusal).toBeUndefined()
-    expect(after.doc!.endpoints).toHaveLength(0)
-    expect(after.doc!.outbounds).toHaveLength(1)
-    expect(outboundByTag(withEndpoint, 'wg')?.type).toBe('wireguard')
-    // Писатель обязан видеть ровно то же, что читатель: иначе форма на карточке
-    // конечной точки принимала бы правку и молча возвращала прежний документ
-    const renamed = withOutboundAt(withEndpoint, 'wg', {
-      type: 'wireguard',
-      tag: 'wg-2',
-    } as SingboxOutbound)
-    expect(renamed.endpoints![0]!.tag).toBe('wg-2')
-  })
-
-  it('список записи называется по имени: форма обязана знать, что правит', () => {
-    // Узел на холсте один, а списка два, и поля у них разные: без ответа на
-    // «где лежит тег» форма выхода предложила бы конечной точке тип vless
-    const withEndpoint = doc(`{
-      "outbounds": [{"type":"direct","tag":"direct"}],
-      "endpoints": [{"type":"wireguard","tag":"wg"}]
-    }`)
-    expect(outboundSlotOf(withEndpoint, 'wg')).toBe('endpoints')
-    expect(outboundSlotOf(withEndpoint, 'direct')).toBe('outbounds')
-    expect(outboundSlotOf(withEndpoint, 'no-such-tag')).toBeNull()
-  })
 })
 
-describe('обобщённые мутации по пути', () => {
-  const base = parseSingbox(`{
-    "inbounds": [{"type":"tun","tag":"a"},{"type":"mixed","tag":"b"}],
-    "outbounds": [{"type":"direct","tag":"d"}],
-    "endpoints": [{"type":"wireguard","tag":"w"}],
-    "dns": {"servers":[{"type":"local","tag":"x"},{"type":"udp","tag":"y","server":"1.1.1.1"}]}
-  }`).doc!
-
-  it('insertAt вставляет в конец по умолчанию и заводит список, которого нет', () => {
-    const next = insertAt(base, ['outbounds'], { type: 'direct', tag: 'e' })
-    expect(next.outbounds!.map((o) => o.tag)).toEqual(['d', 'e'])
-    const fresh = insertAt({}, ['route', 'rule_set'], { type: 'remote', tag: 'r' })
-    expect(fresh.route!.rule_set!.map((s) => s.tag)).toEqual(['r'])
-    expect(base.outbounds!.length).toBe(1)
-  })
-
-  it('moveAt переставляет соседей в любом списке и отказывает на краю', () => {
-    const moved = moveAt(base, ['dns', 'servers'], 1, -1)
-    expect(moved.doc!.dns!.servers!.map((s) => s.tag)).toEqual(['y', 'x'])
-    expect(moveAt(base, ['dns', 'servers'], 0, -1).refusal).toBe('not-found')
-    expect(moveAt(base, ['nope'], 0, 1).refusal).toBe('not-found')
-    // Верхний край списка: outbounds здесь один элемент, дальше двигать некуда
-    expect(moveAt(base, ['outbounds'], 0, 1).refusal).toBe('not-found')
-  })
-
-  it('removeAtPath вырезает элемент; outboundSlot различает списки', () => {
-    expect(removeAtPath(base, ['inbounds', 0]).inbounds!.map((i) => i.tag)).toEqual(['b'])
+describe('outboundSlot различает списки', () => {
+  it('outbounds и endpoints — общий узел на холсте, разные списки в документе', () => {
+    const base = parseSingbox(`{
+      "outbounds": [{"type":"direct","tag":"d"}],
+      "endpoints": [{"type":"wireguard","tag":"w"}]
+    }`).doc!
     expect(outboundSlot(base, 'w')).toEqual({ key: 'endpoints', at: 0 })
     expect(outboundSlot(base, 'd')).toEqual({ key: 'outbounds', at: 0 })
     expect(outboundSlot(base, 'zz')).toBeNull()
-  })
-
-  it('moveRule по-прежнему работает поверх moveAt', () => {
-    const doc = parseSingbox(`{"route":{"rules":[{"domain":["a"],"outbound":"d"},{"domain":["b"],"outbound":"d"}]}}`).doc!
-    expect(moveRule(doc, 1, -1).doc!.route!.rules![0]!.domain).toEqual(['b'])
   })
 })

@@ -95,7 +95,7 @@ export const INBOUND_FIELDS: FieldSchema[] = [
   strs('inet6_route_address', 'Маршруты IPv6.', { when: tun, deprecated: removed('1.10.0', 'route_address') }),
   strs('inet4_route_exclude_address', 'Исключения IPv4.', { when: tun, deprecated: removed('1.10.0', 'route_exclude_address') }),
   strs('inet6_route_exclude_address', 'Исключения IPv6.', { when: tun, deprecated: removed('1.10.0', 'route_exclude_address') }),
-  bool('gso', 'Generic segmentation offload.', { when: tun, deprecated: removed('1.11.0', 'ключ больше не действует, уберите его') }),
+  bool('gso', 'Обобщённая выгрузка сегментации пакетов (GSO).', { when: tun, deprecated: removed('1.11.0', 'ключ больше не действует, уберите его') }),
 
   // ── listen-поля: всем, кроме tun ──
   ...withWhen(LISTEN_FIELDS, whenNot('type', 'tun')),

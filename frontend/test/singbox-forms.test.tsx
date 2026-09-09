@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
-import { SingboxExtraFields } from '../src/features/inspector/SingboxExtraFields'
+import { describe, expect, it } from 'vitest'
 import { SingboxDnsServerForm } from '../src/features/inspector/SingboxDnsServerForm'
 import { SingboxInboundForm } from '../src/features/inspector/SingboxInboundForm'
 import { SingboxOutboundForm } from '../src/features/inspector/SingboxOutboundForm'
@@ -206,39 +205,5 @@ describe('форма DNS-сервера sing-box', () => {
     expect(screen.getByText(/1\.12\.0/)).toBeInTheDocument()
     // Легаси-документ (без type) не знает про NET_SERVERS — ручное поле «Адрес» не рисуется само по себе
     expect(screen.queryByLabelText('Адрес')).toBeNull()
-  })
-})
-
-describe('блок «Ещё поля»', () => {
-  it('показывает незаполненные ключи секции и не дублирует заполненные', () => {
-    render(
-      <SingboxExtraFields
-        section="route"
-        value={{ final: 'direct' }}
-        skip={['final', 'rules', 'rule_set']}
-        onChange={vi.fn()}
-      />,
-    )
-    expect(screen.queryByLabelText('final')).toBeNull()
-    expect(screen.getByText(/Ещё поля/)).toBeInTheDocument()
-  })
-
-  it('составной ключ панели в список не попадает — его показывает своя форма', () => {
-    // Тест плана проверял это на секции route, где составных ключей нет вовсе;
-    // единственный такой ключ живёт в group, поэтому проверка стоит здесь
-    render(<SingboxExtraFields section="group" value={{}} skip={['outbounds']} onChange={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Ещё поля (5)' })).toBeInTheDocument()
-  })
-
-  it('значение, которое форма выразить не может, показано на чтение с причиной', () => {
-    render(
-      <SingboxExtraFields
-        section="route"
-        value={{ default_domain_resolver: { server: 'dns-local' } }}
-        skip={[]}
-        onChange={vi.fn()}
-      />,
-    )
-    expect(screen.getByText(/вкладке JSON/i)).toBeInTheDocument()
   })
 })

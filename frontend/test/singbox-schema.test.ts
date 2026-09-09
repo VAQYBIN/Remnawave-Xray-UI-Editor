@@ -83,6 +83,29 @@ describe('корень схемы sing-box', () => {
     })
   })
 
+  it('у каждого поля дерева непустое русское описание', () => {
+    // Из плоского словаря: непустое описание проверяет и общий обход выше, а
+    // здесь отдельно то, что старый тест проверял сверх этого, — сам язык
+    walk(SINGBOX_SCHEMA, new Set(), (f) => {
+      expect(f.doc, f.key).toMatch(/[а-яА-ЯёЁ]/)
+    })
+  })
+
+  it('значения enum не пустые', () => {
+    walk(SINGBOX_SCHEMA, new Set(), (f) => {
+      for (const value of f.enum ?? []) {
+        expect(value.value.length, f.key).toBeGreaterThan(0)
+      }
+    })
+  })
+
+  it('ключи настоящих шаблонов описаны на верхнем уровне', () => {
+    const doc = JSON.parse(singboxFixture('bundle')) as Record<string, unknown>
+    const known = new Set(SINGBOX_SCHEMA.map((f) => f.key))
+    const missing = Object.keys(doc).filter((key) => !known.has(key))
+    expect(missing, `не описаны корневые ключи: ${missing.join(', ')}`).toEqual([])
+  })
+
   it('разделы панели «Документ» ведут в существующие поля схемы и не повторяют холст', () => {
     for (const section of SINGBOX_DOC_SECTIONS) {
       const field = singboxFieldAt(section.path, {})
