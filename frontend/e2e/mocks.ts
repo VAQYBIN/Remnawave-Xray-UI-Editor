@@ -170,9 +170,9 @@ export async function mockTemplates(
       json: {
         templates: [
           TEMPLATE,
-          // Редактор умеет два типа, и MIHOMO — второй: у него в списке есть
-          // ссылка. Неоткрываемый тип нужен рядом, иначе проверка «ссылки нет»
-          // осталась бы без предмета.
+          // Редактор умеет три типа, и MIHOMO — один из них: у него в списке
+          // есть ссылка. Неоткрываемый тип нужен рядом, иначе проверка «ссылки
+          // нет» осталась бы без предмета.
           //
           // Запись — та же, что отдаёт детальный ответ, а не её тёзка с
           // заглушкой вместо содержимого: панель на оба запроса отвечает про
@@ -268,7 +268,75 @@ export const MIHOMO_TEMPLATE = {
 }
 
 /**
- * Индекс каталога: три записи, одна из них — типа, которого в контракте панели
+ * Шаблон sing-box. UUID свой: `5555…` в списке `mockTemplates` выше уже занят
+ * записью CLASH, и второй смысл у той же строки читался бы как один шаблон двух
+ * типов сразу. В список шаблонов эта запись НЕ добавляется: спекам списка она
+ * не нужна, а лишняя карточка сдвинула бы их счётчики.
+ *
+ * Документ маленький, но настоящий: два входа, селектор, `direct` и четыре
+ * правила. `route.final` не задан намеренно — во всех трёх шаблонах каталога
+ * его нет, и дефолтный маршрут задаётся ПОЗИЦИЕЙ первого выхода.
+ *
+ * Порядок правил значим для сценариев трассировки: `sniff` совпадает со всем и
+ * выход не выбирает, второе правило — победитель для `ya.ru`, а правило с
+ * `rule_set` стоит НИЖЕ адресного: цель с заданным IP доходит до него и честно
+ * останавливается, потому что содержимого набора редактор не знает.
+ */
+export const SINGBOX_UUID = '66666666-6666-4666-8666-666666666666'
+
+export const SINGBOX_JSON = {
+  inbounds: [
+    { type: 'tun', tag: 'tun-in', auto_route: true },
+    { type: 'mixed', tag: 'mixed-in', listen: '127.0.0.1', listen_port: 2080 },
+  ],
+  outbounds: [
+    { type: 'selector', tag: 'Выбор', outbounds: ['direct'] },
+    { type: 'direct', tag: 'direct' },
+  ],
+  route: {
+    rules: [
+      { action: 'sniff' },
+      { domain_suffix: ['ya.ru'], outbound: 'Выбор' },
+      { ip_is_private: true, outbound: 'direct' },
+      { rule_set: ['geosite-ads'], outbound: 'direct' },
+    ],
+    rule_set: [
+      {
+        type: 'remote',
+        tag: 'geosite-ads',
+        format: 'binary',
+        url: 'https://example.test/geosite-ads.srs',
+      },
+    ],
+  },
+}
+
+/** Содержимое шаблона из каталога — намеренно ДРУГОЙ документ: по имени группы
+ *  видно, что импорт действительно заменил содержимое редактора */
+export const CATALOG_SINGBOX_JSON = {
+  outbounds: [
+    { type: 'selector', tag: 'Каталог', outbounds: ['direct'] },
+    { type: 'direct', tag: 'direct' },
+  ],
+  route: { rules: [{ action: 'sniff' }, { ip_is_private: true, outbound: 'direct' }] },
+}
+
+const SINGBOX_HASH = 'f'.repeat(64)
+
+export const SINGBOX_TEMPLATE = {
+  uuid: SINGBOX_UUID,
+  viewPosition: 2,
+  name: 'Singbox',
+  tags: [],
+  templateType: 'SINGBOX',
+  // JSON-тип: содержимое в templateJson, а encodedTemplateYaml пуст. У MIHOMO
+  // ровно наоборот, и мок обязан повторять контракт панели, а не удобство теста
+  templateJson: SINGBOX_JSON,
+  encodedTemplateYaml: null,
+}
+
+/**
+ * Индекс каталога: пять записей, одна из них — типа, которого в контракте панели
  * нет (`SINGBOX_LEGACY`). Диалог обязан показать её с пометкой, а не уронить
  * список.
  */
@@ -301,6 +369,15 @@ export const CATALOG_ENTRIES = [
     author: 'legiz-ru',
     url: 'https://raw.example.test/templates/mihomo-ru-bundle.yaml',
   },
+  {
+    // Запись дописана В КОНЕЦ: содержимое каталога адресуется индексами
+    // (CATALOG_CONTENT ниже), и вставка в середину увела бы существующие
+    // ссылки на чужие шаблоны
+    name: 'singbox-default',
+    type: 'SINGBOX',
+    author: 'remnawave',
+    url: 'https://raw.example.test/templates/singbox-default.json',
+  },
 ]
 
 const CATALOG_CONTENT: Record<string, string> = {
@@ -308,6 +385,7 @@ const CATALOG_CONTENT: Record<string, string> = {
   [CATALOG_ENTRIES[1]!.url]: JSON.stringify({ outbounds: [{ tag: 'direct', protocol: 'freedom' }] }, null, 2),
   [CATALOG_ENTRIES[2]!.url]: '{"outbounds":[]}',
   [CATALOG_ENTRIES[3]!.url]: CATALOG_MIHOMO_YAML,
+  [CATALOG_ENTRIES[4]!.url]: JSON.stringify(CATALOG_SINGBOX_JSON, null, 2),
 }
 
 /**
@@ -341,6 +419,42 @@ export async function mockMihomo(
   })
 
   await page.route('**/api/tools/mihomo-test', (r) =>
+    r.fulfill({ json: opts.core ?? { available: true, ok: true, errors: [] } }),
+  )
+}
+
+/**
+ * Маршруты редактора sing-box. Устроены как `mockMihomo` и по той же причине
+ * держатся отдельно от `mockTemplates`: тем спекам нужен список шаблонов, а
+ * этим — содержимое одного и инструменты вокруг него. Каталог перехватывается
+ * здесь же — диалог импорта общий для всех трёх редакторов шаблона.
+ * `core` задаёт ответ проверки ядром: отчёту нужен и принявший, и отклонивший
+ * вердикт.
+ */
+export async function mockSingbox(
+  page: Page,
+  opts: { core?: { available: boolean; ok: boolean; errors: string[] } } = {},
+) {
+  await page.route(`**/api/templates/${SINGBOX_UUID}/backups`, (r) =>
+    r.fulfill({ json: { backups: [] } }),
+  )
+  await page.route(`**/api/templates/${SINGBOX_UUID}`, (r) =>
+    r.fulfill({ json: { template: SINGBOX_TEMPLATE, hash: SINGBOX_HASH } }),
+  )
+
+  await page.route(/\/api\/catalog\/templates$/, (r) =>
+    r.fulfill({ json: { templates: CATALOG_ENTRIES } }),
+  )
+  await page.route(/\/api\/catalog\/template\?/, (r) => {
+    const url = new URL(r.request().url()).searchParams.get('url') ?? ''
+    const content = CATALOG_CONTENT[url]
+    if (content === undefined) {
+      return r.fulfill({ status: 400, json: { message: 'Такой ссылки в каталоге нет' } })
+    }
+    return r.fulfill({ json: { content } })
+  })
+
+  await page.route('**/api/tools/singbox-test', (r) =>
     r.fulfill({ json: opts.core ?? { available: true, ok: true, errors: [] } }),
   )
 }
