@@ -19,6 +19,7 @@ export interface SearchHit {
     | 'mihomo-group'
     | 'mihomo-rule'
     | 'mihomo-provider'
+    | 'mihomo-proxy'
     | 'mihomo-hosts'
     | 'singbox-inbound'
     | 'singbox-rule'

@@ -20,6 +20,8 @@ import {
   type TextEdit,
 } from '../../entities/mihomo'
 import { groupsOf } from '../../entities/mihomo/groups'
+import { applyMihomoOps } from '../../entities/mihomo/write'
+import type { DocOp } from '../../shared/schema'
 import { effectiveTarget,
   geoKeysOfMihomo,
   geoKeysOfRuleSetLines,
@@ -292,6 +294,20 @@ export function useMihomoDraft({
     if (select !== undefined) core.setSelectedNode(select)
   }
 
+  /**
+   * То же самое, но для `connect`/`disconnect`: те уже переведены на операции
+   * (`DocOp`) поверх писателя `applyMihomoOps` (задача 9), а остальные правки
+   * хука — ещё на сплайсах `TextEdit[]`. Минимальная правка ради typecheck:
+   * задача 10 переводит хук целиком, и держать здесь второй разбор `md` не
+   * входит в объём этой задачи.
+   */
+  function applyOpsNow(ops: DocOp[], select?: string | null) {
+    if (md === undefined || ops.length === 0) return
+    const { md: next } = applyMihomoOps(md, ops)
+    core.writeDraft(next.text, { history: true })
+    if (select !== undefined) core.setSelectedNode(select)
+  }
+
   function selectedRuleIndex(): number | null {
     return core.selectedNode?.startsWith('rule:') ? Number(core.selectedNode.slice(5)) : null
   }
@@ -367,13 +383,13 @@ export function useMihomoDraft({
       if (md === undefined) return
       const res = connectMihomo(md, source, target)
       setRefusal(res.refusal ?? null)
-      apply(res.edits)
+      applyOpsNow(res.ops)
     },
     disconnect: (edgeId) => {
       if (md === undefined) return
       const res = disconnectMihomo(md, edgeId)
       setRefusal(res.refusal ?? null)
-      apply(res.edits)
+      applyOpsNow(res.ops)
     },
     trace,
     refusal,

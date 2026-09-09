@@ -73,9 +73,14 @@ describe('черновик Mihomo', () => {
   })
 
   it('отказ коммутации виден и снимается', () => {
-    const { result } = draft('proxy-groups:\n  - name: A\n    proxies: [DIRECT]\n')
+    // Список задан ссылкой на якорь: writer применяет операцию поверх модели,
+    // но лежит она у объявления якоря — коммутация обязана отказать раньше,
+    // чем дойдёт до писателя, и текст держится без изменений.
+    const text = 'x-anchors:\n  base: &base\n    - DIRECT\nproxy-groups:\n  - name: A\n    proxies: *base\n'
+    const { result } = draft(text)
     act(() => result.current.connect('group:A', 'builtin:REJECT'))
-    expect(result.current.refusal).toBe('flow-list')
+    expect(result.current.refusal).toBe('alias-list')
+    expect(result.current.text).toBe(text)
     act(() => result.current.dismissRefusal())
     expect(result.current.refusal).toBeNull()
   })

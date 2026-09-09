@@ -4,7 +4,7 @@
 // приходит диагностикой из validate.ts.
 
 import { isMap, isScalar, isSeq } from 'yaml'
-import { groupsOf, providersOf, subRuleEntries, type MihomoGroup } from '../../mihomo/groups'
+import { groupsOf, providersOf, proxiesOf, subRuleEntries, type MihomoGroup } from '../../mihomo/groups'
 import { groupTakesHosts, panelInjectsHosts } from '../../mihomo/inject'
 import type { MihomoDoc } from '../../mihomo/parse'
 import { resolveTarget } from '../../mihomo/resolve'
@@ -108,21 +108,24 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
 
   // Единая точка добавления узла. validateMihomo НАМЕРЕННО допускает две группы
   // с одинаковым `name` (это диагностируемая ошибка документа, а не повод скрыть
-  // граф от пользователя) и никак не резервирует имя `root` от корневого маркера
-  // подстановки — оба случая дают одинаковый id у разных узлов. React Flow на
-  // дубликат id не падает, а тихо теряет узел с холста, поэтому дедупликация
-  // обязана быть одна на все виды узлов, а не по заплатке на коллизию.
+  // граф от пользователя) и никак не резервирует имя `root` под корневой узел
+  // подстановки хостов: панель дописывает серверы в корневой `proxies` ПО ФАКТУ
+  // возможности (документ — отображение), а не по имени какой-то записи, поэтому
+  // группа, названная `root`, и узел подстановки дают одинаковый id у разных
+  // узлов. React Flow на дубликат id не падает, а тихо теряет узел с холста,
+  // поэтому дедупликация обязана быть одна на все виды узлов, а не по заплатке
+  // на коллизию.
   //
   // Побеждает первый добавленный узел. Порядок обхода ниже: группы (каждая —
   // сразу вместе со своим узлом подстановки, если группа его получает) →
-  // корневая подстановка → провайдеры → правила → подсписки правил → встроенные
-  // цели (заводятся по мере обнаружения при разборе рёбер групп, правил и
-  // подсписков). Отсюда для двух
+  // корневая подстановка → провайдеры → серверы → правила → подсписки правил →
+  // встроенные цели (заводятся по мере обнаружения при разборе рёбер групп,
+  // правил и подсписков). Отсюда для двух
   // одноимённых групп побеждает первая по порядку в `proxy-groups`; для группы,
   // названной `root` и получающей хосты, — её собственный узел `hosts:root`, а
-  // не корневая подстановка: группа объявлена явно автором документа, маркер на
-  // `proxies` — общий и безымянный, и если бы победил он, фильтр группы исчез
-  // бы из графа без следа.
+  // не корневая подстановка: группа объявлена явно автором документа, а панель
+  // кладёт хосты в корневой `proxies` НЕЗАВИСИМО от имени любой группы — победа
+  // корневого узла стёрла бы фильтр группы с холста без следа.
   const nodeIds = new Set<string>()
   const pushNode = (node: FlowNode) => {
     if (nodeIds.has(node.id)) return
@@ -211,11 +214,25 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
     })
   })
 
+  // Статические серверы корневого `proxies` — та же колонка выходов, что у
+  // провайдеров и у `hosts:root`: сервер адресуется тегом наравне с группой и
+  // провайдером, и прятать его узел с холста значило бы соврать про то, куда
+  // на самом деле ведёт правило или список группы.
+  proxiesOf(md).forEach((proxy) => {
+    pushNode({
+      id: `proxy:${proxy.name}`,
+      type: 'mihomoProxy',
+      position: { x: outputColumn * MIHOMO_COLUMN_W, y: 0 },
+      data: { kind: 'mihomo-proxy', index: proxy.index, name: proxy.name, type: proxy.type, server: proxy.server },
+    })
+  })
+
   groups.forEach((group) => {
     for (const name of group.proxies) {
       const kind = resolveTarget(md, name)
       if (kind === 'group') pushEdge(`group:${group.name}`, `group:${name}`)
       if (kind === 'provider') pushEdge(`group:${group.name}`, `provider:${name}`)
+      if (kind === 'proxy') pushEdge(`group:${group.name}`, `proxy:${name}`)
       if (kind === 'builtin') {
         ensureBuiltin(name)
         pushEdge(`group:${group.name}`, `builtin:${name}`)
@@ -255,6 +272,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
     const kind = resolveTarget(md, target)
     if (kind === 'group') pushEdge(id, `group:${target}`)
     if (kind === 'provider') pushEdge(id, `provider:${target}`)
+    if (kind === 'proxy') pushEdge(id, `proxy:${target}`)
     if (kind === 'builtin') {
       ensureBuiltin(target)
       pushEdge(id, `builtin:${target}`)
@@ -280,6 +298,7 @@ export function buildMihomoGraph(md: MihomoDoc): { nodes: FlowNode[]; edges: Flo
       const kind = resolveTarget(md, target)
       if (kind === 'group') pushEdge(id, `group:${target}`)
       if (kind === 'provider') pushEdge(id, `provider:${target}`)
+      if (kind === 'proxy') pushEdge(id, `proxy:${target}`)
       if (kind === 'builtin') {
         ensureBuiltin(target)
         pushEdge(id, `builtin:${target}`)

@@ -63,7 +63,19 @@ describe('адресация Mihomo', () => {
     expect(mihomoNodeIdForPath(['proxy-groups', 0, 'type'], md)).toBe('group:Основная')
     expect(mihomoNodeIdForPath(['rules', 0], md)).toBe('rule:0')
     expect(mihomoNodeIdForPath(['proxy-providers', 'main'], md)).toBe('provider:main')
-    expect(mihomoNodeIdForPath(['rule-providers', 'нет'], md)).toBeNull()
+  })
+
+  it('статический сервер по пути `proxies.<i>` ведёт на узел proxy:<имя>', () => {
+    const md = parseMihomo('proxies:\n  - name: s\n    type: direct\n')
+    expect(mihomoNodeIdForPath(['proxies', 0], md)).toBe('proxy:s')
+  })
+
+  it('пути настроек документа и корневые скаляры ведут на псевдоузел «Документ»', () => {
+    const md = parseMihomo(DOC)
+    expect(mihomoNodeIdForPath(['rule-providers', 'x'], md)).toBe('doc:settings')
+    expect(mihomoNodeIdForPath(['dns', 'enable'], md)).toBe('doc:settings')
+    expect(mihomoNodeIdForPath(['mode'], md)).toBe('doc:settings')
+    expect(mihomoNodeIdForPath(['listeners', 0, 'port'], md)).toBe('doc:settings')
   })
 
   it('счётчики проблем садятся на узлы', () => {

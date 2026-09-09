@@ -38,6 +38,14 @@ export interface MihomoProviderNodeData extends Record<string, unknown> {
   dialerProxy?: string
   issueCount?: IssueCount
 }
+export interface MihomoProxyNodeData extends Record<string, unknown> {
+  kind: 'mihomo-proxy'
+  index: number
+  name: string
+  type?: string
+  server?: string
+  issueCount?: IssueCount
+}
 export interface MihomoHostsNodeData extends Record<string, unknown> {
   kind: 'mihomo-hosts'
   /** 'root' — корневой proxies, иначе имя группы */

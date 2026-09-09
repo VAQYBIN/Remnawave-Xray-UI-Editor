@@ -1,7 +1,7 @@
 // Поиск узлов графа Mihomo по строке. Ищем по тому, что человек видит на
 // карточке: имя группы, тип, участники; имя и тип провайдера; текст правила.
 
-import { groupsOf, providersOf } from './groups'
+import { groupsOf, providersOf, proxiesOf } from './groups'
 import type { MihomoDoc } from './parse'
 import { rulesOf } from './rules'
 // `firstMatch` берётся отсюда, а не пишется своя: результаты обоих поисков
@@ -47,6 +47,17 @@ export function searchMihomo(md: MihomoDoc, query: string): SearchHit[] {
         title: provider.name,
         matchedOn,
       })
+    }
+  }
+
+  for (const proxy of proxiesOf(md)) {
+    const matchedOn = firstMatch(needle, [
+      { label: 'имя', value: proxy.name },
+      { label: 'тип', value: proxy.type },
+      { label: 'сервер', value: proxy.server },
+    ])
+    if (matchedOn) {
+      push({ nodeId: `proxy:${proxy.name}`, kind: 'mihomo-proxy', title: proxy.name, matchedOn })
     }
   }
 

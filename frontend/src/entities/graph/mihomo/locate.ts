@@ -1,18 +1,39 @@
 // Соответствие «путь диагностики → узел графа». Живёт в entities/graph/mihomo,
 // потому что схему id (`group:<name>`, `rule:<index>`, `subrule:<name>`,
-// `provider:<name>`, `hosts:<owner>`, `builtin:<name>`) задаёт buildMihomoGraph.
+// `provider:<name>`, `proxy:<name>`, `hosts:<owner>`, `builtin:<name>`) задаёт
+// buildMihomoGraph.
 
-import { groupsOf, providersOf, subRuleNames } from '../../mihomo/groups'
+import { groupsOf, providersOf, proxiesOf, subRuleNames } from '../../mihomo/groups'
 import type { MihomoDoc } from '../../mihomo/parse'
 import { rulesOf } from '../../mihomo/rules'
 import type { PathParts, ValidationIssue } from '../../xray/config'
 import type { IssueCount } from '../types'
+
+/**
+ * Пути настроек документа — без узла на холсте вовсе, ведут на псевдоузел
+ * «Документ». Список закрыт намеренно (а не «всё, что не холст», в одну
+ * сторону): он должен читаться отдельно от `CANVAS_KEYS`, а не выводиться из
+ * него, — секция маршрута появится в модели раньше, чем про неё вспомнят
+ * здесь, и тогда лучше молчаливое «не узел», чем ложный `doc:settings`.
+ */
+const SETTINGS_KEYS = new Set([
+  'rule-providers', 'dns', 'tun', 'sniffer', 'profile', 'ntp', 'experimental',
+  'hosts', 'listeners', 'tunnels', 'tls', 'remnawave',
+])
+
+/** Ключи корня, у которых узлы на холсте есть — всё остальное строкового ключа уходит на «Документ» */
+const CANVAS_KEYS = new Set(['rules', 'proxy-groups', 'sub-rules', 'proxy-providers', 'proxies'])
 
 export function mihomoNodeIdForPath(parts: PathParts, md: MihomoDoc): string | null {
   const [head, second] = parts
 
   if (head === 'rules' && typeof second === 'number') {
     return rulesOf(md).some((r) => r.index === second) ? `rule:${second}` : null
+  }
+
+  if (head === 'proxies' && typeof second === 'number') {
+    const name = proxiesOf(md).find((p) => p.index === second)?.name
+    return name === undefined ? null : `proxy:${name}`
   }
 
   if (head === 'proxy-groups') {
@@ -36,7 +57,13 @@ export function mihomoNodeIdForPath(parts: PathParts, md: MihomoDoc): string | n
     return providersOf(md).some((p) => p.name === second) ? `provider:${second}` : null
   }
 
-  // rule-providers узлами не рисуются — это словарь, а не маршрут (см. спеку)
+  // Всё остальное с ключом-строкой в корне — либо перечисленный словарь
+  // (`rule-providers`, `dns`, `tun`…), либо корневой скаляр (`mode`), у
+  // которого узла на холсте не было и не будет: обе категории ведут на
+  // псевдоузел «Документ», а не молчат, — иначе диагностика по такому пути
+  // была бы никуда не кликабельна, а панель «Документ» её всё равно покажет.
+  if (typeof head === 'string' && (SETTINGS_KEYS.has(head) || !CANVAS_KEYS.has(head))) return 'doc:settings'
+
   return null
 }
 

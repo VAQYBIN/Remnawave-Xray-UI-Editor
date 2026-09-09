@@ -13,6 +13,7 @@ const KIND_LABEL: Record<SearchHit['kind'], string> = {
   'mihomo-group': 'группа',
   'mihomo-rule': 'правило',
   'mihomo-provider': 'провайдер',
+  'mihomo-proxy': 'сервер',
   'mihomo-hosts': 'подстановка',
   'singbox-inbound': 'вход',
   'singbox-rule': 'правило',

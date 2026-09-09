@@ -89,6 +89,21 @@ describe('граф Mihomo', () => {
     const rule = nodes.find((n) => n.id === 'rule:0')
     expect((rule?.data as { target?: string }).target).toBe('ru')
   })
+
+  it('статический сервер — узел proxy:<имя> в колонке выходов; рёбра от группы и правила', () => {
+    const md = parseMihomo('proxies:\n  - name: s\n    type: direct\nproxy-groups:\n  - name: G\n    type: select\n    proxies: [s]\nrules:\n  - MATCH,s\n')
+    const { nodes, edges } = buildMihomoGraph(md)
+    const proxy = nodes.find((n) => n.id === 'proxy:s')!
+    expect(proxy.type).toBe('mihomoProxy')
+    expect(proxy.data).toMatchObject({ kind: 'mihomo-proxy', name: 's', type: 'direct' })
+    expect(proxy.position.x).toBe(nodes.find((n) => n.id === 'hosts:root')!.position.x)
+    expect(edges.map((e) => e.id)).toEqual(expect.arrayContaining(['e:group:G->proxy:s', 'e:rule:0->proxy:s']))
+  })
+
+  it('hosts:root есть у любого документа-отображения, даже без ключа proxies', () => {
+    expect(buildMihomoGraph(parseMihomo('mode: rule\n')).nodes.some((n) => n.id === 'hosts:root')).toBe(true)
+    expect(buildMihomoGraph(parseMihomo('')).nodes).toEqual([])
+  })
 })
 
 describe('подсписки правил', () => {

@@ -270,9 +270,12 @@ describe('граф Mihomo', () => {
   })
 
   it('причина отказа коммутации показывается диалогом и закрывается', async () => {
+    // `flow-list` больше не существует (задача 9: операции поверх модели
+    // принимают список в одну строку без отказа) — той же проверке годится
+    // любой сохранившийся отказ, здесь взят `alias-list`.
     const dismissRefusal = vi.fn()
-    renderTopology({ refusal: 'flow-list', dismissRefusal })
-    expect(screen.getByText(/одну строку/)).toBeInTheDocument()
+    renderTopology({ refusal: 'alias-list', dismissRefusal })
+    expect(screen.getByText(/якор/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Понятно' }))
     expect(dismissRefusal).toHaveBeenCalledOnce()
   })
