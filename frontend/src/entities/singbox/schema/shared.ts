@@ -8,64 +8,17 @@
 // (пометка since), удалённые — как устаревшие с заменой: документ с ними
 // открывается без потерь.
 
-import type {
-  Condition,
-  Deprecation,
-  EnumValue,
-  FieldSchema,
-  ListItemSchema,
-} from '../../../shared/schema'
+import type { EnumValue, FieldSchema } from '../../../shared/schema'
+// Строители переехали в shared/schema/build — общие для ядер. Импорт (а не
+// голый `export … from`) нужен, чтобы фрагменты ниже в этом же файле (DIAL_FIELDS,
+// TLS_FIELDS…) могли их звать по имени; re-export сохраняет прежний путь импорта
+// (`from './shared'`) для остальных файлов схемы sing-box.
+import { bool, en, map, num, nums, obj, objs, removed, str, strs, tagLabel, when, whenNot, withWhen } from '../../../shared/schema/build'
 
+export { bool, en, map, num, nums, obj, objs, removed, str, strs, tagLabel, when, whenNot, withWhen }
+
+/** Хвост сигнатуры строителя, нужен здесь функциям-обёрткам (domainResolverObject, tlsObject…) */
 type Extra = Partial<Omit<FieldSchema, 'key' | 'doc' | 'kind'>>
-
-export const str = (key: string, doc: string, extra: Extra = {}): FieldSchema => ({ key, doc, kind: 'string', ...extra })
-export const num = (key: string, doc: string, extra: Extra = {}): FieldSchema => ({ key, doc, kind: 'number', ...extra })
-export const bool = (key: string, doc: string, extra: Extra = {}): FieldSchema => ({ key, doc, kind: 'boolean', ...extra })
-export const map = (key: string, doc: string, extra: Extra = {}): FieldSchema => ({ key, doc, kind: 'map', ...extra })
-
-export const en = (key: string, doc: string, values: (string | EnumValue)[], extra: Extra = {}): FieldSchema => ({
-  key,
-  doc,
-  kind: 'enum',
-  enum: values.map((v) => (typeof v === 'string' ? { value: v } : v)),
-  ...extra,
-})
-
-/** Список строк; `values` — известные значения элементов (network: tcp/udp) */
-export const strs = (key: string, doc: string, extra: Extra & { values?: (string | EnumValue)[]; ref?: FieldSchema['ref'] } = {}): FieldSchema => {
-  const { values, ref, ...rest } = extra
-  const item: ListItemSchema = { kind: 'string' }
-  if (values !== undefined) item.enum = values.map((v) => (typeof v === 'string' ? { value: v } : v))
-  if (ref !== undefined) item.ref = ref
-  return { key, doc, kind: 'list', item, ...rest }
-}
-
-export const nums = (key: string, doc: string, extra: Extra = {}): FieldSchema => ({ key, doc, kind: 'list', item: { kind: 'number' }, ...extra })
-
-export const obj = (key: string, doc: string, fields: FieldSchema[], extra: Extra = {}): FieldSchema => ({ key, doc, kind: 'object', fields, ...extra })
-
-/** Список объектов; `item` — подпись и стартер элемента */
-export const objs = (
-  key: string,
-  doc: string,
-  fields: FieldSchema[],
-  item: Pick<ListItemSchema, 'label' | 'starter'> = {},
-  extra: Extra = {},
-): FieldSchema => ({ key, doc, kind: 'list', item: { kind: 'object', fields, ...item }, ...extra })
-
-export const when = (key: string, ...values: string[]): Condition => ({ key, in: values })
-export const whenNot = (key: string, ...values: string[]): Condition => ({ key, notIn: values })
-
-/** Копия фрагмента с условием на каждом поле; исходный фрагмент не трогается */
-export const withWhen = (fields: FieldSchema[], cond: Condition): FieldSchema[] => fields.map((f) => ({ ...f, when: cond }))
-
-export const removed = (since: string, replacement: string): Deprecation => ({ since, replacement })
-
-/** Подпись элемента списка: тег, иначе номер */
-export const tagLabel = (value: unknown, index: number): string => {
-  const tag = (value as { tag?: unknown } | null)?.tag
-  return typeof tag === 'string' && tag !== '' ? tag : `#${index + 1}`
-}
 
 // ── перечисления ──────────────────────────────────────────────────────────
 

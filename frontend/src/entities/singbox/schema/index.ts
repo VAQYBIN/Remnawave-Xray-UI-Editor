@@ -88,8 +88,12 @@ const tagsOf = (list: unknown): string[] =>
  * Теги документа для полей со ссылкой. Выходы — по ОБОИМ спискам: узел
  * out:<tag> граф рисует и по endpoints, и не назови мы такой тег, форма правила
  * предложила бы выбрать не всё, что на холсте.
+ * `Partial`, а не полный `Record`: `RefKind` шире видов ссылок sing-box
+ * (`provider`/`proxy-target`/`sub-rule` — понятия Mihomo), и документ этого
+ * ядра о них сказать ничего не может; потребители и так принимают частичную
+ * карту (`Partial<Record<RefKind, string[]>>` у форм и `SchemaForm`).
  */
-export function singboxRefs(doc: SingboxDoc): Record<RefKind, string[]> {
+export function singboxRefs(doc: SingboxDoc): Partial<Record<RefKind, string[]>> {
   return {
     outbound: [...tagsOf(outboundsOf(doc)), ...tagsOf(doc.endpoints)],
     inbound: tagsOf(doc.inbounds),

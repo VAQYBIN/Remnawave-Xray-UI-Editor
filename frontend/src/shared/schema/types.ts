@@ -43,10 +43,11 @@ export interface Condition {
 }
 
 /** Значение — тег другой записи документа: форма даёт выбор из существующих тегов */
-export type RefKind = 'outbound' | 'inbound' | 'dns-server' | 'rule-set'
+export type RefKind = 'outbound' | 'inbound' | 'dns-server' | 'rule-set' | 'proxy-target' | 'provider' | 'sub-rule'
 
 export interface ListItemSchema {
-  kind: 'string' | 'number' | 'object'
+  /** `port` — число либо строка-диапазон портов; строка из одних цифр пишется числом */
+  kind: 'string' | 'number' | 'object' | 'port'
   /** kind: object — поля элемента */
   fields?: FieldSchema[]
   /** kind: string — известные значения элемента (network: tcp/udp) */
@@ -84,14 +85,20 @@ export interface FieldSchema {
   panelKey?: boolean
   /** Значение по умолчанию при заведении объекта */
   starter?: () => unknown
+  /**
+   * kind: map — вид значений. `strings`: значение записи ядро принимает и
+   * строкой, и списком (nameserver-policy, hosts); форма читает оба вида и
+   * пишет всегда списком — то же правило, что у списка-скаляра части 1.
+   */
+  values?: 'string' | 'strings'
 }
 
 /** Раздел панели «Документ»: секция корня целиком либо список записей без узлов на холсте */
 export interface DocSection {
   title: string
   path: SchemaPath
-  /** object — форма по схеме; list — редактор списка с формой на элемент */
-  kind: 'object' | 'list'
+  /** object — форма по схеме; list — записи по индексу; map — записи по имени */
+  kind: 'object' | 'list' | 'map'
   /** Ключи секции, которые рисуются отдельными разделами или холстом и здесь не повторяются */
   skip?: string[]
 }

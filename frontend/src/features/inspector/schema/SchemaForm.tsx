@@ -16,6 +16,7 @@ import {
   type DocOp,
   type DocWriter,
   type FieldSchema,
+  type LockAction,
   type RefKind,
   type SchemaPath,
 } from '../../../shared/schema'
@@ -53,7 +54,19 @@ export interface SchemaFormProps {
  * то, что отличает объяснение от текста, в который эта причина просто
  * затесалась.
  */
-function ReadOnly({ label, doc, note, value }: { label: string; doc?: string; note: string; value: unknown }) {
+function ReadOnly({
+  label,
+  doc,
+  note,
+  value,
+  action,
+}: {
+  label: string
+  doc?: string
+  note: string
+  value: unknown
+  action?: LockAction
+}) {
   const id = useId()
   return (
     <div className="field">
@@ -65,6 +78,11 @@ function ReadOnly({ label, doc, note, value }: { label: string; doc?: string; no
       </div>
       {doc ? <span className="field-hint">{doc}</span> : null}
       <span className="field-hint">{note}</span>
+      {action ? (
+        <Button variant="ghost" onClick={action.run}>
+          {action.label}
+        </Button>
+      ) : null}
     </div>
   )
 }
@@ -85,6 +103,7 @@ function withCurrentAll(options: SelectOption[], current: string[]): SelectOptio
 /** Список строк/чисел, который документ иногда кладёт скаляром (`domain: "a.com"` вместо `["a.com"]`) */
 function scalarFitsListItem(item: FieldSchema['item'], value: unknown): boolean {
   const kind = item?.kind ?? 'string'
+  if (kind === 'port') return typeof value === 'string' || typeof value === 'number'
   return (kind === 'string' && typeof value === 'string') || (kind === 'number' && typeof value === 'number')
 }
 
@@ -233,6 +252,20 @@ function FieldSet({
       )
     }
 
+    if (item.kind === 'port') {
+      // Порт — число, диапазон — строка: `[80, 8080-8880]` ядро читает именно так,
+      // а `"80"` строкой — уже другое значение для его разборщика диапазонов
+      return (
+        <StringListField
+          key={field.key}
+          label={field.key}
+          hint={hint}
+          value={list.length > 0 ? list.map((v) => String(v)) : undefined}
+          onChange={(v) => setOrRemove(field.key, v?.map((s) => (/^\d+$/.test(s) ? Number(s) : s)))}
+        />
+      )
+    }
+
     if (item.kind === 'number') {
       return (
         <StringListField
@@ -296,7 +329,7 @@ function FieldSet({
     const current = value[field.key]
     const lock = writer.lockAt(at(field.key))
     if (lock !== null) {
-      return <ReadOnly key={field.key} label={field.key} doc={field.doc} note={lock.reason} value={current} />
+      return <ReadOnly key={field.key} label={field.key} doc={field.doc} note={lock.reason} action={lock.action} value={current} />
     }
     if (!shapeFits(field, current)) {
       return <ReadOnly key={field.key} label={field.key} doc={field.doc} note={SHAPE_NOTE} value={current} />
@@ -376,7 +409,29 @@ function FieldSet({
         )
       }
       case 'map': {
-        const map = isRecord(current) ? (current as Record<string, string>) : undefined
+        const raw = isRecord(current) ? current : undefined
+        if (field.values === 'strings') {
+          // Значение записи — строка либо список: показываем через запятую,
+          // пишем всегда списком (то же правило, что у списка-скаляра)
+          const shown = raw === undefined ? undefined
+            : Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? v.map(String).join(', ') : String(v)]))
+          return (
+            <KeyValueField
+              key={field.key}
+              label={field.key}
+              hint={hint}
+              value={shown}
+              onChange={(v) =>
+                setOrRemove(
+                  field.key,
+                  v === undefined ? undefined
+                    : Object.fromEntries(Object.entries(v).map(([k, s]) => [k, s.split(',').map((t) => t.trim()).filter(Boolean)])),
+                )
+              }
+            />
+          )
+        }
+        const map = raw as Record<string, string> | undefined
         return (
           <KeyValueField
             key={field.key}

@@ -27,7 +27,7 @@ function recipeOf(id: string) {
   return SINGBOX_RECIPES.find((r) => r.id === id)!
 }
 
-const outboundOptions = (model: SingboxDoc) => singboxRefs(model).outbound.map((t) => ({ value: t, label: t }))
+const outboundOptions = (model: SingboxDoc) => (singboxRefs(model).outbound ?? []).map((t) => ({ value: t, label: t }))
 
 const split: RecipeEntry<SingboxDoc, SplitParams> = {
   recipe: recipeOf('split'),

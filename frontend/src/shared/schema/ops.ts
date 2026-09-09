@@ -11,9 +11,16 @@ export type DocOp =
   | { op: 'insert'; path: SchemaPath; index: number; value: unknown }
   | { op: 'move'; path: SchemaPath; from: number; to: number }
 
+/** Действие, снимающее замок по явному выбору пользователя (материализация якоря у Mihomo) */
+export interface LockAction {
+  label: string
+  run: () => void
+}
+
 export interface Lock {
   /** Почему значение по этому пути правится только в тексте — по-русски, форма показывает как есть */
   reason: string
+  action?: LockAction
 }
 
 export interface DocWriter {
