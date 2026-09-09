@@ -153,6 +153,19 @@ export function useMihomoDraft({
   const mdRef = useRef(md)
   mdRef.current = md
 
+  // Ref со свежим `core`: находка ревью — `core.writeDraft`/`core.setSelectedNode`
+  // объявлены ПЛОСКИМИ функциями внутри `useDocumentDraft` и получают новое
+  // тождество на каждый рендер (`useDocumentDraft.ts`, там их не мемоизируют).
+  // Список зависимостей `[core.writeDraft, core.setSelectedNode]` у `useCallback`
+  // поэтому менялся на каждый рендер, и вся цепочка `applyOpsNow` → `lockAt` →
+  // `writer` пересобиралась вхолостую — комментарий про «тождество держится»
+  // был неправдой. Лечится тем же приёмом, что у `useSingboxDraft.ts`
+  // (`coreRef`): callback читает `core.*` из ref ВНУТРИ вызова, а не из
+  // замыкания, и зависит только от того, что вправду стабильно (`[]` или
+  // другой такой же callback).
+  const coreRef = useRef(core)
+  coreRef.current = core
+
   // Считаем и спрашиваем базу, когда ввод затих: иначе каждый символ адреса
   // пересчитывал бы вердикты и дергал бэкенд
   const settled = useDebounced(core.traceTarget, TRACE_DEBOUNCE_MS)
@@ -309,15 +322,19 @@ export function useMihomoDraft({
   // (сплайс/модель) и сам отказывает на пути через алиас/слияние —
   // `applyOpsNow` только переносит результат в черновик и, если попросили,
   // выбор. Пустой список операций или отсутствующий документ — не ошибка,
-  // а нечего делать.
+  // а нечего делать. Успешная правка снимает стухший отказ: иначе диалог
+  // «так соединить нельзя» от прошлого кабеля продолжал бы висеть после
+  // того, как форма спокойно записала поле.
   const applyOpsNow = useCallback((ops: DocOp[], select?: string | null) => {
     const current = mdRef.current
     if (current === undefined || ops.length === 0) return
     const { md: next, refused } = applyMihomoOps(current, ops)
     if (refused.length > 0) setRefusal(refused[0]!.reason)
-    if (next !== current) core.writeDraft(next.text, { history: true })
-    if (select !== undefined) core.setSelectedNode(select)
-  }, [core.writeDraft, core.setSelectedNode])
+    else setRefusal(null)
+    const { writeDraft, setSelectedNode } = coreRef.current
+    if (next !== current) writeDraft(next.text, { history: true })
+    if (select !== undefined) setSelectedNode(select)
+  }, [])
 
   // Материализация якоря/слияния — правка документа по явному выбору
   // пользователя (кнопка замка), а не побочный эффект применения операции
@@ -325,8 +342,8 @@ export function useMihomoDraft({
     const current = mdRef.current
     if (current === undefined) return
     const next = materializeAt(current, path)
-    if (next !== current) core.writeDraft(next.text, { history: true })
-  }, [core.writeDraft])
+    if (next !== current) coreRef.current.writeDraft(next.text, { history: true })
+  }, [])
 
   const lockAt = useCallback((path: SchemaPath): Lock | null => {
     const current = mdRef.current
@@ -355,10 +372,49 @@ export function useMihomoDraft({
       : kind === 'provider' ? 'provider:'
       : kind === 'sub-rule' ? 'subrule:'
       : null
-    core.writeDraft(res.md.text, { history: true })
-    if (prefix !== null && core.selectedNode === `${prefix}${from}`) core.setSelectedNode(`${prefix}${to}`)
+    const { writeDraft, selectedNode, setSelectedNode } = coreRef.current
+    writeDraft(res.md.text, { history: true })
+    if (prefix !== null && selectedNode === `${prefix}${from}`) setSelectedNode(`${prefix}${to}`)
     return null
-  }, [core.writeDraft, core.selectedNode, core.setSelectedNode])
+  }, [])
+
+  // `connect`/`disconnect` попадают в тот же список, что и `writer`/`lockAt`/
+  // `rename` в находке ревью: раньше они были литералами внутри возвращаемого
+  // объекта — новое тождество каждый рендер, — а `Dialog` в `MihomoTopology`
+  // подписан на `draft.refusal`, не на сам `connect`, так что заметно это было
+  // не сразу. Оборачиваем в `useCallback` по той же схеме.
+  const connect = useCallback((source: string, target: string) => {
+    const current = mdRef.current
+    if (current === undefined) return
+    const res = connectMihomo(current, source, target)
+    setRefusal(res.refusal ? refusalText(res.refusal) : null)
+    applyOpsNow(res.ops)
+  }, [applyOpsNow])
+
+  // Каждое ребро разрывается по ОТДЕЛЬНОМУ вызову disconnectMihomo — он
+  // считает индекс элемента `proxies` по документу, который передан ему
+  // САМОМУ, а не по исходному `md`: после первого удаления индексы сдвигаются,
+  // и второй вызов обязан увидеть уже изменённый список. Текст в черновик
+  // пишется ОДИН раз в конце — иначе пачка легла бы в историю несколькими
+  // снимками, и один Ctrl+Z отменил бы только последнее ребро.
+  const disconnect = useCallback((edgeIds: string[]) => {
+    const current = mdRef.current
+    if (current === undefined) return
+    let cur = current
+    let firstRefusal: string | null = null
+    for (const id of edgeIds) {
+      const res = disconnectMihomo(cur, id)
+      if (res.refusal !== undefined) {
+        if (firstRefusal === null) firstRefusal = refusalText(res.refusal)
+        continue
+      }
+      const applied = applyMihomoOps(cur, res.ops)
+      if (applied.refused.length > 0 && firstRefusal === null) firstRefusal = applied.refused[0]!.reason
+      cur = applied.md
+    }
+    setRefusal(firstRefusal)
+    if (cur !== current) coreRef.current.writeDraft(cur.text, { history: true })
+  }, [])
 
   function selectedRuleIndex(): number | null {
     return core.selectedNode?.startsWith('rule:') ? Number(core.selectedNode.slice(5)) : null
@@ -385,35 +441,8 @@ export function useMihomoDraft({
     lockAt,
     materialize,
     rename,
-    connect: (source, target) => {
-      if (md === undefined) return
-      const res = connectMihomo(md, source, target)
-      setRefusal(res.refusal ? refusalText(res.refusal) : null)
-      applyOpsNow(res.ops)
-    },
-    // Каждое ребро разрывается по ОТДЕЛЬНОМУ вызову disconnectMihomo — он
-    // считает индекс элемента `proxies` по документу, который передан ему
-    // САМОМУ, а не по исходному `md`: после первого удаления индексы сдвигаются,
-    // и второй вызов обязан увидеть уже изменённый список. Текст в черновик
-    // пишется ОДИН раз в конце — иначе пачка легла бы в историю несколькими
-    // снимками, и один Ctrl+Z отменил бы только последнее ребро.
-    disconnect: (edgeIds) => {
-      if (md === undefined) return
-      let cur = md
-      let firstRefusal: string | null = null
-      for (const id of edgeIds) {
-        const res = disconnectMihomo(cur, id)
-        if (res.refusal !== undefined) {
-          if (firstRefusal === null) firstRefusal = refusalText(res.refusal)
-          continue
-        }
-        const applied = applyMihomoOps(cur, res.ops)
-        if (applied.refused.length > 0 && firstRefusal === null) firstRefusal = applied.refused[0]!.reason
-        cur = applied.md
-      }
-      setRefusal(firstRefusal)
-      if (cur !== md) core.writeDraft(cur.text, { history: true })
-    },
+    connect,
+    disconnect,
     trace,
     refusal,
     dismissRefusal: () => setRefusal(null),

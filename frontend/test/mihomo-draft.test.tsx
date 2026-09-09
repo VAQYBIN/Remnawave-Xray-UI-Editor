@@ -234,6 +234,25 @@ describe('черновик Mihomo — писатель (DocWriter)', () => {
     expect(result.current.refusal).toBe(LOCK_ALIAS)
     act(() => result.current.doUndo())
     expect(result.current.text).not.toContain('hidden: true')
+    // Стухший отказ не должен переживать следующую успешную правку — иначе
+    // диалог «так соединить нельзя» висел бы и после того, как форма спокойно
+    // записала поле
+    act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'hidden'], value: true }]))
+    expect(result.current.refusal).toBeNull()
+  })
+
+  it('writer и lockAt держат тождество между рендерами — иначе формы, memo\'ящие по writer, пересобирались бы на каждую правку', () => {
+    const { result } = renderDraft()
+    const writer = result.current.writer
+    const lockAt = result.current.lockAt
+    act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'hidden'], value: true }]))
+    // Документ поменялся (черновик перезаписан, компонент перерендерился), но
+    // тождество писателя — нет: зависимости callback'ов читают `core.*` из
+    // ref, а не из замыкания над плоской функцией `useDocumentDraft`, которая
+    // получает новое тождество на каждый рендер
+    expect(result.current.text).toContain('hidden: true')
+    expect(result.current.writer).toBe(writer)
+    expect(result.current.lockAt).toBe(lockAt)
   })
 
   it('lockAt отдаёт замок с действием «Развернуть значение здесь», materialize снимает его', () => {
