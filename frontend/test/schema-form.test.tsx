@@ -106,6 +106,15 @@ describe('SchemaForm: операции', () => {
     expect(ops.at(-1)).toEqual({ op: 'remove', path: ['outbounds', 0, 'type'] })
   })
 
+  it('устаревшее значение перечисления не предлагается заново, но проходит текущим', async () => {
+    const { writer } = makeWriter()
+    // type: 'direct' — устаревший 'block' сейчас не выбран, и его не должно быть
+    // среди вариантов вовсе (спека: «удалённые проходят сквозь» — только текущим)
+    render(<SchemaForm fields={FIELDS} value={{ type: 'direct' }} path={PATH} writer={writer} />)
+    expect(await optionLabels('type')).not.toContain('block')
+    // а вот когда 'block' и есть текущее значение — он обязан остаться выбранным (см. тест выше)
+  })
+
   it('ссылка предлагает теги документа плюс текущее значение', async () => {
     const { ops, writer } = makeWriter()
     render(
@@ -123,13 +132,40 @@ describe('SchemaForm: операции', () => {
     expect(ops.at(-1)).toEqual({ op: 'set', path: ['outbounds', 0, 'port'], value: [80, 443] })
   })
 
+  it('скаляр списка строк читается как список из одного элемента, правка пишет список', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SchemaForm fields={FIELDS} value={{ alpn: 'h2' }} path={PATH} writer={writer} />)
+    expect(screen.getByLabelText('alpn')).toHaveValue('h2')
+    await userEvent.type(screen.getByLabelText('alpn'), '\nh3')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['outbounds', 0, 'alpn'], value: ['h2', 'h3'] })
+  })
+
   it('вложенный объект пишет по полному пути и заводится записью, когда его нет', async () => {
     const { ops, writer } = makeWriter()
     render(<SchemaForm fields={FIELDS} value={{}} path={PATH} writer={writer} />)
     await userEvent.click(screen.getByRole('button', { name: /Ещё поля/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'tls' }))
-    await userEvent.type(screen.getByLabelText('server_name'), 'x')
+    const tlsToggle = screen.getByRole('button', { name: 'tls' })
+    await userEvent.click(tlsToggle)
+    // У вложенного объекта своя крышка «Ещё поля» (I4): tls только что открыт и
+    // ещё пуст, поэтому server_name — тоже под ней, ровно как поля корня.
+    // Ищем крышку внутри тела tls (а не screen целиком) — на странице их теперь
+    // две, и вторая, верхнего уровня, тоже подходит под /Ещё поля/
+    const tlsBody = tlsToggle.parentElement as HTMLElement
+    await userEvent.click(within(tlsBody).getByRole('button', { name: /Ещё поля/ }))
+    await userEvent.type(within(tlsBody).getByLabelText('server_name'), 'x')
     expect(ops.at(-1)).toEqual({ op: 'set', path: ['outbounds', 0, 'tls', 'server_name'], value: 'x' })
+  })
+
+  it('у вложенного объекта своя крышка «Ещё поля»: заполненное поле видно сразу, пустое — под ней', () => {
+    const { writer } = makeWriter()
+    render(<SchemaForm fields={FIELDS} value={{ tls: { server_name: 'x.com' } }} path={PATH} writer={writer} />)
+    // tls заполнен — он сам в числе видимых полей корня (правило 1) и открыт по
+    // умолчанию (defaultOpen), server_name виден без единого клика
+    expect(screen.getByLabelText('server_name')).toHaveValue('x.com')
+    // enabled — единственное незаполненное поле tls — спрятан под собственной крышкой,
+    // а не показан рядом с server_name
+    expect(screen.queryByText('enabled')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Ещё поля (1)' })).toBeInTheDocument()
   })
 
   it('список объектов: добавить, переставить, удалить — операции по индексу', async () => {

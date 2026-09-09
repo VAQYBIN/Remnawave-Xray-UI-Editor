@@ -76,6 +76,21 @@ describe('граф sing-box', () => {
     expect(graph.edges.map((e) => e.id)).toContain('e:sbrule:1->builtin:reject')
   })
 
+  it('bypass с outbound ведёт ребром к выходу, без outbound — во встроенный узел', () => {
+    const d = doc(`{"outbounds":[{"type":"direct","tag":"direct"}],
+      "route":{"rules":[
+        {"domain":"a.com","action":"bypass","outbound":"direct"},
+        {"domain":"b.com","action":"bypass"}
+      ]}}`)
+    const graph = buildSingboxGraph(d)
+    // С outbound — как route: ребро к выходу, без builtin-узла для этого правила
+    expect(graph.edges.map((e) => e.id)).toContain('e:sbrule:0->out:direct')
+    expect(graph.edges.some((e) => e.id.startsWith('e:sbrule:0->builtin:'))).toBe(false)
+    // Без outbound — обход ядром, как раньше: встроенный узел
+    expect(graph.nodes.map((n) => n.id)).toContain('builtin:bypass')
+    expect(graph.edges.map((e) => e.id)).toContain('e:sbrule:1->builtin:bypass')
+  })
+
   it('встроенный узел заводится только под то действие, которое в документе есть', () => {
     const d = doc(`{"outbounds":[{"type":"direct","tag":"direct"}],
       "route":{"rules":[{"protocol":"dns","action":"hijack-dns"}]}}`)

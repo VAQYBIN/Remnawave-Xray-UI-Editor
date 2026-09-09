@@ -77,6 +77,19 @@ describe('трассировка sing-box', () => {
     expect(res.stopped).toBeUndefined()
   })
 
+  it('bypass с outbound называет победителем сам выход, а не действие', () => {
+    const d = doc(
+      `{"outbounds":[${BASE}],"route":{"rules":[{"domain":"a.com","action":"bypass","outbound":"direct"}],"final":"g"}}`,
+    )
+    // Как у buildGraph: с outbound bypass ведёт туда же, куда route, а не в builtin
+    expect(traceSingbox(d, t('a.com')).winner).toEqual({ ruleIndex: 0, target: 'direct' })
+  })
+
+  it('bypass без outbound называет победителем имя действия', () => {
+    const d = doc(`{"outbounds":[${BASE}],"route":{"rules":[{"domain":"a.com","action":"bypass"}],"final":"g"}}`)
+    expect(traceSingbox(d, t('a.com')).winner).toEqual({ ruleIndex: 0, target: 'bypass' })
+  })
+
   it('rule_set останавливает разбор и называет причину', () => {
     const d = doc(`{"outbounds":[${BASE}],"route":{"rules":[
       {"rule_set":["ru"],"outbound":"g"},

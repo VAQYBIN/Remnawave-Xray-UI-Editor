@@ -75,8 +75,8 @@ function ListSection({ section, doc, writer, refs }: { section: DocSection; doc:
             <spec.Form value={isRecord(item) ? item : {}} path={[...section.path, i]} writer={writer} refs={refs} />
           </div>
           <div className="list-editor-order">
-            <button type="button" className="chip-x" aria-label={`Переместить элемент ${i + 1} выше`} disabled={i === 0} onClick={() => writer.apply([{ op: 'move', path: section.path, from: i, to: i - 1 }])}>↑</button>
-            <button type="button" className="chip-x" aria-label={`Переместить элемент ${i + 1} ниже`} disabled={i === items.length - 1} onClick={() => writer.apply([{ op: 'move', path: section.path, from: i, to: i + 1 }])}>↓</button>
+            <button type="button" className="chip-order" aria-label={`Переместить элемент ${i + 1} выше`} disabled={i === 0} onClick={() => writer.apply([{ op: 'move', path: section.path, from: i, to: i - 1 }])}>↑</button>
+            <button type="button" className="chip-order" aria-label={`Переместить элемент ${i + 1} ниже`} disabled={i === items.length - 1} onClick={() => writer.apply([{ op: 'move', path: section.path, from: i, to: i + 1 }])}>↓</button>
           </div>
           <button type="button" className="chip-x" aria-label={spec.removeLabel(i)} onClick={() => writer.apply([{ op: 'remove', path: [...section.path, i] }])}>✕</button>
         </div>

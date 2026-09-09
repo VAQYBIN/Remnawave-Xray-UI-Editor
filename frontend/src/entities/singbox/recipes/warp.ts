@@ -29,7 +29,19 @@ export function validateWarp(p: WarpParams): string | null {
   return null
 }
 
+/**
+ * Хост и порт пира — разбор `WARP_PEER.endpoint` (`host:port`), а не вторая
+ * копия строки: адрес и порт Cloudflare — тот же факт про сеть, что и у
+ * рецепта Xray, и держать его в двух местах значило бы держать два раза одно
+ * и то же значение, которые могут разъехаться при следующей правке одного из них.
+ */
+function peerHostPort(): { host: string; port: number } {
+  const at = WARP_PEER.endpoint.lastIndexOf(':')
+  return { host: WARP_PEER.endpoint.slice(0, at), port: Number(WARP_PEER.endpoint.slice(at + 1)) }
+}
+
 export function planWarp(doc: SingboxDoc, p: WarpParams): RecipePlan<SingboxDoc> {
+  const { host, port } = peerHostPort()
   const entry: Record<string, unknown> = {
     type: 'wireguard',
     tag: p.tag,
@@ -38,8 +50,8 @@ export function planWarp(doc: SingboxDoc, p: WarpParams): RecipePlan<SingboxDoc>
     mtu: p.mtu,
     peers: [
       {
-        address: 'engage.cloudflareclient.com',
-        port: 2408,
+        address: host,
+        port,
         public_key: WARP_PEER.publicKey,
         allowed_ips: ['0.0.0.0/0', '::/0'],
         reserved: p.reserved,

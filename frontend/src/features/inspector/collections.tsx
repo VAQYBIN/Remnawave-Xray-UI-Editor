@@ -110,7 +110,7 @@ export function ListEditor<T extends object>({
               <div className="list-editor-order">
                 <button
                   type="button"
-                  className="chip-x"
+                  className="chip-order"
                   aria-label={`Переместить элемент ${i + 1} выше`}
                   disabled={i === 0}
                   onClick={() => move(i, i - 1)}
@@ -119,7 +119,7 @@ export function ListEditor<T extends object>({
                 </button>
                 <button
                   type="button"
-                  className="chip-x"
+                  className="chip-order"
                   aria-label={`Переместить элемент ${i + 1} ниже`}
                   disabled={i === items.length - 1}
                   onClick={() => move(i, i + 1)}

@@ -6,9 +6,15 @@ import type { EnumValue } from '../../../shared/schema'
 import type { SelectOption } from '../../../shared/ui'
 import { deprecatedNote } from './labels'
 
-/** Варианты схемы плюс текущее значение, если схема его не знает */
+/**
+ * Варианты схемы плюс текущее значение, если схема его не знает или знает его
+ * устаревшим. Устаревшие значения не предлагаются заново — панель их и так не
+ * пишет, — но текущее пробрасывается собственным пунктом тем же путём, что и
+ * вовсе незнакомое значение: спека просит именно «удалённые проходят сквозь с
+ * подсказкой замены», а не молчаливую подмену первым живым вариантом.
+ */
 export function typeOptions(values: EnumValue[], current: string, notSet = false): SelectOption[] {
-  const options = values.map((e) => ({ value: e.value, label: e.value }))
+  const options = values.filter((e) => e.deprecated === undefined).map((e) => ({ value: e.value, label: e.value }))
   const head = notSet ? [{ value: '', label: '(не задано)' }] : []
   const extra = current !== '' && !options.some((o) => o.value === current) ? [{ value: current, label: current }] : []
   return [...head, ...extra, ...options]

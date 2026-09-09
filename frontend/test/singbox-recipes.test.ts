@@ -109,6 +109,8 @@ describe('рецепты sing-box', () => {
     const c = planWarp(BASE, { tag: 'warp', privateKey: 'k', addresses: ['172.16.0.2/32'], reserved: [], mtu: 1280 })
     expect(c.model.endpoints![0]).toMatchObject({ type: 'wireguard', tag: 'warp', private_key: 'k', mtu: 1280 })
     expect(c.model.endpoints![0]!.peers).toHaveLength(1)
+    // Хост и порт пира — разбор WARP_PEER.endpoint (M6), не вторая копия строки
+    expect((c.model.endpoints![0]!.peers as unknown[])[0]).toMatchObject({ address: 'engage.cloudflareclient.com', port: 2408 })
   })
 
   it('реестр содержит шесть рецептов с уникальными id', () => {

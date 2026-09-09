@@ -422,9 +422,13 @@ export function traceSingbox(doc: SingboxDoc, target: TraceTarget): SingboxTrace
       continue
     }
 
-    // У маршрутного правила выход назван полем, у остальных — самим действием:
-    // `reject` и `hijack-dns` — это ответ, а не отсутствие ответа
-    const winner = action === 'route' ? ruleTarget(rule) : action
+    // У route выход назван полем всегда. У bypass поле то же самое, но
+    // необязательное (`configuration/route/rule_action`): с ним bypass ведёт
+    // туда же, куда и route, без него winner — имя действия, как у reject и
+    // hijack-dns. `ruleTarget` для bypass не годится — она признаёт выходом
+    // только route, здесь читаем поле напрямую
+    const bypassTarget = action === 'bypass' && typeof rule.outbound === 'string' ? rule.outbound : undefined
+    const winner = action === 'route' ? ruleTarget(rule) : (bypassTarget ?? action)
     if (winner === undefined) {
       const reason = 'правило совпало, но выход у него не указан — куда уйдёт трафик, из документа не следует'
       verdicts.push({ index, state: 'unknown', reason })

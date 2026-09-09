@@ -486,7 +486,7 @@ p { margin: 0 0 10px; }
   font-size: var(--t-xs);
   color: var(--ink);
 }
-.chip-x {
+.chip-x, .chip-order {
   background: none;
   border: none;
   color: var(--ink-faint);
@@ -497,6 +497,9 @@ p { margin: 0 0 10px; }
   border-radius: 999px;
 }
 .chip-x:hover { color: var(--alert); background: var(--alert-soft); }
+/* Стрелки порядка не удаляют ничего — тревожный hover ✕ здесь читался бы как
+   опасное действие, которого нет */
+.chip-order:hover { color: var(--ink); background: var(--panel-2); }
 /* Счётчик «сколько сгенерировать» рядом с чипами shortId — узкое числовое поле */
 .taglist-count { width: 3.5rem; text-align: center; padding-inline: 8px; }
 .taglist-item .muted { font-style: italic; }
@@ -1751,7 +1754,7 @@ p { margin: 0 0 10px; }
 
 /* Стрелки порядка у карточки списка: стоят столбиком между телом и крестиком */
 .list-editor-order { display: flex; flex-direction: column; gap: 2px; }
-.list-editor-order .chip-x:disabled { opacity: 0.35; cursor: default; }
+.list-editor-order .chip-order:disabled { opacity: 0.35; cursor: default; }
 /* Тристейт — те же сегменты, что у «Форма / JSON узла», но во всю ширину поля */
 .tristate { align-self: flex-start; }
 

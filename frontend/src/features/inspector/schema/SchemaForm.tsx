@@ -82,6 +82,12 @@ function withCurrentAll(options: SelectOption[], current: string[]): SelectOptio
   return all
 }
 
+/** Список строк/чисел, который документ иногда кладёт скаляром (`domain: "a.com"` вместо `["a.com"]`) */
+function scalarFitsListItem(item: FieldSchema['item'], value: unknown): boolean {
+  const kind = item?.kind ?? 'string'
+  return (kind === 'string' && typeof value === 'string') || (kind === 'number' && typeof value === 'number')
+}
+
 function shapeFits(field: FieldSchema, value: unknown): boolean {
   if (value === undefined) return true
   switch (field.kind) {
@@ -93,7 +99,10 @@ function shapeFits(field: FieldSchema, value: unknown): boolean {
     case 'boolean':
       return typeof value === 'boolean'
     case 'list':
-      return Array.isArray(value)
+      // Единственное значение вместо списка — не порча формы, а форма записи,
+      // которую ядро тоже принимает: читаем как список из одного элемента
+      // (см. `listRow`), пишем всегда списком
+      return Array.isArray(value) || scalarFitsListItem(field.item, value)
     case 'object':
     case 'map':
       return isRecord(value)
@@ -106,10 +115,17 @@ function isFilled(value: unknown): boolean {
 
 interface FieldSetProps extends SchemaFormProps {
   /**
-   * Заводить ли крышку «Ещё поля» вокруг незаполненных. Включена только у
-   * ВЕРХНЕГО вызова: вложенный вызов рисует поля объекта или карточки
-   * элемента списка, которые пользователь только что сам раскрыл, — второй
-   * слой прятки поверх первого только мешал бы добраться до содержимого.
+   * Заводить ли крышку «Ещё поля» вокруг незаполненных. Включена у верхнего
+   * вызова и у каждого вложенного объекта (`kind: 'object'`, поле `tls` и
+   * подобные): у объекта своих полей может быть столько же, сколько у корня
+   * документа, и без своей крышки заполненные потерялись бы среди пустых —
+   * правило 1 (заполненные сверху, незаполненные под крышкой) действует на
+   * любой глубине, а не только на самой верхней.
+   *
+   * Выключена только у карточки элемента списка объектов: пользователь её
+   * только что сам раскрыл кнопкой «+ Добавить» или уже открытой карточкой —
+   * второй слой прятки поверх первого только мешал бы добраться до
+   * содержимого, которое и так на виду целиком.
    */
   wrapRest: boolean
 }
@@ -154,7 +170,9 @@ function FieldSet({
 
   function listRow(field: FieldSchema, current: unknown, hint: string): ReactNode {
     const item = field.item ?? { kind: 'string' as const }
-    const list = Array.isArray(current) ? current : []
+    // Скаляр той же формы, что элемент списка, — список из одного элемента на
+    // чтение; правка любого из полей ниже пишет его назад уже списком (`setOrRemove`)
+    const list = Array.isArray(current) ? current : scalarFitsListItem(item, current) ? [current] : []
 
     if (item.kind === 'object') {
       const key = field.key
@@ -179,7 +197,7 @@ function FieldSet({
                 <div className="list-editor-order">
                   <button
                     type="button"
-                    className="chip-x"
+                    className="chip-order"
                     aria-label={`Переместить элемент ${i + 1} выше`}
                     disabled={i === 0}
                     onClick={() => emit({ op: 'move', path: at(key), from: i, to: i - 1 })}
@@ -188,7 +206,7 @@ function FieldSet({
                   </button>
                   <button
                     type="button"
-                    className="chip-x"
+                    className="chip-order"
                     aria-label={`Переместить элемент ${i + 1} ниже`}
                     disabled={i === list.length - 1}
                     onClick={() => emit({ op: 'move', path: at(key), from: i, to: i + 1 })}
@@ -339,7 +357,13 @@ function FieldSet({
         )
       case 'enum': {
         const cur = typeof current === 'string' ? current : ''
-        const options = [{ value: '', label: NOT_SET }, ...(field.enum ?? []).map((e) => ({ value: e.value, label: e.value }))]
+        // Устаревшие значения не предлагаются заново — `withCurrent` ниже всё
+        // равно пробросит текущее собственным пунктом, если оно устарело
+        // (та же логика, что и у typeOptions в schema/typeSelect.ts)
+        const options = [
+          { value: '', label: NOT_SET },
+          ...(field.enum ?? []).filter((e) => e.deprecated === undefined).map((e) => ({ value: e.value, label: e.value })),
+        ]
         return (
           <SelectField
             key={field.key}
@@ -379,7 +403,7 @@ function FieldSet({
               writer={writer}
               refs={refs}
               showPanelKeys={showPanelKeys}
-              wrapRest={false}
+              wrapRest
             />
           </CollapsibleSection>
         )

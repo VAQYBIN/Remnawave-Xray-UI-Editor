@@ -32,11 +32,14 @@ export const SINGBOX_COLUMN_W = 430
 export const SINGBOX_ROW_H = 130
 
 /**
- * Действия, которые ЗАВЕРШАЮТ подбор, но выход не называют. Спека перечисляла
- * только `reject`, и это был бы верный список, если бы остальные два вели себя
- * иначе. Они ведут себя так же: трассировка называет победителем и `hijack-dns`,
- * и `bypass`. Оставить их без узла значило бы нарисовать их как `sniff` —
- * правилом, которое никуда не ведёт, — а они ведут, просто не в outbound.
+ * Действия, которые ЗАВЕРШАЮТ подбор и выход не называют. `reject` и
+ * `hijack-dns` не называют его никогда. `bypass` — тоже завершает подбор, но
+ * поле `outbound` у него НЕобязательное (`configuration/route/rule_action`):
+ * без него это обход ядром (сюда, во встроенный узел), а с ним — названный
+ * выход, и тогда правило рисуется ребром к нему, как `route` (см. ветку ниже
+ * по `target`). Оставить `bypass` без узла в первом случае значило бы
+ * нарисовать его как `sniff` — правилом, которое никуда не ведёт, — а он
+ * ведёт, просто не всегда в outbound.
  */
 export const TERMINAL_BUILTINS: ReadonlySet<string> = new Set(['reject', 'hijack-dns', 'bypass'])
 
@@ -248,7 +251,15 @@ export function buildSingboxGraph(doc: SingboxDoc): { nodes: Node[]; edges: Edge
 
   rulesOf(doc).forEach((rule, index) => {
     const action = ruleAction(rule)
-    const target = action === 'route' ? ruleTarget(rule) : undefined
+    // У route выход обязателен по смыслу (`ruleTarget` его и читает), у bypass —
+    // нет: поле у него то же самое, но ядро им может обойтись без него. Нельзя
+    // звать `ruleTarget` — она признаёт выходом только route
+    const target =
+      action === 'route'
+        ? ruleTarget(rule)
+        : action === 'bypass' && typeof rule.outbound === 'string'
+          ? rule.outbound
+          : undefined
     pushNode({
       id: `rule:${index}`,
       type: 'singboxRule',
@@ -281,6 +292,14 @@ export function buildSingboxGraph(doc: SingboxDoc): { nodes: Node[]; edges: Edge
     }
 
     if (NON_TERMINAL_ACTIONS.has(action)) return
+    // Названный выход проверяется ДО builtin: у bypass с `outbound` это ребро к
+    // выходу, как у route, а не встроенный узел — builtin достаётся только
+    // действиям без выхода (reject, hijack-dns) и bypass без outbound
+    if (target !== undefined) {
+      const id = groupTags.has(target) ? `group:${target}` : `out:${target}`
+      if (nodeIds.has(id)) pushEdge(`e:sbrule:${index}->${id}`, `rule:${index}`, id)
+      return
+    }
     if (TERMINAL_BUILTINS.has(action)) {
       pushNode({
         id: `builtin:${action}`,
@@ -289,12 +308,7 @@ export function buildSingboxGraph(doc: SingboxDoc): { nodes: Node[]; edges: Edge
         data: { kind: 'singbox-builtin', action },
       })
       pushEdge(`e:sbrule:${index}->builtin:${action}`, `rule:${index}`, `builtin:${action}`)
-      return
     }
-    if (target === undefined) return
-    const id = groupTags.has(target) ? `group:${target}` : `out:${target}`
-    if (!nodeIds.has(id)) return
-    pushEdge(`e:sbrule:${index}->${id}`, `rule:${index}`, id)
   })
 
   return { nodes, edges }

@@ -6,12 +6,12 @@ import type { DocOp, DocWriter, RefKind, SchemaPath } from '../../shared/schema'
 import { type SelectOption } from '../../shared/ui'
 import { MultiSelectField, SelectField, StringListField, TextField, TriStateField } from './fields'
 import { SchemaForm } from './schema/SchemaForm'
+import { typeHint, typeOptions } from './schema/typeSelect'
 
 const SHOWN = ['action', 'outbound', 'domain', 'domain_suffix', 'domain_keyword', 'domain_regex', 'ip_cidr', 'ip_is_private', 'port', 'port_range', 'protocol', 'clash_mode', 'rule_set', 'inbound']
 
 /** Отсутствующее действие означает маршрут — в списке это отдельного значения не требует */
 const DEFAULT_ACTION = 'route'
-const ACTION_OPTIONS: SelectOption[] = ROUTE_RULE_ACTION_VALUES.map((e) => ({ value: e.value, label: e.value }))
 /** Действия с целью-выходом: route и bypass */
 const WITH_OUTBOUND = new Set(['route', 'bypass'])
 
@@ -22,7 +22,16 @@ function tagOptions(known: string[], selected: string[]): SelectOption[] {
   return all.map((v) => ({ value: v, label: v }))
 }
 
-const strings = (raw: unknown): string[] | undefined => (Array.isArray(raw) ? raw.map((v) => String(v)) : undefined)
+// Схема ждёт список, но документ иногда кладёт один скаляр (`domain: "a.com"`
+// вместо `["a.com"]`) — ядро это тоже понимает. Читаем такое значение как
+// список из одного элемента; правка любого поля ниже пишет его обратно уже
+// списком (`setOrRemove`), как просит спека
+const strings = (raw: unknown): string[] | undefined =>
+  Array.isArray(raw)
+    ? raw.map((v) => String(v))
+    : typeof raw === 'string' || typeof raw === 'number'
+      ? [String(raw)]
+      : undefined
 
 export function SingboxRuleForm({ value, path, writer, refs }: {
   value: SingboxRule
@@ -52,7 +61,7 @@ export function SingboxRuleForm({ value, path, writer, refs }: {
   return (
     <>
       <p className="muted" style={{ margin: 0 }}>Правила проверяются сверху вниз — срабатывает первое совпавшее.</p>
-      <SelectField label="Действие" hint={ROUTE_RULE_ACTION_VALUES.find((e) => e.value === action)?.doc} value={action} options={ACTION_OPTIONS} onChange={changeAction} />
+      <SelectField label="Действие" hint={typeHint(ROUTE_RULE_ACTION_VALUES, action)} value={action} options={typeOptions(ROUTE_RULE_ACTION_VALUES, action)} onChange={changeAction} />
       {WITH_OUTBOUND.has(action) && (
         <SelectField
           label="Выход"

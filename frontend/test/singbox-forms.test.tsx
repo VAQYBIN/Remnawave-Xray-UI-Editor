@@ -85,6 +85,15 @@ describe('форма выхода sing-box', () => {
     expect(ops).toEqual([{ op: 'set', path: ['outbounds', 0, 'type'], value: 'direct' }])
   })
 
+  it('устаревшие типы выхода не предлагаются заново', async () => {
+    const { writer } = makeWriter()
+    render(<SingboxOutboundForm value={{ type: 'direct', tag: 'd' }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
+    const labels = await optionLabels('Тип')
+    expect(labels).not.toContain('block')
+    expect(labels).not.toContain('dns')
+    expect(labels).not.toContain('wireguard')
+  })
+
   it('пустой тег уходит писателю как set с пустой строкой — отказ объясняет инспектор', async () => {
     const { ops, writer } = makeWriter()
     render(<SingboxOutboundForm value={{ type: 'direct', tag: 'd' }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
@@ -157,11 +166,30 @@ describe('форма правила sing-box', () => {
     expect(ops.at(-1)).toEqual({ op: 'remove', path: ['route', 'rules', 0, 'port'] })
   })
 
+  it('домен-скаляр читается как список из одного элемента, правка пишет список', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxRuleForm value={{ domain: 'example.com' }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
+    expect(screen.getByLabelText('Домен (точное совпадение)')).toHaveValue('example.com')
+    await userEvent.type(screen.getByLabelText('Домен (точное совпадение)'), '\nb.com')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['route', 'rules', 0, 'domain'], value: ['example.com', 'b.com'] })
+  })
+
   it('наборы правил — чипы из документа плюс битая ссылка', async () => {
     const { writer } = makeWriter()
     render(<SingboxRuleForm value={{ rule_set: ['gone'] }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
     expect(screen.getByText('gone')).toBeInTheDocument()
     expect(screen.getByText('ads')).toBeInTheDocument()
+  })
+
+  it('незнакомое действие остаётся выбранным, а не сбрасывает селект в пустоту', () => {
+    const { writer } = makeWriter()
+    render(<SingboxRuleForm value={{ action: 'future' }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
+    expect(selectedValue('Действие')).toBe('future')
+    // data-value отражает проп value всегда — сам факт, что «future» ЕСТЬ среди
+    // вариантов (а не просто передан селекту молча), виден только в подписи:
+    // без опции для текущего значения там осталось бы «Не выбрано» (как у
+    // inbound-form.test.tsx для того же случая с протоколом)
+    expect(screen.getByLabelText('Действие')).toHaveTextContent('future')
   })
 })
 
