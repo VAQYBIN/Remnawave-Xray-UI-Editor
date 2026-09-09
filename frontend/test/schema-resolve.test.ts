@@ -7,6 +7,7 @@ import {
   unknownKeys,
   valueAt,
   visibleFields,
+  walkSchema,
   type FieldSchema,
 } from '../src/shared/schema'
 
@@ -153,5 +154,13 @@ describe('неизвестное и устаревшее', () => {
     expect(deprecatedAt([both], { legacy2: 'a' })).toEqual([
       { key: 'legacy2', deprecation: { since: '1.0.0', replacement: 'ничего' } },
     ])
+  })
+})
+
+describe('обход по схеме', () => {
+  it('walkSchema обходит объекты и элементы списков по схеме, но не неизвестные ключи', () => {
+    const seen: string[] = []
+    walkSchema(ROOT, { ...DOC, mystery: { deep: {} } }, (path) => seen.push(path.join('.')))
+    expect(seen).toEqual(['', 'log', 'outbounds.0', 'outbounds.0.tls', 'outbounds.1'])
   })
 })

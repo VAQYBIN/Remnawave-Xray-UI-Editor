@@ -5,6 +5,7 @@
 // тогда неизвестному имени взяться неоткуда, и это либо опечатка, либо ссылка
 // на выход, который автор забыл добавить.
 
+import { deprecatedAt, isRecord, walkSchema } from '../../shared/schema'
 import type { PathParts, ValidationIssue } from '../xray/config'
 import {
   GROUP_OUTBOUND_TYPES,
@@ -15,6 +16,7 @@ import {
   panelFillsGroup,
 } from './outbounds'
 import { ruleSetTagsOf, ruleTarget, rulesOf } from './rules'
+import { OUTBOUND_TYPE_VALUES, SINGBOX_SCHEMA } from './schema'
 import type { SingboxDoc, SingboxOutbound } from './types'
 
 function issue(parts: PathParts, message: string, level: 'error' | 'warning'): ValidationIssue {
@@ -25,21 +27,20 @@ function issue(parts: PathParts, message: string, level: 'error' | 'warning'): V
 const NEUTRAL_TYPES = new Set(['direct', ...GROUP_OUTBOUND_TYPES])
 
 /**
- * Устаревшие выходы: ядро 1.13 (целевая версия проекта, см. Global Constraints
- * плана) их не знает вовсе — `block` и `dns` убрали из sing-box в пользу
- * действий правила. Предупреждение, а не ошибка: документ мог быть сохранён
- * более старой панелью и продолжает разбираться нашей схемой (она сквозная), а
- * само присутствие такого выхода не мешает сохранить документ — мешает оно
- * только `sing-box check` на актуальном бинаре, и об этом сказано словами, а не
- * молчаливым отказом сохранять.
- *
- * Значение — чем заменить. Карта экспортируется: тот же факт называет форма
- * выхода под селектом типа, и второй список рядом с этим разошёлся бы с первым
- * на первом же удалённом ядром типе.
+ * Типы, устаревшие по схеме (`block`, `dns`, `wireguard`): про них уже
+ * скажет предупреждение `deprecated` ниже, со своей причиной и заменой —
+ * вторая, более общая претензия «панель не добавит его в группы» здесь
+ * была бы шумом на том же пути документа.
  */
-export const REMOVED_OUTBOUND_TYPES: Record<string, string> = {
-  block: 'action: reject',
-  dns: 'action: hijack-dns',
+const DEPRECATED_OUTBOUND_TYPES = new Set(
+  OUTBOUND_TYPE_VALUES.filter((v) => v.deprecated !== undefined).map((v) => v.value),
+)
+
+/** Теги записей списка (серверы DNS и подобные): у каждой свой `tag`, порядок не важен */
+function tagsOfList(list: unknown): string[] {
+  return (Array.isArray(list) ? list : [])
+    .map((item) => (isRecord(item) ? item.tag : undefined))
+    .filter((tag): tag is string => typeof tag === 'string' && tag !== '')
 }
 
 function tagsOf(doc: SingboxDoc): Set<string> {
@@ -120,16 +121,7 @@ export function validateSingbox(doc: SingboxDoc): ValidationIssue[] {
       seen.add(tag)
     }
 
-    const replacement = REMOVED_OUTBOUND_TYPES[outbound.type]
-    if (replacement !== undefined) {
-      issues.push(
-        issue(
-          ['outbounds', index, 'type'],
-          `Выход типа ${outbound.type} ядро 1.13 не знает: вместо него ${replacement} в правиле`,
-          'warning',
-        ),
-      )
-    } else if (!NEUTRAL_TYPES.has(outbound.type) && !PROXY_OUTBOUND_TYPES.has(outbound.type)) {
+    if (!NEUTRAL_TYPES.has(outbound.type) && !PROXY_OUTBOUND_TYPES.has(outbound.type) && !DEPRECATED_OUTBOUND_TYPES.has(outbound.type)) {
       // Не «неизвестный тип» вообще — тип может быть валидным выходом ядра
       // (wireguard, tor, ssh, …), просто панель его не подставит в группы при
       // автозаполнении. Претензия ровно в этом, а не в том, что тип не существует
@@ -212,6 +204,47 @@ export function validateSingbox(doc: SingboxDoc): ValidationIssue[] {
       issue(['route', 'final'], `Выход по умолчанию «${final}» не описан${unknownHint}`, unknownLevel),
     )
   }
+
+  // Устаревшее — по схеме, где угодно в дереве. Предупреждение, а не ошибка:
+  // документ мог быть сохранён более старой панелью и разбирается нашей сквозной
+  // схемой; мешает такой ключ только `sing-box check` на актуальном бинаре
+  walkSchema(SINGBOX_SCHEMA, doc, (path, fields, value) => {
+    for (const d of deprecatedAt(fields, value)) {
+      const what = d.value === undefined ? `Ключ ${d.key}` : `Значение ${d.key}: ${d.value}`
+      issues.push(issue([...path, d.key], `${what} — Устарело с ${d.deprecation.since}: ${d.deprecation.replacement}`, 'warning'))
+    }
+  })
+
+  // Ссылки на DNS-серверы и наборы правил: и то и другое объявляет сам
+  // документ, панель сюда ничего не подставляет — неизвестный тег всегда опечатка
+  const dnsTags = new Set(tagsOfList(doc.dns?.servers))
+  const ruleSetTags = new Set(ruleSetTagsOf(doc))
+  const checkDns = (path: PathParts, tag: unknown) => {
+    if (typeof tag === 'string' && tag !== '' && !dnsTags.has(tag)) {
+      issues.push(issue(path, `DNS-сервер «${tag}» не описан в dns.servers`, 'error'))
+    }
+  }
+  checkDns(['dns', 'final'], doc.dns?.final)
+  ;(doc.dns?.rules ?? []).forEach((rule, i) => {
+    checkDns(['dns', 'rules', i, 'server'], rule.server)
+    const sets = Array.isArray(rule.rule_set) ? rule.rule_set : typeof rule.rule_set === 'string' ? [rule.rule_set] : []
+    for (const set of sets) {
+      if (typeof set === 'string' && !ruleSetTags.has(set)) {
+        issues.push(issue(['dns', 'rules', i, 'rule_set'], `Набор правил «${set}» не описан в route.rule_set`, 'error'))
+      }
+    }
+  })
+  rulesOf(doc).forEach((rule, i) => {
+    if (rule.action === 'resolve') checkDns(['route', 'rules', i, 'server'], rule.server)
+  })
+  const resolver = doc.route?.default_domain_resolver
+  if (isRecord(resolver)) checkDns(['route', 'default_domain_resolver', 'server'], resolver.server)
+  else if (typeof resolver === 'string') checkDns(['route', 'default_domain_resolver'], resolver)
+  outbounds.forEach((o, i) => {
+    const r = o.domain_resolver
+    if (isRecord(r)) checkDns(['outbounds', i, 'domain_resolver', 'server'], r.server)
+    else if (typeof r === 'string') checkDns(['outbounds', i, 'domain_resolver'], r)
+  })
 
   return issues
 }

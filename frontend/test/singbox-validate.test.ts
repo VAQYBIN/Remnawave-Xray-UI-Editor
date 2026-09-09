@@ -86,3 +86,33 @@ describe('диагностики sing-box', () => {
     expect(legacy.length).toBeGreaterThan(0)
   })
 })
+
+describe('устаревшее и ссылки DNS', () => {
+  it('удалённый тип выхода — предупреждение с заменой из схемы', () => {
+    const issues = validateSingbox(doc('{"outbounds":[{"type":"block","tag":"b"}]}'))
+    const hit = issues.find((i) => i.parts.join('.') === 'outbounds.0.type')
+    expect(hit?.level).toBe('warning')
+    expect(hit?.message).toMatch(/1\.13\.0/)
+    expect(hit?.message).toMatch(/reject/)
+  })
+
+  it('устаревший ключ где угодно в дереве — предупреждение по его пути', () => {
+    const d = doc('{"inbounds":[{"type":"tun","tag":"t","inet4_address":["10.0.0.1/30"]}],"dns":{"servers":[{"address":"tls://1.1.1.1","tag":"old"}]}}')
+    const paths = validateSingbox(d).filter((i) => /Устарело/.test(i.message)).map((i) => i.parts.join('.'))
+    expect(paths).toEqual(expect.arrayContaining(['inbounds.0.inet4_address', 'dns.servers.0.address']))
+  })
+
+  it('ссылки на DNS-серверы и наборы проверяются', () => {
+    const d = doc(`{
+      "dns": {"servers":[{"type":"local","tag":"ok"}], "rules":[{"server":"nope","rule_set":["ghost"]}], "final":"gone"},
+      "route": {"rules":[{"action":"resolve","server":"nope2"}], "default_domain_resolver": {"server":"nope3"}},
+      "outbounds": [{"type":"direct","tag":"d","domain_resolver":{"server":"nope4"}}]
+    }`)
+    const paths = validateSingbox(d).map((i) => i.parts.join('.'))
+    expect(paths).toEqual(expect.arrayContaining([
+      'dns.final', 'dns.rules.0.server', 'dns.rules.0.rule_set', 'route.rules.0.server',
+      'route.default_domain_resolver.server', 'outbounds.0.domain_resolver.server',
+    ]))
+    expect(validateSingbox(doc('{"dns":{"servers":[{"type":"local","tag":"ok"}],"final":"ok"}}')).filter((i) => i.parts[0] === 'dns')).toEqual([])
+  })
+})

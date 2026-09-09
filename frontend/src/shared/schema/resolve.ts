@@ -127,3 +127,29 @@ export function deprecatedAt(fields: FieldSchema[], value: unknown): DeprecatedE
   }
   return found
 }
+
+/**
+ * Обход документа по схеме: каждый объект, у которого есть описание, — вызов
+ * `visit` с его путём, полями (с учётом условий) и значением. Неизвестные
+ * ключи не спускаются: схема их не описывает, и сказать о них нечего.
+ */
+export function walkSchema(
+  root: FieldSchema[],
+  doc: unknown,
+  visit: (path: SchemaPath, fields: FieldSchema[], value: Record<string, unknown>) => void,
+): void {
+  const step = (fields: FieldSchema[], value: unknown, path: SchemaPath): void => {
+    if (!isRecord(value)) return
+    const visible = visibleFields(fields, value)
+    visit(path, visible, value)
+    for (const field of visible) {
+      const child = value[field.key]
+      if (child === undefined) continue
+      if (field.kind === 'object') step(field.fields ?? [], child, [...path, field.key])
+      if (field.kind === 'list' && field.item?.kind === 'object' && Array.isArray(child)) {
+        child.forEach((item, i) => step(field.item!.fields ?? [], item, [...path, field.key, i]))
+      }
+    }
+  }
+  step(root, doc, [])
+}
