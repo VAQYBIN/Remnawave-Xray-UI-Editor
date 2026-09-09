@@ -12,6 +12,12 @@ import { GROUP_OUTBOUND_TYPES, outboundsOf } from '../../singbox/outbounds'
 import { rulesOf } from '../../singbox/rules'
 import type { SingboxDoc } from '../../singbox/types'
 
+/**
+ * Корневые секции без узлов на холсте: у них нет колонки графа, но диагностика
+ * по ним не молчит — она открывает панель «Документ» (см. SingboxDocPanel).
+ */
+const DOC_HEADS = new Set(['log', 'dns', 'ntp', 'certificate', 'experimental'])
+
 export function singboxNodeIdForPath(parts: PathParts, doc: SingboxDoc): string | null {
   const [head, second, third, fourth] = parts
 
@@ -44,8 +50,11 @@ export function singboxNodeIdForPath(parts: PathParts, doc: SingboxDoc): string 
     return rulesOf(doc)[third] === undefined ? null : `rule:${third}`
   }
 
-  // rule_set — свойство правила, а не колонка графа (наборов в живом шаблоне до
-  // девяти, колонка из них была бы шумом). dns на холст не идёт вовсе.
+  // Секции без узлов на холсте живут в панели «Документ»: клик по диагностике
+  // открывает её, а не молчит. Правила маршрута обработаны выше — они на холсте
+  if (typeof head === 'string' && DOC_HEADS.has(head)) return 'doc:settings'
+  if (head === 'route' && second !== 'rules') return 'doc:settings'
+
   return null
 }
 

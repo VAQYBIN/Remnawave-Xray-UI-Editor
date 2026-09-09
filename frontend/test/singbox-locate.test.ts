@@ -47,11 +47,24 @@ describe('путь диагностики sing-box ведёт к узлу', () =
     expect(singboxNodeIdForPath(['route', 'rules'], SAMPLE)).toBeNull()
   })
 
-  it('набор правил и dns узлами не рисуются', () => {
+  it('набор правил и dns узлами графа не рисуются, но ведут в панель «Документ»', () => {
     // rule_set — свойство правила, а не колонка графа; dns — независимый от
-    // маршрута механизм и на холст не идёт вовсе (см. спеку)
-    expect(singboxNodeIdForPath(['route', 'rule_set', 0], SAMPLE)).toBeNull()
-    expect(singboxNodeIdForPath(['dns', 'servers', 0], SAMPLE)).toBeNull()
+    // маршрута механизм и на холст не идёт вовсе (см. спеку). Узла на холсте у
+    // них нет, но диагностика не молчит — она открывает панель «Документ»
+    expect(singboxNodeIdForPath(['route', 'rule_set', 0], SAMPLE)).toBe('doc:settings')
+    expect(singboxNodeIdForPath(['dns', 'servers', 0], SAMPLE)).toBe('doc:settings')
+  })
+
+  it('пути панели «Документ» ведут в doc:settings, правила маршрута — на холст', () => {
+    const d = doc('{"route":{"rules":[{"outbound":"d"}]},"outbounds":[{"type":"direct","tag":"d"}]}')
+    expect(singboxNodeIdForPath(['dns', 'servers', 0, 'tag'], d)).toBe('doc:settings')
+    expect(singboxNodeIdForPath(['dns', 'final'], d)).toBe('doc:settings')
+    expect(singboxNodeIdForPath(['route', 'rule_set', 0], d)).toBe('doc:settings')
+    expect(singboxNodeIdForPath(['route', 'final'], d)).toBe('doc:settings')
+    expect(singboxNodeIdForPath(['experimental', 'cache_file'], d)).toBe('doc:settings')
+    expect(singboxNodeIdForPath(['log'], d)).toBe('doc:settings')
+    expect(singboxNodeIdForPath(['route', 'rules', 0], d)).toBe('rule:0')
+    expect(singboxNodeIdForPath(['outbounds'], d)).toBeNull()
   })
 
   it('счётчики раскладываются по узлам и не смешивают уровни', () => {

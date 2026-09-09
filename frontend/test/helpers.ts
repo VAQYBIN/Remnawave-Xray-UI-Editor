@@ -41,6 +41,16 @@ export async function optionLabels(target: string | HTMLElement): Promise<string
   return labels
 }
 
+/**
+ * Тот же selectOption, но ищет триггер внутри контейнера — раздел панели
+ * «Документ» адресуется по `role="region"`, и без сужения поиска клик мог бы
+ * попасть в одноимённое поле соседнего раздела.
+ */
+export async function selectOptionIn(container: HTMLElement, target: string, valueOrLabel: string) {
+  const trigger = within(container).getByLabelText(target)
+  await selectOption(trigger, valueOrLabel)
+}
+
 /** Текущее значение кастомного Select (у кнопки-триггера нет value) */
 export function selectedValue(target: string | HTMLElement): string | null {
   const trigger = typeof target === 'string' ? screen.getByLabelText(target) : target

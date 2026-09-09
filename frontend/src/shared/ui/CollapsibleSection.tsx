@@ -3,10 +3,13 @@ import { useState, type ReactNode } from 'react'
 export function CollapsibleSection({
   title,
   defaultOpen = false,
+  region = false,
   children,
 }: {
   title: string
   defaultOpen?: boolean
+  /** Обернуть содержимое в role="region": панель «Документ» адресует раздел тестам по имени */
+  region?: boolean
   children: ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -19,7 +22,15 @@ export function CollapsibleSection({
         </span>
         {title}
       </button>
-      {open ? <div className="collapsible-body">{children}</div> : null}
+      {open ? (
+        region ? (
+          <div className="collapsible-body" role="region" aria-label={title}>
+            {children}
+          </div>
+        ) : (
+          <div className="collapsible-body">{children}</div>
+        )
+      ) : null}
     </div>
   )
 }
