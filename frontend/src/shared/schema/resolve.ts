@@ -71,6 +71,14 @@ export function fieldsAt(root: FieldSchema[], path: SchemaPath, doc: unknown): F
       i += 1
       continue
     }
+    if (field.kind === 'map' && field.fields !== undefined) {
+      const name = path[i + 1]
+      if (typeof name !== 'string') return undefined
+      fields = field.fields
+      holder = isRecord(next) ? next[name] : undefined
+      i += 1
+      continue
+    }
     return undefined
   }
   // Пустой путь — сам корень, ссылкой как есть (ничьё условие ни от чего не
@@ -81,16 +89,20 @@ export function fieldsAt(root: FieldSchema[], path: SchemaPath, doc: unknown): F
 }
 
 /**
- * Поле, описывающее значение по пути. Для индекса списка — поле самого списка:
- * у элемента отдельного описания нет, оно в `item`.
+ * Поле, описывающее значение по пути. Для индекса списка либо имени записи
+ * отображения — поле самого контейнера: у элемента отдельного описания нет,
+ * оно в `item` (список) либо в `fields` самого поля `map` (отображение).
  */
 export function fieldAt(root: FieldSchema[], path: SchemaPath, doc: unknown): FieldSchema | undefined {
-  let end = path.length
-  while (end > 0 && typeof path[end - 1] === 'number') end -= 1
-  if (end === 0) return undefined
-  const parent = fieldsAt(root, path.slice(0, end - 1), doc)
-  const key = path[end - 1]
-  return parent?.find((f) => f.key === key)
+  if (path.length === 0) return undefined
+  const last = path[path.length - 1]
+  const parentPath = path.slice(0, -1)
+  if (typeof last === 'string') {
+    const hit = fieldsAt(root, parentPath, doc)?.find((f) => f.key === last)
+    if (hit !== undefined) return hit
+  }
+  // Индекс списка либо имя записи отображения: описание у самого поля-контейнера
+  return parentPath.length === 0 ? undefined : fieldAt(root, parentPath, doc)
 }
 
 /** Ключи документа, которых нет среди полей (видимых или скрытых условием) */
@@ -148,6 +160,9 @@ export function walkSchema(
       if (field.kind === 'object') step(field.fields ?? [], child, [...path, field.key])
       if (field.kind === 'list' && field.item?.kind === 'object' && Array.isArray(child)) {
         child.forEach((item, i) => step(field.item!.fields ?? [], item, [...path, field.key, i]))
+      }
+      if (field.kind === 'map' && field.fields !== undefined && isRecord(child)) {
+        for (const [name, entry] of Object.entries(child)) step(field.fields, entry, [...path, field.key, name])
       }
     }
   }
