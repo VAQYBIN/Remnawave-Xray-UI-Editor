@@ -28,6 +28,7 @@ import {
   nextGroupName,
   nextRulePlacement,
 } from '../src/features/topology/MihomoTopology'
+import { refusalText } from '../src/entities/graph/mihomo/mutations'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
 import { buildMihomoGraph, layoutMihomo } from '../src/entities/graph/mihomo/buildGraph'
 import { parseMihomo } from '../src/entities/mihomo'
@@ -272,9 +273,11 @@ describe('граф Mihomo', () => {
   it('причина отказа коммутации показывается диалогом и закрывается', async () => {
     // `flow-list` больше не существует (задача 9: операции поверх модели
     // принимают список в одну строку без отказа) — той же проверке годится
-    // любой сохранившийся отказ, здесь взят `alias-list`.
+    // любой сохранившийся отказ, здесь взят `alias-list`. `refusal` с задачи 10
+    // — уже переведённый текст (`string | null`), а не код причины: черновик
+    // сам зовёт `refusalText`, и мок обязан отдавать то же самое, что отдаст он.
     const dismissRefusal = vi.fn()
-    renderTopology({ refusal: 'alias-list', dismissRefusal })
+    renderTopology({ refusal: refusalText('alias-list'), dismissRefusal })
     expect(screen.getByText(/якор/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Понятно' }))
     expect(dismissRefusal).toHaveBeenCalledOnce()

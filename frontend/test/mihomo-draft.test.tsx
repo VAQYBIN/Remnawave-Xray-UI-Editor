@@ -4,7 +4,9 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMihomoDraft } from '../src/features/editor/useMihomoDraft'
 import { mihomoAdapter } from '../src/features/editor/mihomoAdapter'
-import { parseMihomo } from '../src/entities/mihomo'
+import { LOCK_ALIAS, parseMihomo } from '../src/entities/mihomo'
+import { groupsOf } from '../src/entities/mihomo/groups'
+import { refusalText } from '../src/entities/graph/mihomo/mutations'
 import { useDraftStore } from '../src/features/editor/draftStore'
 import { useHistoryStore } from '../src/features/editor/historyStore'
 
@@ -31,7 +33,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
 }
 
-function draft(text = DOC) {
+function renderDraft(text = DOC) {
   return renderHook(
     () => useMihomoDraft({ docKey: 'tpl-1', panelText: text, baseVersion: 'h1' }),
     { wrapper },
@@ -45,8 +47,10 @@ describe('адаптер Mihomo', () => {
     expect(res.model).toBeDefined()
   })
 
-  it('пустой документ модели не даёт', () => {
-    expect(mihomoAdapter.parse('').model).toBeUndefined()
+  it('пустой документ — законная модель: сценарий «с нуля» открывает холст, а не гаснет', () => {
+    // Контракт задачи 10: пустой документ — не «нечего разбирать», а
+    // отправная точка, на которой холст показывает «+ Добавить»
+    expect(mihomoAdapter.parse('').model).toBeDefined()
   })
 })
 
@@ -57,7 +61,7 @@ describe('черновик Mihomo', () => {
   })
 
   it('правка поля идёт сплайсом: байты вне правки те же', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setField(['proxy-groups', 0], 'type', 'fallback'))
     expect(result.current.text).toContain('type: fallback')
     expect(result.current.text).toContain('  - MATCH,A')
@@ -65,7 +69,7 @@ describe('черновик Mihomo', () => {
   })
 
   it('переименование группы ведёт выбор за ней', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setSelectedNode('group:A'))
     act(() => result.current.renameGroupTo(0, 'Б'))
     expect(result.current.selectedNode).toBe('group:Б')
@@ -77,23 +81,25 @@ describe('черновик Mihomo', () => {
     // но лежит она у объявления якоря — коммутация обязана отказать раньше,
     // чем дойдёт до писателя, и текст держится без изменений.
     const text = 'x-anchors:\n  base: &base\n    - DIRECT\nproxy-groups:\n  - name: A\n    proxies: *base\n'
-    const { result } = draft(text)
+    const { result } = renderDraft(text)
     act(() => result.current.connect('group:A', 'builtin:REJECT'))
-    expect(result.current.refusal).toBe('alias-list')
+    // `refusal` — уже переведённый текст, не код причины: writer и кабель
+    // делят один и тот же вид отказа наружу
+    expect(result.current.refusal).toBe(refusalText('alias-list'))
     expect(result.current.text).toBe(text)
     act(() => result.current.dismissRefusal())
     expect(result.current.refusal).toBeNull()
   })
 
   it('успешная коммутация правит документ и причины не оставляет', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.connect('group:A', 'builtin:REJECT'))
     expect(result.current.text).toContain('- REJECT')
     expect(result.current.refusal).toBeNull()
   })
 
   it('удаление правила снимает выбор: id правил позиционные', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setSelectedNode('rule:0'))
     act(() => result.current.removeSelected())
     expect(result.current.selectedNode).toBeNull()
@@ -101,14 +107,14 @@ describe('черновик Mihomo', () => {
   })
 
   it('перестановка правила ведёт выбор за ним', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setSelectedNode('rule:0'))
     act(() => result.current.moveSelected(1))
     expect(result.current.selectedNode).toBe('rule:1')
   })
 
   it('правки складываются в историю по одной', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setField(['proxy-groups', 0], 'type', 'fallback'))
     act(() => result.current.setField(['proxy-groups', 0], 'type', 'relay'))
     act(() => result.current.doUndo())
@@ -137,7 +143,7 @@ describe('черновик Mihomo', () => {
       '    remnawave: *rw',
       '',
     ].join('\n')
-    const { result } = draft(text)
+    const { result } = renderDraft(text)
     expect(result.current.originOf(['proxy-groups', 0], 'name')).toBe('own')
     expect(result.current.originOf(['proxy-groups', 0], 'type')).toBe('merged')
     expect(result.current.originOf(['proxy-groups', 0], 'remnawave.include-proxies')).toBe('alias')
@@ -149,7 +155,7 @@ describe('черновик Mihomo', () => {
   })
 
   it('замена списка идёт через setListAt и не трогает соседние секции', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setListAt(['proxy-groups', 0], 'proxies', ['DIRECT', 'REJECT']))
     const md = parseMihomo(result.current.text)
     expect(md.doc.errors).toEqual([])
@@ -158,7 +164,7 @@ describe('черновик Mihomo', () => {
   })
 
   it('замена строки правила переписывает только её', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.replaceRule(0, 'DOMAIN-SUFFIX,b.com,A'))
     expect(result.current.text).toContain('DOMAIN-SUFFIX,b.com,A')
     expect(result.current.text).not.toContain('DOMAIN,a.com,A')
@@ -166,8 +172,8 @@ describe('черновик Mihomo', () => {
   })
 
   it('разрыв связи убирает участника и причины не оставляет', () => {
-    const { result } = draft()
-    act(() => result.current.disconnect('e:group:A->builtin:DIRECT'))
+    const { result } = renderDraft()
+    act(() => result.current.disconnect(['e:group:A->builtin:DIRECT']))
     expect(result.current.text).not.toContain('- DIRECT')
     expect(result.current.text).toContain('  - MATCH,A')
     expect(result.current.refusal).toBeNull()
@@ -176,12 +182,12 @@ describe('черновик Mihomo', () => {
   it('отказ разрыва поднимает причину и документ не трогает', () => {
     // У правила цель обязательна — разрывать нечего; фикстура та же, что и у
     // успешного разрыва выше, так что различает ветви именно ребро, а не документ
-    const { result } = draft()
-    act(() => result.current.disconnect('e:rule:0->group:A'))
+    const { result } = renderDraft()
+    act(() => result.current.disconnect(['e:rule:0->group:A']))
     // Причина называет настоящее основание: связь у правила можно только
     // сменить, а не убрать. Прежний `invalid-pair` объяснял отказ узлом
     // подстановки, которого в этом ребре нет.
-    expect(result.current.refusal).toBe('rule-target-required')
+    expect(result.current.refusal).toBe(refusalText('rule-target-required'))
     expect(result.current.text).toBe(DOC)
   })
 
@@ -200,13 +206,61 @@ describe('черновик Mihomo', () => {
       '  - MATCH,B',
       '',
     ].join('\n')
-    const { result } = draft(text)
+    const { result } = renderDraft(text)
     act(() => result.current.setSelectedNode('group:A'))
     act(() => result.current.removeSelected())
     expect(result.current.selectedNode).toBeNull()
     expect(result.current.text).not.toContain('name: A')
     expect(result.current.text).toContain('name: B')
     expect(parseMihomo(result.current.text).doc.errors).toEqual([])
+  })
+})
+
+describe('черновик Mihomo — писатель (DocWriter)', () => {
+  beforeEach(() => {
+    useDraftStore.setState({ drafts: {} })
+    useHistoryStore.setState({ stacks: {} })
+  })
+
+  it('applyOps пишет через писатель одним снимком истории; отказ показывается текстом', async () => {
+    // Анкор обязан идти РАНЬШЕ ссылки на него в тексте документа: `yaml` не
+    // резолвит обратные ссылки ни при разборе значений, ни при перепечатке
+    // (`Unresolved alias: the anchor must be set before the alias`) — это
+    // общее правило библиотеки, а не свойство этой конкретной правки.
+    const { result } = renderDraft('x:\n  l: &l [DIRECT]\nproxy-groups:\n  - name: A\n    type: select\n    proxies: *l\n')
+    act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'hidden'], value: true }]))
+    expect(result.current.text).toContain('hidden: true')
+    act(() => result.current.applyOps([{ op: 'insert', path: ['proxy-groups', 0, 'proxies'], index: 0, value: 'REJECT' }]))
+    expect(result.current.refusal).toBe(LOCK_ALIAS)
+    act(() => result.current.doUndo())
+    expect(result.current.text).not.toContain('hidden: true')
+  })
+
+  it('lockAt отдаёт замок с действием «Развернуть значение здесь», materialize снимает его', () => {
+    const { result } = renderDraft('x:\n  l: &l [DIRECT]\nproxy-groups:\n  - name: A\n    type: select\n    proxies: *l\n')
+    const lock = result.current.lockAt(['proxy-groups', 0, 'proxies'])
+    expect(lock?.action?.label).toBe('Развернуть значение здесь')
+    act(() => lock!.action!.run())
+    expect(result.current.lockAt(['proxy-groups', 0, 'proxies'])).toBeNull()
+    expect(result.current.text).toContain('&l')
+  })
+
+  it('rename ведёт ссылки и переносит выбор за узлом', () => {
+    const { result } = renderDraft('proxy-groups:\n  - name: A\n    type: select\nrules:\n  - MATCH,A\n')
+    act(() => result.current.setSelectedNode('group:A'))
+    let refusal: string | null = null
+    act(() => { refusal = result.current.rename('group', 'A', 'B') })
+    expect(refusal).toBeNull()
+    expect(result.current.text).toContain('MATCH,B')
+    expect(result.current.selectedNode).toBe('group:B')
+    act(() => { refusal = result.current.rename('group', 'B', 'DIRECT') })
+    expect(refusal).toMatch(/занято/)
+  })
+
+  it('disconnect разрывает несколько рёбер одной пачкой', () => {
+    const { result } = renderDraft('proxy-groups:\n  - name: A\n    type: select\n    proxies: [DIRECT, REJECT]\n')
+    act(() => result.current.disconnect(['e:group:A->builtin:DIRECT', 'e:group:A->builtin:REJECT']))
+    expect(groupsOf(result.current.md!)[0]!.proxies).toEqual([])
   })
 })
 
@@ -221,7 +275,7 @@ describe('трассировка в черновике Mihomo', () => {
   const target = (address: string) => ({ address, port: 443, network: 'tcp' as const })
 
   it('разбор появляется только после паузы и считается по цели', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     expect(result.current.trace).toBeUndefined()
     act(() => result.current.setTraceTarget(target('a.com')))
     // Ввод ещё не затих: дергать бэкенд и пересчитывать вердикты рано
@@ -231,7 +285,7 @@ describe('трассировка в черновике Mihomo', () => {
   })
 
   it('другая цель даёт другого победителя, а не тот же самый', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setTraceTarget(target('b.com')))
     act(() => vi.advanceTimersByTime(600))
     // DOMAIN,a.com не подходит — ловит MATCH вторым правилом
@@ -239,7 +293,7 @@ describe('трассировка в черновике Mihomo', () => {
   })
 
   it('снятая цель убирает разбор сразу, без ожидания паузы', () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setTraceTarget(target('a.com')))
     act(() => vi.advanceTimersByTime(600))
     expect(result.current.trace).toBeDefined()
@@ -286,7 +340,7 @@ describe('трассировка спрашивает geo-базу по ключ
   const target = { address: 'a.com', port: 443, network: 'tcp' as const }
 
   it('ключи правил уходят в запрос, а ответ доходит до вердикта', async () => {
-    const { result } = draft(GEO_DOC)
+    const { result } = renderDraft(GEO_DOC)
     act(() => result.current.setTraceTarget(target))
     // Пауза ввода настоящая: подменять таймеры посреди react-query дороже
     await waitFor(() => expect(geoBodies).toHaveLength(1), { timeout: 3000 })
@@ -298,7 +352,7 @@ describe('трассировка спрашивает geo-базу по ключ
   })
 
   it('без geo-правил базу не спрашивают вовсе', async () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace).toBeDefined(), { timeout: 3000 })
     expect(geoBodies).toEqual([])
@@ -371,7 +425,7 @@ describe('трассировка спрашивает наборы правил'
   const target = { address: 'a.com', port: 443, network: 'tcp' as const }
 
   it('на бэкенд уходят только http-наборы, файл и незнакомый вид — нет', async () => {
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(setBodies).toHaveLength(1), { timeout: 3000 })
     expect(setBodies[0]).toEqual({
@@ -394,14 +448,14 @@ describe('трассировка спрашивает наборы правил'
     // на цели 10.1.2.3 совпадает, а набор подсетей отвечает «в цели нет IP
     // назначения», потому что поле не попало в запрос. Вывод цели обязан
     // произойти ДО запроса, а не только внутри трассировки
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget({ ...target, address: '10.1.2.3' }))
     await waitFor(() => expect(setBodies).toHaveLength(1), { timeout: 3000 })
     expect(setBodies[0]!.target).toEqual({ address: '10.1.2.3', ip: '10.1.2.3' })
   })
 
   it('набор из файла клиента останавливает проход и называет причину без сети', async () => {
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'RULE-SET,local,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'RULE-SET,local,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace?.stopped?.index).toBe(1), { timeout: 3000 })
     expect(result.current.trace?.stopped?.reason).toMatch(/«local»/)
@@ -409,7 +463,7 @@ describe('трассировка спрашивает наборы правил'
   })
 
   it('набор незнакомого вида останавливает проход своей причиной, а не общей', async () => {
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'RULE-SET,weird,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'RULE-SET,weird,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace?.stopped?.index).toBe(1), { timeout: 3000 })
     expect(result.current.trace?.stopped?.reason).toMatch(/«weird»/)
@@ -419,21 +473,21 @@ describe('трассировка спрашивает наборы правил'
   it('пока ответ едет, причина остановки — «ещё загружается», а не промах', async () => {
     // Ответ не приедет никогда: важна ровно та секунда, пока запрос в пути
     answer = new Promise<Response>(() => {})
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace?.stopped?.index).toBe(0), { timeout: 3000 })
     expect(result.current.trace?.stopped?.reason).toMatch(/загружа/)
   })
 
   it('приехавший ответ доводит проход до конца', async () => {
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace?.winner?.ruleIndex).toBe(1), { timeout: 3000 })
     expect(result.current.trace?.stopped).toBeUndefined()
   })
 
   it('без наборов в документе ручку не дёргают вовсе', async () => {
-    const { result } = draft()
+    const { result } = renderDraft()
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace).toBeDefined(), { timeout: 3000 })
     expect(setBodies).toEqual([])
@@ -441,7 +495,7 @@ describe('трассировка спрашивает наборы правил'
 
   it('успешный ответ сервера не перекрывается локальным отказом: state остаётся "yes"', async () => {
     answer = respond({ net: { state: 'yes', count: 3 } })
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace?.winner?.ruleIndex).toBe(0), { timeout: 3000 })
     expect(result.current.trace?.winner?.target).toBe('A')
@@ -457,7 +511,7 @@ describe('трассировка спрашивает наборы правил'
     // остаться победителем; переставленный порядок вернул бы «запрос не удался»
     // поверх всё ещё годного кэша.
     answer = respond({ net: { state: 'yes', count: 3 } })
-    const { result } = draft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
+    const { result } = renderDraft(SET_DOC('RULE-SET,net,A', 'MATCH,A'))
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.trace?.verdicts[0]?.state).toBe('yes'), { timeout: 3000 })
 
@@ -540,7 +594,7 @@ describe('наборы правил: отказы и диагностики', ()
     // Без этого отказ на границе роута обнулял ответы по ВСЕМУ документу, и
     // каждое правило получало общее «содержимое редактору неизвестно»
     matchResponse = () => json({ message: 'Тело великовато' }, 500)
-    const { result } = draft(DOC)
+    const { result } = renderDraft(DOC)
     act(() => result.current.setTraceTarget(target))
     await waitFor(
       () => expect(result.current.trace?.stopped?.reason).toMatch(/запрос к серверу не удался/),
@@ -550,7 +604,7 @@ describe('наборы правил: отказы и диагностики', ()
   })
 
   it('недоступный набор и набор из файла клиента становятся предупреждениями', async () => {
-    const { result } = draft(DOC)
+    const { result } = renderDraft(DOC)
     act(() => result.current.setTraceTarget(target))
     await waitFor(() => expect(result.current.issues.some((i) => i.path.includes('ads'))).toBe(true), {
       timeout: 3000,
@@ -566,7 +620,7 @@ describe('наборы правил: отказы и диагностики', ()
   })
 
   it('без цели трассировки сетевых предупреждений нет: мы ещё не спрашивали', async () => {
-    const { result } = draft(DOC)
+    const { result } = renderDraft(DOC)
     await waitFor(() => expect(result.current.md).toBeDefined())
     // Утверждать, что набор недоступен, не спросив о нём, было бы выдумкой
     expect(result.current.issues.some((i) => i.path.includes('ads'))).toBe(false)
@@ -587,7 +641,7 @@ describe('наборы правил: отказы и диагностики', ()
     ].join('\n')
     matchResponse = () =>
       json({ answers: { region: { state: 'lines', lines: ['GEOSITE,cn'], count: 1 } } })
-    const { result } = draft(doc)
+    const { result } = renderDraft(doc)
     act(() => result.current.setTraceTarget(target))
     await waitFor(
       () => {

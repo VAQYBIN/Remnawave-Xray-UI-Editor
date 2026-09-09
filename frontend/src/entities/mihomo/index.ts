@@ -14,6 +14,9 @@ export * from './edits'
 export * from './docSchema'
 export * from './locate'
 export * from './search'
+export * from './write'
+export * from './refs'
+export * from './starters'
 
 export {
   groupGetsHosts,

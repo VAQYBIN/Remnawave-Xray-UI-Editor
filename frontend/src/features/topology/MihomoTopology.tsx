@@ -5,7 +5,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { Connection, Edge } from '@xyflow/react'
 import { buildMihomoGraph, layoutMihomo } from '../../entities/graph/mihomo/buildGraph'
-import { isValidMihomoConnection, refusalText } from '../../entities/graph/mihomo/mutations'
+import { isValidMihomoConnection } from '../../entities/graph/mihomo/mutations'
 import type { FlowNode } from '../../entities/graph/types'
 import { groupsOf, rulesOf, type MihomoDoc } from '../../entities/mihomo'
 import type { MihomoTraceResult } from '../../entities/mihomo/trace'
@@ -227,7 +227,7 @@ export function MihomoTopology({
         setMultiCut(true)
         return
       }
-      draft.disconnect(deleted[0]!.id)
+      draft.disconnect([deleted[0]!.id])
     },
     [draft],
   )
@@ -282,7 +282,7 @@ export function MihomoTopology({
         title="Так соединить нельзя"
         onClose={draft.dismissRefusal}
       >
-        <p>{draft.refusal ? refusalText(draft.refusal) : ''}</p>
+        <p>{draft.refusal ?? ''}</p>
         <div className="row">
           <span className="spacer" />
           <Button variant="ghost" onClick={draft.dismissRefusal}>
