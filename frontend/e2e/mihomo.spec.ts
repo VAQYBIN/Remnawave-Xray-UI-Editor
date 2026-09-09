@@ -4,12 +4,15 @@
 
 import { expect, test } from '@playwright/test'
 import { CATALOG_MIHOMO_YAML, MIHOMO_UUID, MIHOMO_YAML, mockApi, mockMihomo } from './mocks'
+import { pickOption } from './helpers'
 
 /** Строк в документе панели: столько же строк рисует CodeMirror на вкладке YAML */
 const BASE_LINES = MIHOMO_YAML.split('\n').length
 
 /** Имя записи каталога, на длине которого ломалась раскладка диалога импорта */
 const LONG_CATALOG_NAME = 'Mihomo YAML (RU bundle, category: ads, all)'
+
+const node = (id: string) => `.react-flow__node[data-id="${id}"]`
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page)
@@ -29,9 +32,9 @@ test('шаблон Mihomo открывается в редакторе, а не 
   await expect(page.getByRole('button', { name: 'JSON', exact: true })).toHaveCount(0)
 })
 
-test('правка группы правит документ точечно и не трогает маркер', async ({ page }) => {
-  await page.locator('.react-flow__node[data-id="group:Основная"]').click()
-  const inspector = page.locator('aside')
+test('правка формы: новый ключ перепечатывает документ без потерь, существующий — точечно', async ({ page }) => {
+  await page.locator(node('group:Основная')).click()
+  const inspector = page.locator('aside.wb-inspector')
   await inspector.getByRole('button', { name: /Ещё поля/ }).click()
   // exact: true — иначе подстрока задевает соседнее поле exclude-filter
   await inspector.getByLabel('filter', { exact: true }).fill('RU')
@@ -39,16 +42,43 @@ test('правка группы правит документ точечно и 
 
   await page.getByRole('button', { name: 'YAML', exact: true }).click()
   const lines = page.locator('.cm-line')
-  // Главное свойство архитектуры, проверенное через настоящий интерфейс: правка
-  // формы — сплайс, а не перепечатка. Строк стало ровно на одну больше (новый
-  // ключ), и стоит она вплотную к своей секции, а маркер подстановки остался
-  // последней строкой списка proxies — иначе панель перестанет подставлять
-  // серверы, а редактор при этом останется зелёным.
-  await expect(lines).toHaveCount(BASE_LINES + 1)
-  await expect(lines.nth(6)).toHaveText('filter: RU')
-  await expect(lines.nth(7)).toHaveText('proxies:')
-  await expect(lines.nth(8)).toHaveText('- Резерв')
-  await expect(lines.nth(9)).toHaveText('# LEAVE THIS LINE!')
+  // `filter` — НОВЫЙ ключ группы: режим модели, документ перепечатан целиком
+  // (Document.toString({ lineWidth: 0 })), число строк и их позиции не
+  // гарантированы (пустые строки между секциями сохраняются библиотекой yaml).
+  // Инвариант, который обязан пережить круг, — сам ключ и маркер подстановки:
+  // без него панель перестанет подставлять серверы, а редактор остался бы зелёным.
+  // Ждём строку явно (`toHaveCount` ретраит) — `allTextContents()` сам не
+  // повторяет попытку и мог бы прочитать вкладку раньше, чем она домонтировалась
+  await expect(lines.filter({ hasText: 'filter: RU' })).toHaveCount(1)
+  // Инвариант проверяем по СОДЕРЖИМОМУ, не по точному отступу: режим модели
+  // волен переставить вложенность строки — важно, что ключ и маркер выжили
+  const beforeScalarEdit = await lines.allTextContents()
+  expect(beforeScalarEdit.map((l) => l.trim())).toContain('filter: RU')
+  expect(beforeScalarEdit.map((l) => l.trim())).toContain('# LEAVE THIS LINE!')
+
+  // Второй шаг — правка СУЩЕСТВУЮЩЕГО скаляра (log-level: info в корне документа,
+  // объявлен изначально в фикстуре) идёт через панель «Документ», а не через
+  // узел группы: это тот же писатель, но другой путь по дереву. Правка обязана
+  // остаться сплайсом — байты вне неё не меняются, то есть меняется РОВНО одна
+  // строка (байт в байт, без trim), а не перепечатывается весь документ заново
+  await page.getByRole('button', { name: 'Топология' }).click()
+  await page.getByRole('button', { name: 'Документ' }).click()
+  await inspector.getByRole('button', { name: 'Общие' }).click()
+  await pickOption(page, inspector.getByLabel('log-level'), 'debug')
+
+  await page.getByRole('button', { name: 'YAML', exact: true }).click()
+  await expect(lines.filter({ hasText: 'log-level: debug' })).toHaveCount(1)
+  const afterScalarEdit = await lines.allTextContents()
+
+  expect(afterScalarEdit).toHaveLength(beforeScalarEdit.length)
+  const idx = beforeScalarEdit.findIndex((l) => l === 'log-level: info')
+  expect(idx).toBeGreaterThanOrEqual(0)
+  expect(afterScalarEdit[idx]).toBe('log-level: debug')
+  // Все ОСТАЛЬНЫЕ строки — байт в байт те же, что были: сплайс правит диапазон
+  // ровно одного значения и не трогает форматирование вокруг
+  const beforeRest = beforeScalarEdit.filter((_, i) => i !== idx)
+  const afterRest = afterScalarEdit.filter((_, i) => i !== idx)
+  expect(afterRest).toEqual(beforeRest)
 })
 
 test('клик по синтаксической ошибке ведёт к её месту, а не в начало', async ({ page }) => {
@@ -258,4 +288,81 @@ test('выбранная запись отличается на вид от ос
   expect(chosen).not.toBe(idle)
   // И от соседа тоже: выбор виден в самом списке, а не только в предпросмотре
   expect(chosen).not.toBe(await bg(cards.nth(0)))
+})
+
+// Отдельный describe: своя фикстура (пустой документ, encodedTemplateYaml:
+// null) и своё условие готовности страницы — вместо узла группы на холсте
+// ждём кнопку «+ Добавить» (граф пуст).
+test.describe('с нуля', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page)
+    await mockMihomo(page, { template: null })
+    await page.goto(`/templates/${MIHOMO_UUID}`)
+    await expect(page.getByRole('button', { name: '+ Добавить' })).toBeVisible()
+  })
+
+  test('шаблон собирается кнопками и формами, вкладка YAML не открывается', async ({ page }) => {
+    const patches: string[] = []
+    await page.route('**/api/templates/*', async (route) => {
+      if (route.request().method() === 'PATCH') patches.push(route.request().postData() ?? '')
+      await route.fallback()
+    })
+    const inspector = page.locator('aside.wb-inspector')
+    const add = async (item: string) => {
+      await page.getByRole('button', { name: '+ Добавить' }).click()
+      await page.getByRole('menuitem', { name: item }).click()
+    }
+
+    await add('Группа')
+    await expect(inspector.getByLabel('Имя')).toHaveValue('Группа')
+    await add('Сервер')
+    await expect(page.locator(node('proxy:Сервер'))).toBeVisible()
+    await add('Провайдер')
+    await expect(page.locator(node('provider:provider'))).toBeVisible()
+    await add('Набор правил')
+    // Заведённая запись живёт в панели «Документ» — узла на холсте у неё нет,
+    // раздел закрыт по умолчанию, как и все разделы этой панели
+    await inspector.getByRole('button', { name: 'Наборы правил' }).click()
+    await expect(inspector.getByRole('region', { name: 'Наборы правил' })).toBeVisible()
+    await add('Подсписок')
+    await expect(page.locator(node('subrule:sub-rule'))).toBeVisible()
+    await add('Вход')
+
+    await page.getByRole('button', { name: '+ Правило' }).click()
+    await expect(inspector.getByLabel('Тип')).toBeVisible()
+    await pickOption(page, inspector.getByLabel('Тип'), 'DOMAIN-SUFFIX')
+    await inspector.getByLabel('Значение').fill('example.com')
+
+    await page.getByRole('button', { name: 'Документ' }).click()
+    await inspector.getByRole('button', { name: 'DNS' }).click()
+    await inspector.getByRole('region', { name: 'DNS' }).getByRole('button', { name: 'Завести раздел' }).click()
+
+    await page.getByRole('button', { name: 'Рецепты' }).click()
+    await page.getByRole('dialog').getByText('Локальные сети напрямую').click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Применить' }).click()
+
+    await page.getByRole('button', { name: 'Сохранить в панель' }).click()
+    // Собранный документ несёт предупреждения (нет MATCH в конце rules, у
+    // ruleset нет ссылки) — панель их не блокирует, а диалог из-за них меняет
+    // подпись кнопки на «Сохранить всё равно»; сохранению это не мешает.
+    // Локатор — от диалога: кнопка топбара «Сохранить в панель» тоже
+    // начинается на «Сохранить» и осталась видна под диалогом
+    await page
+      .getByRole('dialog', { name: 'Сохранить в панель' })
+      .getByRole('button', { name: /^Сохранить/ })
+      .click()
+    await expect.poll(() => patches.length).toBe(1)
+    const yaml = Buffer.from(JSON.parse(patches[0]!).encodedTemplateYaml, 'base64').toString('utf8')
+    expect(yaml).toContain('- name: Группа')
+    expect(yaml).toContain('- name: Сервер')
+    expect(yaml).toContain('provider:')
+    expect(yaml).toContain('ruleset:')
+    expect(yaml).toContain('sub-rule:')
+    expect(yaml).toContain('- name: вход')
+    expect(yaml).toContain('DOMAIN-SUFFIX,example.com,DIRECT')
+    expect(yaml).toContain('enhanced-mode: fake-ip')
+    expect(yaml).toContain('RULE-SET,geoip-private,DIRECT,no-resolve')
+    // Вкладка YAML так и не открывалась
+    await expect(page.locator('.cm-editor')).toHaveCount(0)
+  })
 })

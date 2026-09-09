@@ -392,16 +392,32 @@ const CATALOG_CONTENT: Record<string, string> = {
  * Маршруты редактора Mihomo. Отдельно от `mockTemplates`: тем спекам нужен
  * список шаблонов, а этим — содержимое одного и инструменты вокруг него.
  * `core` задаёт ответ проверки ядром — сценарию отчёта нужен принявший вердикт.
+ * `template` подменяет содержимое документа: сценарию «с нуля» нужен пустой
+ * документ (`null` → панель хранит его как encodedTemplateYaml: null, редактор
+ * открывает как пустую строку — см. decodeYamlOrNull) вместо готовой фикстуры
+ * MIHOMO_YAML.
  */
 export async function mockMihomo(
   page: Page,
-  opts: { core?: { available: boolean; ok: boolean; errors: string[] } } = {},
+  opts: { core?: { available: boolean; ok: boolean; errors: string[] }; template?: string | null } = {},
 ) {
   await page.route(`**/api/templates/${MIHOMO_UUID}/backups`, (r) =>
     r.fulfill({ json: { backups: [] } }),
   )
   await page.route(`**/api/templates/${MIHOMO_UUID}`, (r) =>
-    r.fulfill({ json: { template: MIHOMO_TEMPLATE, hash: MIHOMO_HASH } }),
+    r.fulfill({
+      json: {
+        template: {
+          ...MIHOMO_TEMPLATE,
+          encodedTemplateYaml: opts.template === undefined
+            ? MIHOMO_TEMPLATE.encodedTemplateYaml
+            : opts.template === null
+              ? null
+              : b64(opts.template),
+        },
+        hash: MIHOMO_HASH,
+      },
+    }),
   )
 
   // Регулярками, а не глобами: `**/api/catalog/template*` поймал бы и индекс
