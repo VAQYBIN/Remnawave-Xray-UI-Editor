@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMihomoDraft } from '../src/features/editor/useMihomoDraft'
 import { mihomoAdapter } from '../src/features/editor/mihomoAdapter'
-import { LOCK_ALIAS, parseMihomo } from '../src/entities/mihomo'
+import { LOCK_ALIAS, originAt, parseMihomo } from '../src/entities/mihomo'
 import { groupsOf } from '../src/entities/mihomo/groups'
 import { refusalText } from '../src/entities/graph/mihomo/mutations'
 import { useDraftStore } from '../src/features/editor/draftStore'
@@ -62,7 +62,7 @@ describe('черновик Mihomo', () => {
 
   it('правка поля идёт сплайсом: байты вне правки те же', () => {
     const { result } = renderDraft()
-    act(() => result.current.setField(['proxy-groups', 0], 'type', 'fallback'))
+    act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'type'], value: 'fallback' }]))
     expect(result.current.text).toContain('type: fallback')
     expect(result.current.text).toContain('  - MATCH,A')
     expect(result.current.text.split('\n').length).toBe(DOC.split('\n').length)
@@ -71,7 +71,7 @@ describe('черновик Mihomo', () => {
   it('переименование группы ведёт выбор за ней', () => {
     const { result } = renderDraft()
     act(() => result.current.setSelectedNode('group:A'))
-    act(() => result.current.renameGroupTo(0, 'Б'))
+    act(() => result.current.rename('group', 'A', 'Б'))
     expect(result.current.selectedNode).toBe('group:Б')
     expect(result.current.text).toContain('MATCH,Б')
   })
@@ -101,7 +101,7 @@ describe('черновик Mihomo', () => {
   it('удаление правила снимает выбор: id правил позиционные', () => {
     const { result } = renderDraft()
     act(() => result.current.setSelectedNode('rule:0'))
-    act(() => result.current.removeSelected())
+    act(() => result.current.applyOps([{ op: 'remove', path: ['rules', 0] }], null))
     expect(result.current.selectedNode).toBeNull()
     expect(result.current.text).not.toContain('DOMAIN,a.com,A')
   })
@@ -109,14 +109,14 @@ describe('черновик Mihomo', () => {
   it('перестановка правила ведёт выбор за ним', () => {
     const { result } = renderDraft()
     act(() => result.current.setSelectedNode('rule:0'))
-    act(() => result.current.moveSelected(1))
+    act(() => result.current.applyOps([{ op: 'move', path: ['rules'], from: 0, to: 1 }], 'rule:1'))
     expect(result.current.selectedNode).toBe('rule:1')
   })
 
   it('правки складываются в историю по одной', () => {
     const { result } = renderDraft()
-    act(() => result.current.setField(['proxy-groups', 0], 'type', 'fallback'))
-    act(() => result.current.setField(['proxy-groups', 0], 'type', 'relay'))
+    act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'type'], value: 'fallback' }]))
+    act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'type'], value: 'relay' }]))
     act(() => result.current.doUndo())
     expect(result.current.text).toContain('type: fallback')
   })
@@ -144,19 +144,24 @@ describe('черновик Mihomo', () => {
       '',
     ].join('\n')
     const { result } = renderDraft(text)
-    expect(result.current.originOf(['proxy-groups', 0], 'name')).toBe('own')
-    expect(result.current.originOf(['proxy-groups', 0], 'type')).toBe('merged')
-    expect(result.current.originOf(['proxy-groups', 0], 'remnawave.include-proxies')).toBe('alias')
-    expect(result.current.originOf(['proxy-groups', 0], 'filter')).toBe('absent')
+    const origin = (parts: (string | number)[], key: string) => originAt(result.current.md!, parts, key)
+    expect(origin(['proxy-groups', 0], 'name')).toBe('own')
+    expect(origin(['proxy-groups', 0], 'type')).toBe('merged')
+    expect(origin(['proxy-groups', 0], 'remnawave.include-proxies')).toBe('alias')
+    expect(origin(['proxy-groups', 0], 'filter')).toBe('absent')
     // Правки по merged- и alias-путям отказывают — черновик остаётся нетронутым
-    act(() => result.current.setField(['proxy-groups', 0], 'type', 'fallback'))
-    act(() => result.current.setField(['proxy-groups', 0], 'remnawave.include-proxies', true))
+    act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'type'], value: 'fallback' }]))
+    act(() => result.current.applyOps([
+      { op: 'set', path: ['proxy-groups', 0, 'remnawave', 'include-proxies'], value: true },
+    ]))
     expect(result.current.text).toBe(text)
   })
 
-  it('замена списка идёт через setListAt и не трогает соседние секции', () => {
+  it('замена списка не трогает соседние секции', () => {
     const { result } = renderDraft()
-    act(() => result.current.setListAt(['proxy-groups', 0], 'proxies', ['DIRECT', 'REJECT']))
+    act(() => result.current.applyOps([
+      { op: 'set', path: ['proxy-groups', 0, 'proxies'], value: ['DIRECT', 'REJECT'] },
+    ]))
     const md = parseMihomo(result.current.text)
     expect(md.doc.errors).toEqual([])
     expect(result.current.text).toContain('- REJECT')
@@ -165,7 +170,7 @@ describe('черновик Mihomo', () => {
 
   it('замена строки правила переписывает только её', () => {
     const { result } = renderDraft()
-    act(() => result.current.replaceRule(0, 'DOMAIN-SUFFIX,b.com,A'))
+    act(() => result.current.applyOps([{ op: 'set', path: ['rules', 0], value: 'DOMAIN-SUFFIX,b.com,A' }]))
     expect(result.current.text).toContain('DOMAIN-SUFFIX,b.com,A')
     expect(result.current.text).not.toContain('DOMAIN,a.com,A')
     expect(result.current.text).toContain('  - MATCH,A')
@@ -208,7 +213,7 @@ describe('черновик Mihomo', () => {
     ].join('\n')
     const { result } = renderDraft(text)
     act(() => result.current.setSelectedNode('group:A'))
-    act(() => result.current.removeSelected())
+    act(() => result.current.applyOps([{ op: 'remove', path: ['proxy-groups', 0] }], null))
     expect(result.current.selectedNode).toBeNull()
     expect(result.current.text).not.toContain('name: A')
     expect(result.current.text).toContain('name: B')

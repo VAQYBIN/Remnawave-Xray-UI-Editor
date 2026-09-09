@@ -4,9 +4,7 @@
 // решает режим (`entities/mihomo/write.ts`), хук об этом не знает.
 
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { originAt, type FieldOrigin, type MihomoDoc } from '../../entities/mihomo'
-import { groupsOf } from '../../entities/mihomo/groups'
-import { rulesOf } from '../../entities/mihomo/rules'
+import type { MihomoDoc } from '../../entities/mihomo'
 import { applyMihomoOps, materializeAt, mihomoLockAt } from '../../entities/mihomo/write'
 import { renameAt, renameRefusalText, type NamedKind } from '../../entities/mihomo/refs'
 import type { DocOp, DocWriter, Lock, SchemaPath } from '../../shared/schema'
@@ -90,40 +88,6 @@ export interface MihomoDraft extends DocumentDraft<MihomoDoc> {
   ruleSets: RuleSetDescriptor[]
   /** Что из них сервер способен достать — только это и уходит на него */
   askedSets: RuleSetQuery[]
-
-  // ── временные обёртки прежнего API; удаляются в задаче 17 вместе с последними
-  // потребителями (MihomoInspector.tsx, MihomoFieldsForm.tsx, MihomoSectionsDialog.tsx) ──
-
-  /** @deprecated удаляется в задаче 17 */
-  setField: (parts: PathParts, key: string, value: string | boolean | number) => void
-  /** @deprecated удаляется в задаче 17 */
-  removeField: (parts: PathParts, key: string) => void
-  /**
-   * Происхождение поля целиком, всеми четырьмя членами союза: `alias` и
-   * `merged` формы показывают только на чтение. Сужать союз здесь нельзя —
-   * иначе форма приняла бы значение из якоря за своё и предложила бы правку,
-   * которую писатель всё равно отклонит.
-   * @deprecated удаляется в задаче 17
-   */
-  originOf: (parts: PathParts, key: string) => FieldOrigin
-  /** @deprecated удаляется в задаче 17 */
-  setListAt: (parts: PathParts, key: string, values: string[]) => void
-  /** @deprecated удаляется в задаче 17 */
-  renameGroupTo: (index: number, name: string) => void
-  /** @deprecated удаляется в задаче 17 */
-  addGroupNamed: (name: string) => void
-  /** @deprecated удаляется в задаче 17 */
-  addRuleText: (raw: string, at?: number) => void
-  /** @deprecated удаляется в задаче 17 */
-  replaceRule: (index: number, raw: string) => void
-  /** @deprecated удаляется в задаче 17 */
-  moveSelected: (dir: -1 | 1) => void
-  /** @deprecated удаляется в задаче 17 */
-  removeSelected: () => void
-  /** @deprecated удаляется в задаче 17 */
-  sectionsOpen: boolean
-  /** @deprecated удаляется в задаче 17 */
-  setSectionsOpen: (open: boolean) => void
 }
 
 export function useMihomoDraft({
@@ -142,7 +106,6 @@ export function useMihomoDraft({
   const [refusal, setRefusal] = useState<string | null>(null)
   const [checkOpen, setCheckOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
-  const [sectionsOpen, setSectionsOpen] = useState(false)
   const [ruleSetsOpen, setRuleSetsOpen] = useState(false)
   const [recipesOpen, setRecipesOpen] = useState(false)
   const md = core.model
@@ -416,16 +379,6 @@ export function useMihomoDraft({
     if (cur !== current) coreRef.current.writeDraft(cur.text, { history: true })
   }, [])
 
-  function selectedRuleIndex(): number | null {
-    return core.selectedNode?.startsWith('rule:') ? Number(core.selectedNode.slice(5)) : null
-  }
-
-  function selectedGroupIndex(): number | null {
-    if (md === undefined || !core.selectedNode?.startsWith('group:')) return null
-    const name = core.selectedNode.slice(6)
-    return groupsOf(md).find((g) => g.name === name)?.index ?? null
-  }
-
   return {
     ...core,
     // Диагностики по наборам приклеиваются здесь, а не в useDocumentDraft:
@@ -456,59 +409,5 @@ export function useMihomoDraft({
     setRecipesOpen,
     ruleSets,
     askedSets,
-
-    // ── временные обёртки прежнего API — реализованы через applyOpsNow/rename,
-    // удаляются в задаче 17 вместе с последними потребителями ──
-    setField: (parts, key, value) => {
-      applyOpsNow([{ op: 'set', path: [...parts, ...key.split('.')], value }])
-    },
-    removeField: (parts, key) => {
-      applyOpsNow([{ op: 'remove', path: [...parts, ...key.split('.')] }])
-    },
-    originOf: (parts, key) => (md === undefined ? 'absent' : originAt(md, parts, key)),
-    setListAt: (parts, key, values) => {
-      applyOpsNow([{ op: 'set', path: [...parts, ...key.split('.')], value: values }])
-    },
-    renameGroupTo: (index, name) => {
-      if (md === undefined) return
-      const group = groupsOf(md).find((g) => g.index === index)
-      if (group === undefined) return
-      rename('group', group.name, name)
-    },
-    addGroupNamed: (name) => {
-      // Index за концом списка (клампится писателем) — не нужно знать текущую
-      // длину `proxy-groups`, чтобы всегда дописать в конец
-      applyOpsNow([{ op: 'insert', path: ['proxy-groups'], index: Number.MAX_SAFE_INTEGER, value: { name, type: 'select' } }], `group:${name}`)
-    },
-    addRuleText: (raw, at) => {
-      applyOpsNow([{ op: 'insert', path: ['rules'], index: at ?? Number.MAX_SAFE_INTEGER, value: raw }], null)
-    },
-    replaceRule: (index, raw) => {
-      // Строка правила переписывается целиком, но индекс не меняется — выбор
-      // остаётся на том же узле, и трогать его незачем
-      applyOpsNow([{ op: 'set', path: ['rules', index], value: raw }])
-    },
-    moveSelected: (dir) => {
-      const index = selectedRuleIndex()
-      if (md === undefined || index === null) return
-      const to = index + dir
-      if (to < 0 || to >= rulesOf(md).length) return
-      // Число правил не изменилось, но правило переехало — ведём выбор за ним
-      applyOpsNow([{ op: 'move', path: ['rules'], from: index, to }], `rule:${to}`)
-    },
-    removeSelected: () => {
-      if (md === undefined) return
-      const ruleIndex = selectedRuleIndex()
-      if (ruleIndex !== null) {
-        applyOpsNow([{ op: 'remove', path: ['rules', ruleIndex] }], null)
-        return
-      }
-      const groupIndex = selectedGroupIndex()
-      if (groupIndex !== null) {
-        applyOpsNow([{ op: 'remove', path: ['proxy-groups', groupIndex] }], null)
-      }
-    },
-    sectionsOpen,
-    setSectionsOpen,
   }
 }

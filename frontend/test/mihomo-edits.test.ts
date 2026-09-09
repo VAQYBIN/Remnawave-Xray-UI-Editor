@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import {
-  addGroup, addRule, applyEdits, fieldOrigin, removeRule, renameGroup, setFieldAt, setGroupField,
-  setListAt, setRuleTarget,
-} from '../src/entities/mihomo/edits'
+import { applyEdits, originAt, readFieldAt, removeFieldAt, setFieldAt } from '../src/entities/mihomo/edits'
 import { groupsOf } from '../src/entities/mihomo/groups'
 import { parseMihomo } from '../src/entities/mihomo/parse'
-import { rulesOf } from '../src/entities/mihomo/rules'
 import { mihomoFixture } from './helpers'
 
-const edit = (text: string, make: (md: ReturnType<typeof parseMihomo>) => ReturnType<typeof renameGroup>) =>
-  applyEdits(text, make(parseMihomo(text)))
+// Переименование группы (renameGroup), правила-сплайсы (setRuleTarget/
+// removeRule/addRule/moveMihomoRule/replaceRuleText) и списки-сплайсы
+// (setListAt/addGroup/removeGroup) удалены задачей 17: писатель
+// (`entities/mihomo/write.ts`) заводит ключи и правит списки/правила моделью
+// `Document` (задача 10), а переименование с переносом ссылок теперь у
+// `entities/mihomo/refs.ts` (`renameAt`, покрыт `mihomo-refs.test.ts`).
+// Оставшиеся здесь тесты — про сплайс-примитивы, которые писатель зовёт для
+// ОДНОГО собственного однострочного скаляра (режим сплайса), и про механику
+// `applyEdits` саму по себе.
 
 describe('наложение правок', () => {
   it('накладывает несколько правок, не съезжая по смещениям', () => {
@@ -20,216 +23,6 @@ describe('наложение правок', () => {
   it('пересекающиеся правки — исключение, а не тихая порча', () => {
     expect(() => applyEdits('abcdef', [{ from: 0, to: 3, insert: 'X' }, { from: 2, to: 4, insert: 'Y' }]))
       .toThrow(/пересек/i)
-  })
-})
-
-describe('переименование группы', () => {
-  it('меняет имя и все ссылки на него', () => {
-    const text = mihomoFixture('simple')
-    const out = edit(text, (md) => renameGroup(md, '▶️ YouTube', '▶️ Ютуб'))
-    expect(out).toContain('name: ▶️ Ютуб')
-    expect(out).toContain('RULE-SET,youtube,▶️ Ютуб')
-    expect(out).not.toContain('▶️ YouTube')
-  })
-
-  it('не трогает байты вне правки', () => {
-    const text = mihomoFixture('simple')
-    const out = edit(text, (md) => renameGroup(md, '▶️ YouTube', '▶️ Ютуб'))
-    const changed = out.split('\n').filter((line, i) => line !== text.split('\n')[i])
-    // Ровно две строки: объявление группы и правило, ведущее в неё
-    expect(changed).toHaveLength(2)
-  })
-
-  it('маркеры, якоря и слияния переживают правку', () => {
-    const text = mihomoFixture('simple')
-    const out = edit(text, (md) => renameGroup(md, '▶️ YouTube', '▶️ Ютуб'))
-    const count = (s: string, needle: string) => s.split(needle).length - 1
-    expect(count(out, 'LEAVE THIS LINE!')).toBe(count(text, 'LEAVE THIS LINE!'))
-    expect(count(out, '<<:')).toBe(count(text, '<<:'))
-    expect(count(out, '&rp_domain')).toBe(count(text, '&rp_domain'))
-  })
-
-  // Прежняя версия этого теста накладывала [] на фикстуру и сравнивала с ней же —
-  // результат совпадает по построению applyEdits (правок нет — разбирать нечего),
-  // само название группы или наличие анализа никак не проверялось. Это ложное
-  // чувство покрытия главного заявления ветки («текст — источник истины, половинных
-  // правок не бывает»), а не тест самого инварианта.
-  //
-  // Настоящая проверка: реальная операция на реальной фикстуре, которая ОБЯЗАНА
-  // отказать целиком (новое имя группы не печатается в одну строку — тот же отказ,
-  // которым `scalar()` защищает список `proxies` от порчи блочным скаляром), и
-  // подтверждение, что после наложения пустого результата документ не тронут ни
-  // одним байтом — не только «совпадает с самим собой», а «остался тем, чем был».
-  it('операция, обязанная отказать на реальной фикстуре, не трогает ни одного байта', () => {
-    const text = mihomoFixture('bundle')
-    const md = parseMihomo(text)
-    const edits = renameGroup(md, '🌍 VPN', 'a\nb')
-    expect(edits).toEqual([])
-    expect(applyEdits(text, edits)).toBe(text)
-  })
-})
-
-describe('поля группы', () => {
-  it('меняет тип группы', () => {
-    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
-    const out = edit(text, (md) => setGroupField(md, 0, 'type', 'url-test'))
-    expect(out).toBe('proxy-groups:\n  - name: a\n    type: url-test\n')
-  })
-
-  it('добавляет отсутствующее поле с отступом группы', () => {
-    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
-    const out = edit(text, (md) => setGroupField(md, 0, 'hidden', true))
-    expect(out).toContain('    hidden: true')
-    expect(groupsOf(parseMihomo(out))[0]!.hidden).toBe(true)
-  })
-
-  it('значение из слияния правкой не трогается', () => {
-    const text =
-      'x-anchors:\n  base: &base\n    type: select\nproxy-groups:\n  - name: a\n    <<: *base\n'
-    const md = parseMihomo(text)
-    expect(fieldOrigin(md, 0, 'type')).toBe('merged')
-    expect(setGroupField(md, 0, 'type', 'url-test')).toEqual([])
-  })
-
-  it('собственное поле рядом со слиянием правится', () => {
-    const text =
-      'x-anchors:\n  base: &base\n    lazy: true\nproxy-groups:\n  - name: a\n    <<: *base\n    type: select\n'
-    const md = parseMihomo(text)
-    expect(fieldOrigin(md, 0, 'type')).toBe('own')
-    expect(setGroupField(md, 0, 'type', 'url-test')).not.toEqual([])
-  })
-})
-
-describe('правила', () => {
-  it('меняет цель правила, не трогая условие', () => {
-    const text = 'rules:\n  - IP-CIDR,17.0.0.0/8,DIRECT,no-resolve\n'
-    const out = edit(text, (md) => setRuleTarget(md, 0, 'VPN'))
-    expect(out).toBe('rules:\n  - IP-CIDR,17.0.0.0/8,VPN,no-resolve\n')
-  })
-
-  it('удаляет правило вместе со строкой', () => {
-    const text = 'rules:\n  - DOMAIN,a.com,DIRECT\n  - MATCH,DIRECT\n'
-    const out = edit(text, (md) => removeRule(md, 0))
-    expect(out).toBe('rules:\n  - MATCH,DIRECT\n')
-  })
-
-  it('вставляет правило перед указанным', () => {
-    const text = 'rules:\n  - MATCH,DIRECT\n'
-    const out = edit(text, (md) => addRule(md, 'DOMAIN,a.com,VPN', 0))
-    expect(out).toBe('rules:\n  - DOMAIN,a.com,VPN\n  - MATCH,DIRECT\n')
-    expect(rulesOf(parseMihomo(out))).toHaveLength(2)
-  })
-
-  it('вставка в конец списка', () => {
-    const text = 'rules:\n  - DOMAIN,a.com,VPN\n'
-    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
-    expect(out).toBe('rules:\n  - DOMAIN,a.com,VPN\n  - MATCH,DIRECT\n')
-  })
-
-  it('C1: вставка в конец файла без завершающего \\n не склеивает строки', () => {
-    const text = 'rules:\n  - MATCH,DIRECT'
-    const out = edit(text, (md) => addRule(md, 'DOMAIN,a.com,VPN'))
-    expect(out).toBe('rules:\n  - MATCH,DIRECT\n  - DOMAIN,a.com,VPN\n')
-    expect(rulesOf(parseMihomo(out))).toHaveLength(2)
-  })
-
-  // Дефект 3: пустой список правил и отсутствующая секция раньше давали пустой
-  // результат — кнопка «+ Правило» молча не работала именно там, где правило
-  // нужнее всего: в документе, где правил ещё нет.
-  it('а) голый ключ `rules:` получает первый элемент', () => {
-    const text = 'mode: rule\nrules:\n'
-    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
-    expect(out).toBe('mode: rule\nrules:\n  - MATCH,DIRECT\n')
-    expect(parseMihomo(out).issues).toHaveLength(0)
-    expect(rulesOf(parseMihomo(out))).toHaveLength(1)
-  })
-
-  it('а) отступ первого элемента берётся из документа, а не из двойки', () => {
-    const text = 'proxy-groups:\n    - name: g\n      type: select\nrules:\n'
-    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
-    expect(out).toBe('proxy-groups:\n    - name: g\n      type: select\nrules:\n    - MATCH,DIRECT\n')
-  })
-
-  it('б) секции `rules` нет вовсе — она дописывается в конец документа', () => {
-    const text = 'mode: rule\n'
-    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
-    expect(out).toBe('mode: rule\nrules:\n  - MATCH,DIRECT\n')
-    expect(parseMihomo(out).issues).toHaveLength(0)
-    expect(rulesOf(parseMihomo(out))).toHaveLength(1)
-  })
-
-  it('б) документ без завершающего перевода строки не склеивается с новой секцией', () => {
-    const text = 'mode: rule'
-    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
-    expect(out).toBe('mode: rule\nrules:\n  - MATCH,DIRECT\n')
-    expect(parseMihomo(out).issues).toHaveLength(0)
-  })
-
-  it('б) корень — не отображение: отказ, а не выдуманная структура', () => {
-    const md = parseMihomo('- a\n- b\n')
-    expect(addRule(md, 'MATCH,DIRECT')).toEqual([])
-  })
-})
-
-/**
- * Сравнение построчно, устойчивое к операциям, меняющим ОБЩЕЕ число строк
- * (добавление/удаление правила или поля) — не только к правкам «на месте»
- * (rename, смена значения). Общий префикс и общий суффикс совпадающих строк
- * отрезаются с обеих сторон; то, что осталось между ними, и есть изменение.
- */
-function changedLines(orig: string, out: string): { removed: number; added: number } {
-  const a = orig.split('\n')
-  const b = out.split('\n')
-  let prefix = 0
-  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix += 1
-  let suffix = 0
-  while (
-    suffix < a.length - prefix &&
-    suffix < b.length - prefix &&
-    a[a.length - 1 - suffix] === b[b.length - 1 - suffix]
-  ) {
-    suffix += 1
-  }
-  return { removed: a.length - prefix - suffix, added: b.length - prefix - suffix }
-}
-
-describe('решение А: коллекции во flow-стиле — отказ', () => {
-  it('setRuleTarget отказывает на rules: [...]', () => {
-    const md = parseMihomo('rules: [A, B]\n')
-    expect(setRuleTarget(md, 0, 'VPN')).toEqual([])
-  })
-
-  it('removeRule отказывает на rules: [...] (находка C2)', () => {
-    const md = parseMihomo('rules: [A, B]\n')
-    expect(removeRule(md, 0)).toEqual([])
-  })
-
-  it('addRule отказывает на rules: [...] (находка C2)', () => {
-    const md = parseMihomo('rules: [A, B]\n')
-    expect(addRule(md, 'DOMAIN,a.com,VPN')).toEqual([])
-  })
-
-  it('переименование отказывает целиком, если совпадение живёт в rules: [...]', () => {
-    const text = 'proxy-groups:\n  - name: G\n    type: select\nrules: ["RULE-SET,yt,G"]\n'
-    const md = parseMihomo(text)
-    expect(renameGroup(md, 'G', 'G2')).toEqual([])
-  })
-
-  it('переименование отказывает целиком, если совпадение живёт в proxies: [x, y]', () => {
-    const text =
-      'proxy-groups:\n  - name: G\n    type: select\n  - name: Sel\n    type: select\n    proxies: [G, DIRECT]\n'
-    const md = parseMihomo(text)
-    expect(renameGroup(md, 'G', 'G2')).toEqual([])
-  })
-})
-
-describe('решение Б: имя группы из слияния', () => {
-  it('переименование отказывает целиком, а не переписывает только ссылки (I2)', () => {
-    const text =
-      'x-anchors:\n  base: &base\n    name: G\nproxy-groups:\n  - <<: *base\n    type: select\nrules:\n  - RULE-SET,yt,G\n'
-    const md = parseMihomo(text)
-    expect(fieldOrigin(md, 0, 'name')).toBe('merged')
-    expect(renameGroup(md, 'G', 'H')).toEqual([])
   })
 })
 
@@ -259,714 +52,269 @@ describe('решение В и I1: детерминизм и конфликт п
   })
 })
 
-describe('решение Г и I3: строка правила печатается сериализатором', () => {
-  it('C4: переименование не портит правило в кавычках с экранированием', () => {
-    const text =
-      "proxy-groups:\n  - name: Mike's\n    type: select\nrules:\n  - 'RULE-SET,yt,Mike''s'\n  - MATCH,DIRECT\n"
-    const out = edit(text, (md) => renameGroup(md, "Mike's", 'Bob'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(groupsOf(parsed)[0]!.name).toBe('Bob')
-    expect(rulesOf(parsed)[0]!.rule?.target).toBe('Bob')
+const DOC = [
+  'dns:',
+  '  enable: true',
+  '  enhanced-mode: fake-ip',
+  'proxy-groups:',
+  '  - name: A',
+  '    type: select',
+  '    remnawave:',
+  '      include-proxies: false',
+  '  - name: B',
+  '    type: url-test',
+  'rules:',
+  '  - DOMAIN,a.com,A',
+  '  - MATCH,B',
+  '',
+].join('\n')
+
+describe('правки полей секций (setFieldAt/removeFieldAt: только собственный существующий ключ)', () => {
+  it('меняет скаляр секции верхнего уровня', () => {
+    const md = parseMihomo(DOC)
+    const next = applyEdits(DOC, setFieldAt(md, ['dns'], 'enhanced-mode', 'redir-host'))
+    expect(next).toContain('enhanced-mode: redir-host')
+    expect(next).toContain('enable: true')
   })
 
-  it('I3: переименование в значение с двоеточием и решёткой не превращает правило в отображение', () => {
-    const text = 'proxy-groups:\n  - name: A\n    type: select\nrules:\n  - RULE-SET,yt,A\n  - MATCH,DIRECT\n'
-    const out = edit(text, (md) => renameGroup(md, 'A', 'B: c #d'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(groupsOf(parsed)[0]!.name).toBe('B: c #d')
-    expect(rulesOf(parsed)[0]!.rule?.target).toBe('B: c #d')
+  it('меняет вложенный ключ через точку', () => {
+    const md = parseMihomo(DOC)
+    const next = applyEdits(DOC, setFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies', true))
+    expect(next).toContain('include-proxies: true')
   })
 
-  it('I3: смена цели правила квотится сериализатором, если нужно', () => {
-    const text = 'rules:\n  - MATCH,DIRECT\n'
-    const out = edit(text, (md) => setRuleTarget(md, 0, 'B: c #d'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(rulesOf(parsed)[0]!.rule?.target).toBe('B: c #d')
+  it('отказывает, когда промежуточной секции нет: структуру не выдумываем', () => {
+    const md = parseMihomo(DOC)
+    expect(setFieldAt(md, ['proxy-groups', 1], 'remnawave.include-proxies', true)).toEqual([])
   })
-})
 
-describe('I4: переименование обходит все места, где живёт имя группы', () => {
-  it('sub-rules, dialer-proxy у proxies[]/групп и listeners[].proxy', () => {
+  it('снимает поле вместе со строкой', () => {
+    const md = parseMihomo(DOC)
+    const next = applyEdits(DOC, removeFieldAt(md, ['proxy-groups', 1], 'type'))
+    expect(next).not.toContain('url-test')
+    expect(next).toContain('- name: B')
+  })
+
+  // Находка задачи 17 (мутационная приёмка): раньше отсутствующий ключ третьей
+  // веткой вставлялся сплайсом после последней скалярной пары отображения —
+  // теперь эта ветка удалена, недостающий ключ заводит режим модели писателя
+  // (`entities/mihomo/write.ts`), а `setFieldAt` на отсутствующем ключе ОБЯЗАН
+  // отказать, а не рискованно вставить строку.
+  it('отказывает на отсутствующем ключе: вставку делает только режим модели писателя', () => {
+    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
+    const md = parseMihomo(text)
+    expect(setFieldAt(md, ['proxy-groups', 0], 'hidden', true)).toEqual([])
+  })
+
+  it('значение из якоря правкой не трогается', () => {
     const text = [
-      'proxy-groups:',
-      '  - name: G',
+      'x-anchors:',
+      '  base: &base',
       '    type: select',
-      '  - name: H',
-      '    type: relay',
-      '    dialer-proxy: G',
-      'proxies:',
-      '  - name: p1',
-      '    type: vmess',
-      '    dialer-proxy: G',
-      'sub-rules:',
-      '  chain:',
-      '    - DOMAIN,a.com,G',
-      'listeners:',
-      '  - name: l1',
-      '    type: http',
-      '    proxy: G',
-      'rules:',
-      '  - MATCH,DIRECT',
+      'proxy-groups:',
+      '  - name: A',
+      '    <<: *base',
       '',
     ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('name: G2')
-    expect((out.match(/dialer-proxy: G2/g) ?? []).length).toBe(2)
-    expect(out).toContain('- DOMAIN,a.com,G2')
-    expect(out).toContain('proxy: G2')
-    expect(out).not.toContain('G\n')
-  })
-})
-
-describe('C3 и I5: вставка поля не портит соседей', () => {
-  it('C3: поле добавляется, даже если первый ключ группы — блочная коллекция с маркером', () => {
-    const text =
-      'proxy-groups:\n  - proxies:\n      - a\n      # LEAVE THIS LINE!\n    name: g\n    type: select\n'
-    const out = edit(text, (md) => setGroupField(md, 0, 'hidden', true))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('hidden: true')
-    expect(out.split('LEAVE THIS LINE!')).toHaveLength(2)
-  })
-
-  it('I5: хвостовой комментарий остаётся на своей строке, а не переезжает на новое поле', () => {
-    const text = 'proxy-groups:\n  - name: g  # важный\n    type: select\n'
-    const out = edit(text, (md) => setGroupField(md, 0, 'hidden', true))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('name: g  # важный')
-    expect(out).toContain('hidden: true')
-    expect(out).not.toContain('true  # важный')
-  })
-})
-
-// Маркер декоративен для ПОДСТАНОВКИ (панель кладёт хосты по ключам, не по
-// комментарию, см. entities/mihomo/inject.ts), но остаётся обычным
-// комментарием ТЕКСТА, и писатель обязан не портить его позицию — живые
-// шаблоны держат на нём человеческую подсказку независимо от того, читает ли
-// её панель. Проверяем это прямыми срезами текста, а не `hasMarker`/
-// `hasRootMarker` (обе сняты вместе с самим marker.ts).
-describe('дефект 1: новое поле не отрывает маркер от голого ключа `proxies`', () => {
-  it('bundle: у «⚡️ Fastest» поле встаёт ПОСЛЕ маркера, а не между ним и ключом', () => {
-    const text = mihomoFixture('bundle')
     const md = parseMihomo(text)
-    // Голый `proxies:` — последняя пара группы, маркер стоит следующей строкой
-    expect(groupsOf(md)[2]!.name).toBe('⚡️ Fastest')
-    expect(text).toContain('LEAVE THIS LINE!')
-
-    const out = applyEdits(text, setGroupField(md, 2, 'hidden', true))
-    const after = parseMihomo(out)
-    expect(after.issues).toHaveLength(0)
-    expect(groupsOf(after)[2]!.hidden).toBe(true)
-    // Главное заявление: маркер по-прежнему принадлежит ключу `proxies`
-    expect(out).toContain('LEAVE THIS LINE!')
+    expect(originAt(md, ['proxy-groups', 0], 'type')).toBe('merged')
+    expect(setFieldAt(md, ['proxy-groups', 0], 'type', 'fallback')).toEqual([])
+    // Отказ обязан быть ПОПОЛЕВЫМ, а не посекционным — на том же документе
+    // собственное поле группы (не пришедшее через `<<`) правится как обычно
+    expect(setFieldAt(md, ['proxy-groups', 0], 'name', 'B')).not.toEqual([])
   })
 
-  it('корень: голый `proxies:` с маркером строкой ниже переживает новое поле', () => {
-    const text = 'mode: rule\nproxies:\n  # LEAVE THIS LINE!\n'
+  it('поле, дошедшее до отображения через *alias на промежуточном сегменте, правкой не трогается', () => {
+    // `remnawave: *rw` — это не `<<`-слияние: сам ключ `remnawave` присутствует и
+    // «свой», но отображение, в которое он указывает, — общее объявление якоря,
+    // используемое ОБЕИМИ группами. Правка внутри него задела бы обе.
+    const text = [
+      'x-anchors:',
+      '  rw: &rw',
+      '    include-proxies: false',
+      'proxy-groups:',
+      '  - name: A',
+      '    type: select',
+      '    remnawave: *rw',
+      '  - name: B',
+      '    type: select',
+      '    remnawave: *rw',
+      '',
+    ].join('\n')
     const md = parseMihomo(text)
-    expect(text).toContain('LEAVE THIS LINE!')
-
-    const out = applyEdits(text, setFieldAt(md, [], 'log-level', 'info'))
-    const after = parseMihomo(out)
-    expect(after.issues).toHaveLength(0)
-    expect(out).toContain('log-level: info')
-    expect(out).toContain('LEAVE THIS LINE!')
-  })
-
-  it('маркер на строке ключа (default.yaml) остаётся при ключе', () => {
-    const text = mihomoFixture('default')
-    const md = parseMihomo(text)
-    expect(text).toContain('LEAVE THIS LINE!')
-
-    const out = applyEdits(text, setGroupField(md, 0, 'hidden', true))
-    const after = parseMihomo(out)
-    expect(after.issues).toHaveLength(0)
-    expect(groupsOf(after)[0]!.hidden).toBe(true)
-    expect(out).toContain('LEAVE THIS LINE!')
-  })
-
-  it('после маркера идут ещё скалярные ключи — якорь по-прежнему последний из них', () => {
-    const text =
-      'proxy-groups:\n  - name: g\n    proxies:\n      # LEAVE THIS LINE!\n    type: select\n'
-    const out = edit(text, (md) => setGroupField(md, 0, 'hidden', true))
-    const after = parseMihomo(out)
-    expect(after.issues).toHaveLength(0)
-    expect(groupsOf(after)[0]!.hidden).toBe(true)
-    expect(out).toContain('LEAVE THIS LINE!')
-  })
-
-  it('пустая строка после голого ключа границу вставки не переходит', () => {
-    const text = 'proxy-groups:\n  - name: g\n    proxies:\n      # LEAVE THIS LINE!\n\n  - name: h\n    type: select\n'
-    const out = edit(text, (md) => setGroupField(md, 0, 'hidden', true))
-    const after = parseMihomo(out)
-    expect(after.issues).toHaveLength(0)
-    expect(groupsOf(after).map((g) => g.name)).toEqual(['g', 'h'])
-    expect(groupsOf(after)[0]!.hidden).toBe(true)
-    // Пустая строка — граница чужой территории: новое поле встаёт до неё
-    expect(out).toContain('# LEAVE THIS LINE!\n    hidden: true\n\n  - name: h')
-  })
-})
-
-describe('дефект 2: новая группа пригодна к правке сразу', () => {
-  // `proxies: []` — flow-коллекция, и все писатели по решению А от неё
-  // отказываются: группа, заведённая кнопкой, оказывалась заперта до ручной
-  // правки YAML. Голый ключ — ровно то, как выглядит группа в дефолтном
-  // шаблоне панели, и его писатели принимают.
-  it('setListAt пишет участника в только что заведённую группу', () => {
-    const text = mihomoFixture('default')
-    const added = applyEdits(text, addGroup(parseMihomo(text), 'Новая'))
-    const md = parseMihomo(added)
-    const index = groupsOf(md).findIndex((g) => g.name === 'Новая')
-    expect(index).toBeGreaterThanOrEqual(0)
-
-    const edits = setListAt(md, ['proxy-groups', index], 'proxies', ['DIRECT'])
-    expect(edits).not.toEqual([])
-    const out = applyEdits(added, edits)
-    const after = parseMihomo(out)
-    expect(after.issues).toHaveLength(0)
-    expect(groupsOf(after).find((g) => g.name === 'Новая')!.proxies).toEqual(['DIRECT'])
-  })
-})
-
-describe('дефект 4: перевод строки во вставках берётся из документа', () => {
-  // Одиночный \n без \r перед ним. Живые шаблоны панели приезжают в CRLF, и
-  // захардкоженный \n во вставке делает документ смешанным: разбор молчит, а
-  // diff показывает изменёнными строки, которых никто не касался.
-  const LONE_LF = /(^|[^\r])\n/
-
-  // CRLF-документ тест строит САМ. Байты фикстуры в рабочей копии зависят от
-  // `core.autocrlf` машины: на Windows с autocrlf=true файл читается с CRLF,
-  // в индексе git и на Linux-раннере CI он лежит с LF — и предпосылка
-  // «фикстура однородно CRLF» держалась ровно до первого прогона в CI.
-  const crlf = (name: Parameters<typeof mihomoFixture>[0]) =>
-    mihomoFixture(name).replace(/\r?\n/g, '\r\n')
-
-  it('setFieldAt с новым ключом не роняет \\r', () => {
-    const text = crlf('bundle')
-    const out = applyEdits(text, setGroupField(parseMihomo(text), 2, 'hidden', true))
-    expect(out).not.toMatch(LONE_LF)
-    expect(groupsOf(parseMihomo(out))[2]!.hidden).toBe(true)
-  })
-
-  it('addGroup не роняет \\r', () => {
-    const text = crlf('bundle')
-    const out = applyEdits(text, addGroup(parseMihomo(text), 'Новая'))
-    expect(out).not.toMatch(LONE_LF)
-    expect(groupsOf(parseMihomo(out)).some((g) => g.name === 'Новая')).toBe(true)
-  })
-
-  it('setListAt не роняет \\r — ни на пустом ключе, ни на замене блока', () => {
-    // Пусто: блок дописывается ПОСЛЕ строки ключа
-    const empty = crlf('default')
-    const filled = applyEdits(
-      empty,
-      setListAt(parseMihomo(empty), ['proxy-groups', 0], 'proxies', ['DIRECT']),
+    expect(originAt(md, ['proxy-groups', 0], 'remnawave.include-proxies')).toBe('alias')
+    expect(setFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies', true)).toEqual([])
+    expect(removeFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies')).toEqual([])
+    // Читатель продолжает видеть значение — форма должна показать его, просто без права записи
+    expect(readFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies')).toEqual({
+      value: false,
+      origin: 'alias',
+    })
+    // Отказ не должен быть посекционным: правка через тот же путь у группы B —
+    // из ТОГО ЖЕ якоря, и тоже отказывает, а не «повезло» с индексом группы A
+    expect(setFieldAt(md, ['proxy-groups', 1], 'remnawave.include-proxies', true)).toEqual([])
+    // Парный успех на том же документе: поле верхнего уровня группы, не
+    // проходящее через алиас, правится как обычно
+    expect(setFieldAt(md, ['proxy-groups', 0], 'type', 'url-test')).not.toEqual([])
+    // И правда не задевает объявление якоря: применение отказной правки — no-op
+    expect(applyEdits(text, setFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies', true))).toBe(
+      text,
     )
-    expect(filled).not.toMatch(LONE_LF)
-    expect(groupsOf(parseMihomo(filled))[0]!.proxies).toEqual(['DIRECT'])
-
-    // Есть элементы: строки блока заменяются целиком (группа «♻️ БезVPN»)
-    const block = crlf('bundle')
-    const out = applyEdits(
-      block,
-      setListAt(parseMihomo(block), ['proxy-groups', 3], 'proxies', ['DIRECT', 'REJECT']),
-    )
-    expect(out).not.toMatch(LONE_LF)
-    expect(groupsOf(parseMihomo(out))[3]!.proxies).toEqual(['DIRECT', 'REJECT'])
   })
 
-  it('addRule не роняет \\r — ни в список, ни в новую секцию', () => {
-    const text = crlf('default')
-    expect(applyEdits(text, addRule(parseMihomo(text), 'DOMAIN,a.com,DIRECT', 0)))
-      .not.toMatch(LONE_LF)
-    expect(applyEdits(text, addRule(parseMihomo(text), 'DOMAIN,a.com,DIRECT')))
-      .not.toMatch(LONE_LF)
-
-    // Голый ключ и отсутствующая секция — те же вставки, что и в дефекте 3
-    const bare = 'mode: rule\r\nrules:\r\n'
-    expect(applyEdits(bare, addRule(parseMihomo(bare), 'MATCH,DIRECT'))).not.toMatch(LONE_LF)
-    const none = 'mode: rule\r\n'
-    expect(applyEdits(none, addRule(parseMihomo(none), 'MATCH,DIRECT'))).not.toMatch(LONE_LF)
+  it('чтение поля видит и собственный ключ, и пришедший через слияние', () => {
+    const md = parseMihomo(DOC)
+    expect(readFieldAt(md, ['proxy-groups', 0], 'type')).toEqual({ value: 'select', origin: 'own' })
+    expect(readFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies').value).toBe(false)
+    expect(readFieldAt(md, ['dns'], 'нет-такого').origin).toBe('absent')
   })
-})
 
-describe('минорная находка: пустое значение ключа', () => {
+  // Ключ свой, но его ЗНАЧЕНИЕ — ссылка. Диапазон значения здесь — токен `*n`,
+  // и замена по нему стирает саму ссылку, подменяя её литералом: авторское
+  // объявление якоря молча теряет потребителя. Читать при этом можно и нужно.
+  it('скаляр через ссылку на якорь не пишется, но читается', () => {
+    const text = [
+      'x-anchors:', '  n: &n 300', 'proxy-groups:', '  - name: A', '    type: select', '    interval: *n', '',
+    ].join('\n')
+    const md = parseMihomo(text)
+    expect(originAt(md, ['proxy-groups', 0], 'interval')).toBe('alias')
+    expect(readFieldAt(md, ['proxy-groups', 0], 'interval').value).toBe(300)
+    expect(setFieldAt(md, ['proxy-groups', 0], 'interval', 999)).toEqual([])
+    // Соседний СОБСТВЕННЫЙ ключ той же секции по-прежнему пишется: отказ поточечный
+    expect(setFieldAt(md, ['proxy-groups', 0], 'type', 'url-test')).not.toEqual([])
+  })
+
   it('«type:» без значения получает пробел, а не склеивается', () => {
     const text = 'proxy-groups:\n  - name: a\n    type:\n'
-    const out = edit(text, (md) => setGroupField(md, 0, 'type', 'url-test'))
+    const md = parseMihomo(text)
+    const out = applyEdits(text, setFieldAt(md, ['proxy-groups', 0], 'type', 'url-test'))
     expect(out).toBe('proxy-groups:\n  - name: a\n    type: url-test\n')
   })
-})
 
-describe('I6: каждая операция проверена на настоящей фикстуре', () => {
-  it('setGroupField (own): меняет ровно одну строку в simple.yaml', () => {
-    const text = mihomoFixture('simple')
+  it('значение содержит перевод строки — отказ, а не порча', () => {
+    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
     const md = parseMihomo(text)
-    // группа №3 — «♻️ БезVPN», у неё собственное поле hidden: true
-    expect(groupsOf(md)[3]!.name).toBe('♻️ БезVPN')
-    const out = applyEdits(text, setGroupField(md, 3, 'hidden', false))
-    expect(changedLines(text, out)).toEqual({ removed: 1, added: 1 })
-    expect(parseMihomo(out).issues).toHaveLength(0)
-    expect(groupsOf(parseMihomo(out))[3]!.hidden).toBe(false)
+    expect(setFieldAt(md, ['proxy-groups', 0], 'type', 'a\nb')).toEqual([])
   })
 
-  it('setGroupField (absent): добавляет ровно одну строку в simple.yaml', () => {
-    const text = mihomoFixture('simple')
+  it('замена СОБСТВЕННОГО поля flow-группы (замена скаляра безопасна вне зависимости от flow)', () => {
+    const text = 'proxy-groups: [{name: a, type: select}]\n'
     const md = parseMihomo(text)
-    expect(groupsOf(md)[0]!.name).toBe('🌍 VPN')
-    const out = applyEdits(text, setGroupField(md, 0, 'lazy', true))
-    expect(changedLines(text, out)).toEqual({ removed: 0, added: 1 })
-    expect(parseMihomo(out).issues).toHaveLength(0)
-    expect(out).toContain('lazy: true')
+    const out = applyEdits(text, setFieldAt(md, ['proxy-groups', 0], 'type', 'url-test'))
+    expect(out).toBe('proxy-groups: [{name: a, type: url-test}]\n')
   })
 
-  it('setRuleTarget: меняет ровно одну строку в default.yaml', () => {
-    const text = mihomoFixture('default')
-    const md = parseMihomo(text)
-    const out = applyEdits(text, setRuleTarget(md, 0, 'VPN'))
-    expect(changedLines(text, out)).toEqual({ removed: 1, added: 1 })
-    expect(parseMihomo(out).issues).toHaveLength(0)
-    expect(rulesOf(parseMihomo(out))[0]!.rule?.target).toBe('VPN')
-  })
-
-  it('removeRule: убирает ровно одну строку в default.yaml', () => {
-    const text = mihomoFixture('default')
-    const md = parseMihomo(text)
-    const out = applyEdits(text, removeRule(md, 1))
-    expect(changedLines(text, out)).toEqual({ removed: 1, added: 0 })
-    expect(parseMihomo(out).issues).toHaveLength(0)
-    expect(rulesOf(parseMihomo(out))).toHaveLength(2)
-  })
-
-  it('addRule: добавляет ровно одну строку в default.yaml', () => {
-    const text = mihomoFixture('default')
-    const md = parseMihomo(text)
-    const out = applyEdits(text, addRule(md, 'DOMAIN,test.com,VPN', 0))
-    expect(changedLines(text, out)).toEqual({ removed: 0, added: 1 })
-    expect(parseMihomo(out).issues).toHaveLength(0)
-    expect(rulesOf(parseMihomo(out))).toHaveLength(4)
-  })
-
-  it('renameGroup: маркеры выживают во всех трёх фикстурах при пустом попадании', () => {
+  it('на эталонных шаблонах правка поля меняет ровно диапазон старого значения на новое', () => {
     for (const name of ['default', 'simple', 'bundle'] as const) {
       const text = mihomoFixture(name)
-      // группы с таким именем нет ни в одной фикстуре — операция обязана быть no-op
-      expect(renameGroup(parseMihomo(text), '__нет-такой-группы__', 'x')).toEqual([])
+      const md = parseMihomo(text)
+      const group = groupsOf(md)[0]
+      if (group === undefined || group.type === undefined) continue
+      const edits = setFieldAt(md, ['proxy-groups', group.index], 'type', 'fallback')
+      if (edits.length === 0) continue
+      const edit = edits[0]!
+      // Значение в исходнике могло быть в кавычках («type: "select"») — YAML их
+      // уже снял в `group.type`, снимаем и здесь тем же простым правилом
+      const raw = text.slice(edit.from, edit.to)
+      const unquoted =
+        (raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))
+          ? raw.slice(1, -1)
+          : raw
+      expect(unquoted, name).toBe(group.type)
+      const next = applyEdits(text, edits)
+      expect(next.slice(0, edit.from), name).toBe(text.slice(0, edit.from))
+      expect(next.slice(next.length - (text.length - edit.to)), name).toBe(text.slice(edit.to))
+      expect(groupsOf(parseMihomo(next))[group.index]!.type, name).toBe('fallback')
     }
   })
 })
 
-describe('Раунд 2, критическая находка: висячие ссылки при переименовании', () => {
-  it('переименование 🌍 VPN в simple.yaml не оставляет ни одной ссылки на старое имя', () => {
-    const text = mihomoFixture('simple')
-    const md = parseMihomo(text)
-    const edits = renameGroup(md, '🌍 VPN', '🌍 ВПН')
-    // это не должен быть отказ — находки Part А достаточно, чтобы починить всё
-    expect(edits.length).toBeGreaterThan(0)
-    const out = applyEdits(text, edits)
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    // сильный тест по просьбе координатора: старое имя не встречается НИ РАЗУ —
-    // ни как самостоятельное значение, ни как суффикс после `#`
-    expect(out).not.toContain('🌍 VPN')
-    expect(groupsOf(parsed).some((g) => g.name === '🌍 ВПН')).toBe(true)
+// Находки финального ревью плана 1, общий корень: замена/удаление по
+// `[range.from, range.to)` верны ТОЛЬКО для однострочного скаляра. У
+// свёрнутого (`>-`), литерального (`|`) и у блочного списка `range.to` уже
+// указывает на начало СЛЕДУЮЩЕЙ физической строки. Порча при этом молчаливая:
+// у блочного списка `parseMihomo` результата не даёт ни одной ошибки разбора —
+// поэтому каждая проверка ниже требует не только текста, но и чистого разбора.
+const BLOCK = [
+  'proxy-groups:',
+  '  - name: g',
+  '    filter: >-',
+  '      aaa',
+  '      bbb',
+  '    type: select',
+  '    proxies:',
+  '      - DIRECT',
+  '      - REJECT',
+  '    icon: end.png',
+  '',
+].join('\n')
+
+const LITERAL = [
+  'proxy-groups:',
+  '  - name: g',
+  '    filter: |',
+  '      aaa',
+  '    type: select',
+  '',
+].join('\n')
+
+describe('финальное ревью: блочное значение поля не задевает соседей', () => {
+  it('снятие свёрнутого скаляра забирает только его строки', () => {
+    const md = parseMihomo(BLOCK)
+    const next = applyEdits(BLOCK, removeFieldAt(md, ['proxy-groups', 0], 'filter'))
+    expect(next).not.toContain('aaa')
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.filter).toBeUndefined()
+    // Соседнее поле — то самое, которое прежняя арифметика съедала вместе с блоком
+    expect(group.type).toBe('select')
+    expect(group.proxies).toEqual(['DIRECT', 'REJECT'])
   })
 
-  it('чинит и якорь rule-providers.proxy (через двойное слияние), и DNS-суффикс #<имя>', () => {
-    const text = mihomoFixture('simple')
-    const out = edit(text, (md) => renameGroup(md, '🌍 VPN', '🌍 ВПН'))
-    // якорь pr_http.proxy: 🌍 VPN — единственная физическая запись, её тянут
-    // ВСЕ rule-providers через rp_domain/rp_ipcidr/rp_classical
-    expect(out).toContain('proxy: 🌍 ВПН')
-    // якорь dns_proxy — две DNS-строки с суффиксом #🌍 VPN
-    expect((out.match(/dns-query#🌍 ВПН/g) ?? []).length).toBe(2)
-    expect(out).not.toContain('#🌍 VPN')
+  it('снятие литерального скаляра забирает только его строки', () => {
+    const md = parseMihomo(LITERAL)
+    const next = applyEdits(LITERAL, removeFieldAt(md, ['proxy-groups', 0], 'filter'))
+    expect(parseMihomo(next).issues).toEqual([])
+    expect(groupsOf(parseMihomo(next))[0]!.type).toBe('select')
   })
 
-  it('находит ссылку в proxy-providers[].proxy — верхнеуровневый ключ, не override.dialer-proxy', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'proxy-providers:',
-      '  p1:',
-      '    type: http',
-      '    url: https://example.com/list',
-      '    proxy: G',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('proxy: G2')
-    expect(out).not.toContain('proxy: G\n')
+  it('снятие блочного списка забирает только его строки', () => {
+    const md = parseMihomo(BLOCK)
+    const next = applyEdits(BLOCK, removeFieldAt(md, ['proxy-groups', 0], 'proxies'))
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.proxies).toEqual([])
+    expect(readFieldAt(parseMihomo(next), ['proxy-groups', 0], 'icon').value).toBe('end.png')
   })
 
-  it('находит ссылку в rule-providers[].proxy — верхнеуровневый ключ набора правил', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'rule-providers:',
-      '  r1:',
-      '    type: http',
-      '    behavior: domain',
-      '    url: https://example.com/list',
-      '    path: ./r1.mrs',
-      '    proxy: G',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('proxy: G2')
-    expect(out).not.toContain('proxy: G\n')
-  })
-})
-
-describe('Раунд 2, остаток 1: решение А распространено на добавление поля группе', () => {
-  it('setGroupField отказывает, если группа целиком записана во flow-стиле', () => {
-    const text = 'proxy-groups: [{name: a, type: select}]\n'
-    const md = parseMihomo(text)
-    expect(setGroupField(md, 0, 'hidden', true)).toEqual([])
+  it('снятие однострочного поля на той же фикстуре работает как раньше', () => {
+    const md = parseMihomo(BLOCK)
+    const next = applyEdits(BLOCK, removeFieldAt(md, ['proxy-groups', 0], 'type'))
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.type).toBeUndefined()
+    expect(group.filter).toBe('aaa bbb')
+    expect(group.proxies).toEqual(['DIRECT', 'REJECT'])
   })
 
-  it('setGroupField по-прежнему меняет СОБСТВЕННОЕ поле flow-группы (замена скаляра безопасна)', () => {
-    const text = 'proxy-groups: [{name: a, type: select}]\n'
-    const md = parseMihomo(text)
-    const out = applyEdits(text, setGroupField(md, 0, 'type', 'url-test'))
-    expect(out).toBe('proxy-groups: [{name: a, type: url-test}]\n')
-  })
-})
-
-describe('Раунд 2, остаток 2: addRule печатает правило сериализатором', () => {
-  it('addRule квотит значение, если сериализатор считает нужным', () => {
-    const text = 'rules:\n  - MATCH,DIRECT\n'
-    const md = parseMihomo(text)
-    const out = applyEdits(text, addRule(md, 'DOMAIN,a.com,B: c #d', 0))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(rulesOf(parsed)).toHaveLength(2)
-    expect(rulesOf(parsed)[0]!.rule?.target).toBe('B: c #d')
+  it('замена блочного значения — отказ, а не склейка строк', () => {
+    const md = parseMihomo(BLOCK)
+    // Схема объявляет `filter` строкой, документ держит свёрнутый скаляр —
+    // штатное расхождение схемы с чужим файлом, ради которого модуль и написан
+    expect(setFieldAt(md, ['proxy-groups', 0], 'filter', 'zzz')).toEqual([])
+    // У блочного СПИСКА порча была совсем молчаливой: разбор её не замечал
+    expect(setFieldAt(md, ['proxy-groups', 0], 'proxies', 'zzz')).toEqual([])
+    expect(setFieldAt(parseMihomo(LITERAL), ['proxy-groups', 0], 'filter', 'zzz')).toEqual([])
   })
 
-  it('addRule отказывает, если raw не разбирается как правило', () => {
-    const text = 'rules:\n  - MATCH,DIRECT\n'
-    const md = parseMihomo(text)
-    expect(addRule(md, 'непонятно-что-это')).toEqual([])
-  })
-})
-
-describe('Раунд 3, находка 1: сериализатор не должен переносить длинные строки', () => {
-  it('переброс кабеля с длинного правила на другую группу даёт разбираемый документ', () => {
-    const text = mihomoFixture('simple')
-    const md = parseMihomo(text)
-    // индекс 4 — самая длинная строка правила в фикстуре (OR c четырьмя условиями)
-    expect(rulesOf(md)[4]!.rule?.target).toBe('♻️ БезVPN')
-    const out = applyEdits(text, setRuleTarget(md, 4, '⚡️ Fastest'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(rulesOf(parsed)[4]!.rule?.target).toBe('⚡️ Fastest')
-  })
-
-  it('переименование ♻️ БезVPN в имя с пробелом на simple.yaml больше не отказывает ложно', () => {
-    const text = mihomoFixture('simple')
-    const md = parseMihomo(text)
-    const edits = renameGroup(md, '♻️ БезVPN', '♻️ Без ВПН')
-    // до фикса постусловие отказывало: превью не разбиралось из-за переноса строки
-    expect(edits.length).toBeGreaterThan(0)
-    const out = applyEdits(text, edits)
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).not.toContain('♻️ БезVPN')
-  })
-})
-
-describe('Раунд 3, находка 2: обход не переписывает то, что ссылкой не является', () => {
-  it('переименование не трогает filter соседней группы, совпавший по значению с именем', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      '  - name: Sel',
-      '    type: select',
-      '    filter: G',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('name: G2')
-    expect(out).toContain('filter: G\n')
-    expect(out).not.toContain('filter: G2')
-  })
-
-  it('переименование не трогает exclude-filter', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      '  - name: Sel',
-      '    type: select',
-      '    exclude-filter: G',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    // именно эта пара условий и различает «нашли и починили» от «ничего не сделали»
-    expect(out).toContain('name: G2')
-    expect(out).toContain('exclude-filter: G\n')
-  })
-
-  it('переименование не трогает name другой сущности (прокси), совпавшее по значению', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'proxies:',
-      '  - name: G',
-      '    type: vmess',
-      '    server: 1.2.3.4',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    // объявление группы переименовано, а вот имя прокси — другая сущность, не трогаем
-    expect(out).toContain('proxy-groups:\n  - name: G2')
-    expect(out).toContain('proxies:\n  - name: G\n')
-  })
-
-  it('переименование не трогает значения hosts, совпавшие по значению', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'hosts:',
-      '  somehost.local: G',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    expect(out).toContain('name: G2')
-    expect(out).toContain('somehost.local: G\n')
-  })
-
-  it('SUB-RULE ссылается на подсписок, а не на группу — цель не переименовывается', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'sub-rules:',
-      '  G:',
-      '    - DOMAIN,a.com,DIRECT',
-      'rules:',
-      '  - SUB-RULE,(NETWORK,tcp),G',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const md = parseMihomo(text)
-    const out = edit(text, (m) => renameGroup(m, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('name: G2')
-    expect(out).toContain('SUB-RULE,(NETWORK,tcp),G\n')
-    expect(out).not.toContain('SUB-RULE,(NETWORK,tcp),G2')
-    expect(rulesOf(md)[0]!.rule?.type).toBe('SUB-RULE')
-  })
-})
-
-describe('Раунд 3, находка 3: постусловие ловит правила, до которых обход не достаёт', () => {
-  it('правило верхнего уровня, заданное алиасом на список, блокирует переименование целиком', () => {
-    const text = [
-      'x-anchors:',
-      '  base: &base',
-      '    - MATCH,G',
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'rules: *base',
-      '',
-    ].join('\n')
-    const md = parseMihomo(text)
-    // обычный обход это правило не видит (алиас), поэтому раньше правка молча
-    // проходила бы, оставляя реальный маршрут указывающим на несуществующую группу
-    expect(renameGroup(md, 'G', 'G2')).toEqual([])
-  })
-
-  it('tunnels в CSV-форме с именем группы последним полем строки блокирует переименование', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'tunnels:',
-      '  - tcp,127.0.0.1:7888,G',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const md = parseMihomo(text)
-    expect(renameGroup(md, 'G', 'G2')).toEqual([])
-  })
-})
-
-describe('Раунд 4, хвост 1: use ссылается на провайдеров, а не на группы', () => {
-  it('переименование не трогает use — объявление провайдера остаётся прежним', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      '  - name: Sel',
-      '    type: select',
-      '    use:',
-      '      - G',
-      'proxy-providers:',
-      '  G:',
-      '    type: http',
-      '    url: https://example.com/list',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('name: G2')
-    expect(out).toContain('use:\n      - G\n')
-    expect(out).toContain('proxy-providers:\n  G:\n')
-  })
-})
-
-describe('Раунд 4, хвост 2: под dns правится только суффикс после #', () => {
-  it('голое значение в nameserver и nameserver-policy не трогается, суффикс — трогается', () => {
-    const text = [
-      'proxy-groups:',
-      '  - name: G',
-      '    type: select',
-      'dns:',
-      '  nameserver:',
-      '    - G',
-      '    - https://8.8.8.8/dns-query#G',
-      '  nameserver-policy:',
-      '    "some.domain": G',
-      'rules:',
-      '  - MATCH,DIRECT',
-      '',
-    ].join('\n')
-    const out = edit(text, (md) => renameGroup(md, 'G', 'G2'))
-    const parsed = parseMihomo(out)
-    expect(parsed.issues).toHaveLength(0)
-    expect(out).toContain('name: G2')
-    // голое значение в nameserver — НЕ ссылка (нет # перед именем), не трогаем
-    expect(out).toContain('nameserver:\n    - G\n')
-    // суффикс после # — ссылка, чиним
-    expect(out).toContain('dns-query#G2')
-    expect(out).not.toContain('dns-query#G\n')
-    // голое значение в nameserver-policy — тоже не ссылка
-    expect(out).toContain('"some.domain": G\n')
-  })
-})
-
-describe('Раунд 4, хвост 3: перевод строки в значении даёт отказ, а не порчу', () => {
-  it('setRuleTarget отказывает, если новая цель содержит перевод строки', () => {
-    const text = 'rules:\n  - MATCH,DIRECT\n'
-    const md = parseMihomo(text)
-    expect(setRuleTarget(md, 0, 'a\nb')).toEqual([])
-  })
-
-  it('addRule отказывает, если правило содержит перевод строки', () => {
-    const text = 'rules:\n  - MATCH,DIRECT\n'
-    const md = parseMihomo(text)
-    expect(addRule(md, 'DOMAIN,a.com,a\nb')).toEqual([])
-  })
-
-  it('setGroupField (own) отказывает, если значение содержит перевод строки', () => {
-    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
-    const md = parseMihomo(text)
-    expect(setGroupField(md, 0, 'type', 'a\nb')).toEqual([])
-  })
-
-  it('setGroupField (absent) отказывает, если значение содержит перевод строки', () => {
-    const text = 'proxy-groups:\n  - name: a\n    type: select\n'
-    const md = parseMihomo(text)
-    expect(setGroupField(md, 0, 'hidden', 'a\nb')).toEqual([])
-  })
-
-  it('renameGroup отказывает целиком, если новое имя содержит перевод строки', () => {
-    const text = 'proxy-groups:\n  - name: G\n    type: select\nrules:\n  - MATCH,DIRECT\n'
-    const md = parseMihomo(text)
-    expect(renameGroup(md, 'G', 'a\nb')).toEqual([])
-  })
-})
-
-describe('renameGroup при дубликате имени', () => {
-  it('документ с двумя группами одного имени — операция отказывает целиком', () => {
-    // Дубликат имени — допустимое состояние документа (диагностика уже
-    // помечает его ошибкой, но документ читается и рисуется). find() по имени
-    // переименовал бы первую попавшуюся, вторая осталась бы сиротой без
-    // единого способа её переименовать — лучше не делать ничего, чем половину.
-    const text =
-      'proxy-groups:\n  - name: G\n    type: select\n  - name: G\n    include-all: true\n' +
-      'rules:\n  - MATCH,G\n'
-    const md = parseMihomo(text)
-    expect(renameGroup(md, 'G', 'G2')).toEqual([])
-  })
-
-  it('уникальное имя по-прежнему переименовывается', () => {
-    const text = 'proxy-groups:\n  - name: G\n    type: select\nrules:\n  - MATCH,G\n'
-    const md = parseMihomo(text)
-    expect(renameGroup(md, 'G', 'G2').length).toBeGreaterThan(0)
-  })
-})
-
-// Находка 5 финального ревью: проверка неоднозначности стояла только на ИСХОДНОМ
-// имени, а операция молча создавала ту же неоднозначность на стороне ЦЕЛИ. Порча
-// не молчаливая (диагностики загораются), но НЕОБРАТИМАЯ редактором: после неё
-// `matches.length !== 1` отказывает на любом переименовании обеих групп.
-describe('финальное ревью: переименование в занятое имя', () => {
-  const TWO = [
-    'proxy-groups:',
-    '  - name: A',
-    '    proxies:',
-    '      - DIRECT',
-    '  - name: B',
-    '    proxies:',
-    '      - A',
-    'rules:',
-    '  - MATCH,A',
-    '',
-  ].join('\n')
-
-  it('отказывает, если целевое имя уже занято', () => {
-    const md = parseMihomo(TWO)
-    expect(renameGroup(md, 'A', 'B')).toEqual([])
-    // Симметрия с проверкой источника: две группы под одним именем — то самое
-    // состояние, из-за которого renameGroup отказывает, и заводить его нельзя
-    expect(renameGroup(parseMihomo(TWO), 'B', 'A')).toEqual([])
-  })
-
-  it('на свободное имя та же фикстура переименовывается', () => {
-    const out = edit(TWO, (md) => renameGroup(md, 'A', 'C'))
-    expect(parseMihomo(out).issues).toEqual([])
-    const names = groupsOf(parseMihomo(out)).map((g) => g.name)
-    expect(names).toEqual(['C', 'B'])
-    expect(groupsOf(parseMihomo(out))[1]!.proxies).toEqual(['C'])
-    expect(out).toContain('MATCH,C')
+  it('замена однострочного значения на той же фикстуре по-прежнему проходит', () => {
+    const md = parseMihomo(BLOCK)
+    const edits = setFieldAt(md, ['proxy-groups', 0], 'type', 'fallback')
+    expect(edits).toHaveLength(1)
+    const next = applyEdits(BLOCK, edits)
+    expect(parseMihomo(next).issues).toEqual([])
+    const group = groupsOf(parseMihomo(next))[0]!
+    expect(group.type).toBe('fallback')
+    expect(group.filter).toBe('aaa bbb')
   })
 })
