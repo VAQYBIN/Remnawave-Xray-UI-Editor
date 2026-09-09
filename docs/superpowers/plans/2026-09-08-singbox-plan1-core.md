@@ -1,5 +1,12 @@
 # Ядро поддержки Sing-box (план 1 из 2) — Implementation Plan
 
+> **Статус: ВЫПОЛНЕН** (2026-09-09, ветка `dev`). Коммиты по порядку: `0668c34` (генератор
+> фиктивных выходов по правилам панели), `e5f2d15` (ядро sing-box в образе), `9b71888` (сквозная
+> схема разбора), `169487c` (`SingboxService`), `0dee98e` (`outbounds.ts` — модель подстановки),
+> `fb593b5` (`rules.ts`), `3a17074` (`docSchema.ts`), `7448dc7` (ручка `POST
+> /api/tools/singbox-test`), `32f7f13` (`validate.ts`), `1b5d263` (`trace.ts`), `352df61`
+> (документация). Продолжение — `2026-09-09-singbox-plan2-ui.md` (интерфейс), тоже выполнен.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Научить бэкенд сохранять и проверять ядром шаблоны типа `SINGBOX`, а фронтенд — разбирать их, понимать подстановку панели, выдавать диагностики и трассировать маршрут. Без интерфейса.

@@ -70,13 +70,14 @@ const REMOVE_LABEL: Partial<Record<Kind, string>> = {
 }
 
 /**
- * Выход, объявленный в `endpoints`, форма записать не умеет: `withOutboundAt`
- * ищет элемент только в `outbounds` и возвращает тот же документ. Молча
- * проглотить правку хуже, чем назвать причину, — набранное иначе пропадало бы
- * без единого слова.
+ * `withOutboundAt` ищет элемент в обоих списках — и в `outbounds`, и в
+ * `endpoints`, — поэтому тот же документ он возвращает ровно в одном случае:
+ * выхода с таким тегом в документе больше нет (текст успели сменить на вкладке
+ * JSON, пока карточка была открыта). Молча проглотить правку хуже, чем назвать
+ * причину, — набранное иначе пропадало бы без единого слова.
  */
-const ENDPOINT_NOTE =
-  'Этот выход объявлен в endpoints — форма записать его не умеет. Правьте его на вкладке JSON.'
+const GONE_NOTE =
+  'Выход с этим тегом в документе не найден: похоже, его переименовали или удалили на вкладке JSON. Выберите карточку заново.'
 
 /**
  * Пустой тег форма не пишет. Узел графа адресуется тегом, и стереть его значит
@@ -258,7 +259,7 @@ export function SingboxInspector({ draft, doc, nodeId, onClose }: Props) {
     const nextTag = typeof next.tag === 'string' ? next.tag : ''
     if (nextTag === '') return refuse(EMPTY_TAG_NOTE)
     const nextDoc = withOutboundAt(doc, name, next)
-    if (nextDoc === doc) return refuse(ENDPOINT_NOTE)
+    if (nextDoc === doc) return refuse(GONE_NOTE)
     setNote(null)
     draft.changeDoc(nextDoc)
     follow(`${GROUP_OUTBOUND_TYPES.has(next.type) ? 'group' : 'out'}:${nextTag}`)
