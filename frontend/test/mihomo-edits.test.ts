@@ -4,7 +4,6 @@ import {
   setListAt, setRuleTarget,
 } from '../src/entities/mihomo/edits'
 import { groupsOf } from '../src/entities/mihomo/groups'
-import { hasRootMarker } from '../src/entities/mihomo/inject'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { rulesOf } from '../src/entities/mihomo/rules'
 import { mihomoFixture } from './helpers'
@@ -346,45 +345,50 @@ describe('C3 и I5: вставка поля не портит соседей', (
   })
 })
 
+// Маркер декоративен для ПОДСТАНОВКИ (панель кладёт хосты по ключам, не по
+// комментарию, см. entities/mihomo/inject.ts), но остаётся обычным
+// комментарием ТЕКСТА, и писатель обязан не портить его позицию — живые
+// шаблоны держат на нём человеческую подсказку независимо от того, читает ли
+// её панель. Проверяем это прямыми срезами текста, а не `hasMarker`/
+// `hasRootMarker` (обе сняты вместе с самим marker.ts).
 describe('дефект 1: новое поле не отрывает маркер от голого ключа `proxies`', () => {
   it('bundle: у «⚡️ Fastest» поле встаёт ПОСЛЕ маркера, а не между ним и ключом', () => {
     const text = mihomoFixture('bundle')
     const md = parseMihomo(text)
     // Голый `proxies:` — последняя пара группы, маркер стоит следующей строкой
     expect(groupsOf(md)[2]!.name).toBe('⚡️ Fastest')
-    expect(groupsOf(md)[2]!.hasMarker).toBe(true)
+    expect(text).toContain('LEAVE THIS LINE!')
 
     const out = applyEdits(text, setGroupField(md, 2, 'hidden', true))
     const after = parseMihomo(out)
     expect(after.issues).toHaveLength(0)
     expect(groupsOf(after)[2]!.hidden).toBe(true)
-    // Главное заявление: маркер по-прежнему принадлежит ключу `proxies`, и узел
-    // подстановки не исчезает с холста
-    expect(groupsOf(after)[2]!.hasMarker).toBe(true)
+    // Главное заявление: маркер по-прежнему принадлежит ключу `proxies`
+    expect(out).toContain('LEAVE THIS LINE!')
   })
 
   it('корень: голый `proxies:` с маркером строкой ниже переживает новое поле', () => {
     const text = 'mode: rule\nproxies:\n  # LEAVE THIS LINE!\n'
     const md = parseMihomo(text)
-    expect(hasRootMarker(md)).toBe(true)
+    expect(text).toContain('LEAVE THIS LINE!')
 
     const out = applyEdits(text, setFieldAt(md, [], 'log-level', 'info'))
     const after = parseMihomo(out)
     expect(after.issues).toHaveLength(0)
     expect(out).toContain('log-level: info')
-    expect(hasRootMarker(after)).toBe(true)
+    expect(out).toContain('LEAVE THIS LINE!')
   })
 
   it('маркер на строке ключа (default.yaml) остаётся при ключе', () => {
     const text = mihomoFixture('default')
     const md = parseMihomo(text)
-    expect(groupsOf(md)[0]!.hasMarker).toBe(true)
+    expect(text).toContain('LEAVE THIS LINE!')
 
     const out = applyEdits(text, setGroupField(md, 0, 'hidden', true))
     const after = parseMihomo(out)
     expect(after.issues).toHaveLength(0)
     expect(groupsOf(after)[0]!.hidden).toBe(true)
-    expect(groupsOf(after)[0]!.hasMarker).toBe(true)
+    expect(out).toContain('LEAVE THIS LINE!')
   })
 
   it('после маркера идут ещё скалярные ключи — якорь по-прежнему последний из них', () => {
@@ -394,7 +398,7 @@ describe('дефект 1: новое поле не отрывает маркер
     const after = parseMihomo(out)
     expect(after.issues).toHaveLength(0)
     expect(groupsOf(after)[0]!.hidden).toBe(true)
-    expect(groupsOf(after)[0]!.hasMarker).toBe(true)
+    expect(out).toContain('LEAVE THIS LINE!')
   })
 
   it('пустая строка после голого ключа границу вставки не переходит', () => {
@@ -403,7 +407,6 @@ describe('дефект 1: новое поле не отрывает маркер
     const after = parseMihomo(out)
     expect(after.issues).toHaveLength(0)
     expect(groupsOf(after).map((g) => g.name)).toEqual(['g', 'h'])
-    expect(groupsOf(after)[0]!.hasMarker).toBe(true)
     expect(groupsOf(after)[0]!.hidden).toBe(true)
     // Пустая строка — граница чужой территории: новое поле встаёт до неё
     expect(out).toContain('# LEAVE THIS LINE!\n    hidden: true\n\n  - name: h')

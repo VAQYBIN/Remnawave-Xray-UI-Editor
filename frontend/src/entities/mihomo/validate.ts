@@ -93,15 +93,7 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
     }
     seen.add(group.name)
 
-    if (group.hasMarker && group.remnawave.includeProxies === false) {
-      issues.push(
-        issue(
-          [...at, 'remnawave', 'include-proxies'],
-          `Группа «${group.name}» останется пустой: маркер подстановки стоит, но include-proxies: false его отменяет`,
-          'warning',
-        ),
-      )
-    } else if (!groupGetsHosts(group) && group.proxies.length === 0) {
+    if (!groupGetsHosts(group) && group.proxies.length === 0) {
       issues.push(
         issue(at, `Панель ничего не положит в группу «${group.name}» — она останется пустой`, 'warning'),
       )

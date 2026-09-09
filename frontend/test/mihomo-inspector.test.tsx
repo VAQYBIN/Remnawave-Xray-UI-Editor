@@ -333,16 +333,25 @@ describe('инспектор узла Mihomo', () => {
   })
 
   /**
-   * Узел подстановки рисуется по ЧЕТЫРЁМ основаниям, и маркер — лишь одно из
-   * них. У `include-all` в группе нет ни маркера, ни самого ключа `proxies`:
-   * безусловное «маркер стоит в списке proxies группы» отправляло бы читателя
-   * искать в тексте строку, которой там нет, — причём `include-all` он мог
-   * включить прямо в форме этой же группы.
+   * Панель дописывает хосты по ключам, а не по маркеру: без
+   * `remnawave.include-proxies: false` группа попадает в первую ветку текста
+   * («панель допишет...») даже с `include-all`. Вторая ветка («include-all:
+   * панель ничего не дописывает...») достижима только ПОСЛЕ явного отказа
+   * `include-proxies: false` — иначе группа получила бы хосты от панели, и
+   * говорить про сборку ядром было бы неверно.
    */
-  it('основание подстановки называется по документу, а не всегда маркером', () => {
-    hostsCard('proxy-groups:\n  - name: A\n    type: select\n    include-all: true\n')
+  it('основание подстановки называется по документу: include-all после include-proxies: false', () => {
+    hostsCard(
+      'proxy-groups:\n  - name: A\n    type: select\n    remnawave:\n      include-proxies: false\n    include-all: true\n',
+    )
     expect(screen.getByText(/include-all/)).toBeInTheDocument()
-    expect(screen.queryByText(/Маркер подстановки/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Панель допишет/)).not.toBeInTheDocument()
+  })
+
+  it('без include-proxies: false говорит, что панель допишет хосты сама — include-all в тексте не упоминается', () => {
+    hostsCard('proxy-groups:\n  - name: A\n    type: select\n    include-all: true\n')
+    expect(screen.getByText(/Панель допишет имена подставленных хостов/)).toBeInTheDocument()
+    expect(screen.queryByText(/include-all/)).not.toBeInTheDocument()
   })
 
   /**
@@ -365,16 +374,17 @@ describe('инспектор узла Mihomo', () => {
       ].join('\n'),
       'hosts:root',
     )
-    expect(screen.getByText(/списке proxies группы «root»/)).toBeInTheDocument()
-    expect(screen.queryByText(/корневом списке proxies/)).not.toBeInTheDocument()
+    expect(screen.getByText(/списка proxies группы «root»/)).toBeInTheDocument()
+    expect(screen.queryByText(/корневого списка proxies/)).not.toBeInTheDocument()
     expect(screen.getByText(/filter: \(\?i\)nl/)).toBeInTheDocument()
   })
 
-  // Корневой маркер без одноимённой группы — по-прежнему корневой список, и
-  // фильтру взяться неоткуда
-  it('корневая подстановка описана как корневой список', () => {
-    hostsCard('proxies: # LEAVE THIS LINE!\n', 'hosts:root')
-    expect(screen.getByText(/корневом списке proxies/)).toBeInTheDocument()
+  // Корневой список рисуется ВСЕГДА (маркер декоративен), а без одноимённой
+  // группы карточка по-прежнему говорит про корневой список, и фильтру взяться
+  // неоткуда
+  it('корневая подстановка описана как корневой список даже без маркера в тексте', () => {
+    hostsCard('mode: rule\n', 'hosts:root')
+    expect(screen.getByText(/конец корневого списка proxies/)).toBeInTheDocument()
     expect(screen.queryByText(/filter:/)).not.toBeInTheDocument()
   })
 

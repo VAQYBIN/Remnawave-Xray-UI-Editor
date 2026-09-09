@@ -3,7 +3,6 @@
 // стать диагностикой, а не обрушить разбор всего документа.
 
 import { isMap, isScalar, isSeq } from 'yaml'
-import { markerAfterKey } from './marker'
 import { dealias, mergedNode } from './merge'
 import { rangeOf, sectionNode, type MihomoDoc, type Range } from './parse'
 
@@ -20,12 +19,12 @@ export interface MihomoGroup {
   proxies: string[]
   use: string[]
   includeAll: boolean
+  /** Взять прокси всех объявленных провайдеров, а не только из `use` */
+  includeAllProviders: boolean
   filter?: string
   excludeFilter?: string
   hidden: boolean
   remnawave: RemnawaveKeys
-  /** В списке proxies стоит комментарий-маркер подстановки */
-  hasMarker: boolean
   range: Range
 }
 
@@ -79,15 +78,35 @@ export function groupsOf(md: MihomoDoc): MihomoGroup[] {
       use: strings(md, item, 'use'),
       includeAll:
         bool(md, item, 'include-all') === true || bool(md, item, 'include-all-proxies') === true,
+      includeAllProviders: bool(md, item, 'include-all-providers') === true,
       filter: str(md, item, 'filter'),
       excludeFilter: str(md, item, 'exclude-filter'),
       hidden: bool(md, item, 'hidden') === true,
       remnawave: remnawaveKeys(md, item),
-      // Маркер живёт на СОБСТВЕННОМ ключе `proxies` — искать его через слияние не
-      // имеет смысла: маркером в шаблоне размечают конкретное место в тексте.
-      hasMarker: markerAfterKey(md, item, 'proxies'),
       range,
     })
+  })
+  return out
+}
+
+export interface MihomoProxy {
+  index: number
+  name: string
+  type?: string
+  server?: string
+  range: Range
+}
+
+/** Статические серверы корневого `proxies`. Запись без имени узлом не становится: адресовать её нечем */
+export function proxiesOf(md: MihomoDoc): MihomoProxy[] {
+  const node = sectionNode(md, 'proxies')
+  if (!isSeq(node)) return []
+  const out: MihomoProxy[] = []
+  node.items.forEach((item, index) => {
+    const range = rangeOf(item)
+    const name = str(md, item, 'name')
+    if (range === null || name === undefined) return
+    out.push({ index, name, type: str(md, item, 'type'), server: str(md, item, 'server'), range })
   })
   return out
 }

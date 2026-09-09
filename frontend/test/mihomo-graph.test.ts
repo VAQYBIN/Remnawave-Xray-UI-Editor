@@ -216,13 +216,12 @@ describe('раскладка по вертикали', () => {
   })
 })
 
-// Находка 6 финального ревью: узел подстановки рисовался по предикату
-// `groupGetsHosts`, отвечающему на ДРУГОЙ вопрос («группа не останется пустой»,
-// где `use` — основание), да ещё и с приписко `&& use.length === 0`. У группы,
-// где есть И маркер, И `use`, узел исчезал, хотя маркер стоит и панель хосты
-// подставит; карточка при этом показывала `getsHosts: true`. Теперь на оба
-// места отвечает `panelInjectsHosts` — предикат ровно про подстановку панелью.
-describe('узел подстановки: маркер решает, а use — нет', () => {
+// Маркер `# LEAVE THIS LINE!` декоративен: панель дописывает хосты по ключам
+// документа (`remnawave.include-proxies`, `include-all`), не по комментарию.
+// Узел подстановки группы рисуется по `groupTakesHosts` — тому же предикату,
+// что и карточка (`getsHosts` в data узла): обе части модели обязаны
+// рассказывать про документ одну историю.
+describe('узел подстановки: решают ключи, а не маркер', () => {
   const doc = (lines: string[]) =>
     parseMihomo(['proxy-providers:', '  p1:', '    type: inline', 'proxy-groups:', ...lines, ''].join('\n'))
 
@@ -230,37 +229,49 @@ describe('узел подстановки: маркер решает, а use —
     (buildMihomoGraph(md).nodes.find((n) => n.id === 'group:G')!.data as { getsHosts: boolean })
       .getsHosts
 
-  it('маркер вместе с use даёт и узел подстановки, и ребро к нему', () => {
-    const md = doc(['  - name: G', '    use:', '      - p1', '    proxies: # LEAVE THIS LINE!'])
+  it('у группы без единого ключа узел подстановки есть — панель дописывает хосты по умолчанию', () => {
+    const md = doc(['  - name: G', '    type: select'])
     const { nodes, edges } = buildMihomoGraph(md)
     expect(nodes.map((n) => n.id)).toContain('hosts:G')
     expect(edges.map((e) => e.id)).toContain('e:group:G->hosts:G')
-    // Карточка и холст обязаны рассказывать одну историю
     expect(cardGetsHosts(md)).toBe(true)
   })
 
-  it('include-all вместе с use — то же самое', () => {
-    const md = doc(['  - name: G', '    use:', '      - p1', '    include-all: true'])
+  it('include-proxies: false снимает узел подстановки', () => {
+    const md = doc(['  - name: G', '    remnawave:', '      include-proxies: false'])
+    expect(buildMihomoGraph(md).nodes.map((n) => n.id)).not.toContain('hosts:G')
+    expect(cardGetsHosts(md)).toBe(false)
+  })
+
+  it('include-proxies: false вместе с include-all возвращает узел: хосты собирает ядро из корневого списка', () => {
+    const md = doc([
+      '  - name: G',
+      '    remnawave:',
+      '      include-proxies: false',
+      '    include-all: true',
+    ])
     expect(buildMihomoGraph(md).nodes.map((n) => n.id)).toContain('hosts:G')
     expect(cardGetsHosts(md)).toBe(true)
   })
 
-  it('один только use узла подстановки не даёт: хосты идут в провайдера', () => {
+  it('use без include-proxies: false не отменяет подстановку — узел и ребро к провайдеру есть одновременно', () => {
     const md = doc(['  - name: G', '    use:', '      - p1'])
+    const { nodes, edges } = buildMihomoGraph(md)
+    expect(nodes.map((n) => n.id)).toContain('hosts:G')
+    expect(edges.map((e) => e.id)).toContain('e:group:G->hosts:G')
+    expect(edges.map((e) => e.id)).toContain('e:group:G->provider:p1')
+  })
+
+  it('use при include-proxies: false узла подстановки не даёт: хосты идут только в провайдера', () => {
+    const md = doc(['  - name: G', '    remnawave:', '      include-proxies: false', '    use:', '      - p1'])
     const { nodes, edges } = buildMihomoGraph(md)
     expect(nodes.map((n) => n.id)).not.toContain('hosts:G')
     expect(edges.map((e) => e.id)).toContain('e:group:G->provider:p1')
     expect(cardGetsHosts(md)).toBe(false)
   })
 
-  it('include-proxies: false отменяет подстановку даже при маркере', () => {
-    const md = doc([
-      '  - name: G',
-      '    remnawave:',
-      '      include-proxies: false',
-      '    proxies: # LEAVE THIS LINE!',
-    ])
-    expect(buildMihomoGraph(md).nodes.map((n) => n.id)).not.toContain('hosts:G')
-    expect(cardGetsHosts(md)).toBe(false)
+  it('hosts:root рисуется всегда у документа-отображения — маркер не требуется', () => {
+    const { nodes } = buildMihomoGraph(parseMihomo('mode: rule\n'))
+    expect(nodes.map((n) => n.id)).toContain('hosts:root')
   })
 })

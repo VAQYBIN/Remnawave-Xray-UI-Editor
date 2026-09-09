@@ -177,7 +177,10 @@ describe('граф Mihomo', () => {
     )
     expect(screen.getByText('Внешний')).toBeInTheDocument()
     expect(screen.getByText('через warp')).toBeInTheDocument()
-    expect(screen.getByText('хосты панели')).toBeInTheDocument()
+    // Две карточки подстановки на этом документе: у группы «Основная» и
+    // корневая — панель дописывает хосты в корневой `proxies` ВСЕГДА, узел
+    // `hosts:root` рисуется независимо от группы (маркер декоративен)
+    expect(screen.getAllByText('хосты панели')).toHaveLength(2)
     expect(screen.getByText('фильтр: (RU)')).toBeInTheDocument()
     expect(screen.getByText('подсписок')).toBeInTheDocument()
     expect(screen.getByText('правил: 2')).toBeInTheDocument()
@@ -186,8 +189,11 @@ describe('граф Mihomo', () => {
   })
 
   it('карточка группы говорит о хостах панели условно и в обе стороны', () => {
+    // «Без хостов» обязана явно отказаться (`include-proxies: false`): без
+    // этого ключа панель по умолчанию дописывает хосты и в эту группу тоже
+    // (маркер декоративен, решают ключи документа, см. entities/mihomo/inject.ts)
     const md = parseMihomo(
-      'proxy-groups:\n  - name: С хостами\n    include-all: true\n  - name: Без хостов\n    proxies:\n      - DIRECT\n',
+      'proxy-groups:\n  - name: С хостами\n    include-all: true\n  - name: Без хостов\n    remnawave:\n      include-proxies: false\n    proxies:\n      - DIRECT\n',
     )
     render(
       <ReactFlowProvider>
@@ -215,8 +221,11 @@ describe('граф Mihomo', () => {
   }
 
   it('подсказка пустого холста говорит про разбор, а не про содержимое документа', () => {
-    // Узлов нет, но документ не пуст: `port`/`mode` в нём есть
-    const text = hintOn('port: 7890\nmode: rule\n')
+    // Корень документа — список, а не отображение: панели, в отличие от
+    // документа-отображения, здесь физически некуда класть хосты (`isMap` в
+    // `buildMihomoGraph` не пропускает узел `hosts:root`), и холст остаётся
+    // пустым несмотря на непустой текст
+    const text = hintOn('- a\n- b\n')
     expect(text).toMatch(/не нашёл/)
     expect(text).not.toMatch(/[Дд]окумент пуст/)
     // Импорт из каталога с этого холста недостижим: кнопка живёт в топбаре
@@ -227,14 +236,32 @@ describe('граф Mihomo', () => {
     expect(text).not.toMatch(/импорт/i)
   })
 
-  it('подсказка не отрицает того, что писатель видит в тексте', () => {
-    // Запись `- type: select` без имени группой не считается (`groupsOf`
-    // пропускает её), диагностики на неё сейчас нет — и утверждение «в документе
-    // нет групп» писатель опроверг бы, глядя в собственный файл. «Не нашёл»
-    // верно и здесь: это про разбор, а не про содержимое.
-    const text = hintOn('proxy-groups:\n  - type: select\n')
-    expect(text).toMatch(/не нашёл/)
-    expect(text).not.toMatch(/в документе нет/)
+  // Панель дописывает хосты в корневой `proxies` ВСЕГДА (маркер декоративен) —
+  // `hosts:root` рисуется у любого документа-отображения без всяких условий
+  // (см. buildMihomoGraph). Холст с одним только скалярными настройками или с
+  // неназванной записью группы (`groupsOf` её пропускает, узла у неё нет) —
+  // всё равно НЕ пуст: подсказки не будет, а карточка подстановки будет.
+  it('документ-отображение без единой группы, правила или провайдера всё равно не пуст: виден узел подстановки', () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <MihomoTopology draft={draftStub()} md={parseMihomo('port: 7890\nmode: rule\n')} />
+      </ReactFlowProvider>,
+    )
+    expect(container.querySelector('.canvas-hint')).toBeNull()
+    expect(screen.getByText('хосты панели')).toBeInTheDocument()
+  })
+
+  it('запись группы без имени не мешает узлу подстановки появиться на холсте', () => {
+    // `- type: select` без `name` группой не считается (`groupsOf` её
+    // пропускает), но корень документа всё равно отображение — узел подстановки
+    // рисуется независимо от того, нашлась ли хоть одна именованная группа
+    const { container } = render(
+      <ReactFlowProvider>
+        <MihomoTopology draft={draftStub()} md={parseMihomo('proxy-groups:\n  - type: select\n')} />
+      </ReactFlowProvider>,
+    )
+    expect(container.querySelector('.canvas-hint')).toBeNull()
+    expect(screen.getByText('хосты панели')).toBeInTheDocument()
   })
 
   it('подсказки нет, как только на холсте появился хоть один узел', () => {

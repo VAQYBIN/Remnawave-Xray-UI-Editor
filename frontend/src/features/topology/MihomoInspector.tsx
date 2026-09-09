@@ -6,7 +6,7 @@
 import {
   fieldsOf,
   groupsOf,
-  hasRootMarker,
+  groupTakesHosts,
   locateMihomo,
   panelInjectsHosts,
   providersOf,
@@ -79,26 +79,17 @@ function ProviderCard({ md, name, draft }: { md: MihomoDoc; name: string; draft:
 }
 
 /**
- * Чем именно группа заслужила узел подстановки. Оснований четыре, и маркер
- * среди них ЛИШЬ ОДНО: `include-all` и ключи выборки заводят узел без всякого
- * маркера, а `include-all` — ещё и без ключа `proxies` в группе. Безусловное
- * «маркер стоит в списке proxies группы» отправляло бы пользователя искать в
- * тексте строку, которой там нет (находка ревью, финальный раунд).
- *
- * Порядок веток — от того, что видно в тексте, к тому, что выведено из ключей;
- * он не обязан совпадать с порядком проверок в `panelInjectsHosts` (тот решает
- * «да/нет», а не «почему»). Ветка `else` достижима только при одном из ключей
- * выборки: остальные основания разобраны выше, а без всех четырёх узла бы не
- * было вовсе.
+ * Чем именно группа заслужила узел подстановки. Панель дописывает хосты по
+ * КЛЮЧАМ документа — маркер `# LEAVE THIS LINE!` декоративен и здесь не
+ * читается вовсе. Ветка `else` достижима только через `include-all` ПОСЛЕ
+ * `remnawave.include-proxies: false`: без него группа уже попала бы в первую
+ * ветку — панель дописывает хосты сама, ядру их собирать не нужно.
  */
 function hostsBasis(group: MihomoGroup): string {
-  if (group.hasMarker) return `Маркер подстановки стоит в списке proxies группы «${group.name}».`
-  if (group.includeAll) {
-    return `У группы «${group.name}» стоит include-all — она забирает всё, что есть в документе, и маркер в её списке proxies для этого не нужен.`
+  if (panelInjectsHosts(group)) {
+    return `Панель допишет имена подставленных хостов в конец списка proxies группы «${group.name}».`
   }
-  const key =
-    group.remnawave.selectRandomProxy === true ? 'select-random-proxy' : 'shuffle-proxies-order'
-  return `У группы «${group.name}» стоит ключ remnawave.${key} — маркера в её списке proxies для подстановки не требуется.`
+  return `У группы «${group.name}» стоит include-all: панель ничего не дописывает, но ядро соберёт хосты из корневого списка proxies, куда панель их положила.`
 }
 
 /**
@@ -114,12 +105,12 @@ function hostsBasis(group: MihomoGroup): string {
  */
 function HostsCard({ md, owner }: { md: MihomoDoc; owner: string }) {
   const group = groupsOf(md).find((g) => g.name === owner)
-  if (group === undefined || !panelInjectsHosts(group)) {
-    return owner === 'root' && hasRootMarker(md) ? (
+  if (group === undefined || !groupTakesHosts(group)) {
+    return owner === 'root' ? (
       <>
         <p>
-          Маркер подстановки стоит в корневом списке proxies. Если панель подставит хосты, они
-          окажутся здесь, и на них смогут ссылаться группы.
+          Серверы подписки панель допишет в конец корневого списка proxies. Если панель подставит
+          хосты, они окажутся здесь, и на них смогут ссылаться группы.
         </p>
         <p className="muted">
           Из узла не выходит кабель: имена подставленных хостов известны только панели, и сослаться

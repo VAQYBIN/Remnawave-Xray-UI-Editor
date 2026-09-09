@@ -6,7 +6,6 @@
 // своей структурой, как и граф Xray не реэкспортируется из `entities/xray`.
 
 export * from './parse'
-export * from './marker'
 export * from './rules'
 export * from './groups'
 export * from './resolve'
@@ -16,12 +15,9 @@ export * from './docSchema'
 export * from './locate'
 export * from './search'
 
-// `inject.ts` реэкспортирует `INJECT_MARKER` из `marker.ts` (единственный
-// владелец константы) — исключаем его здесь, чтобы `export *` не столкнул
-// одно и то же имя из двух модулей.
 export {
-  hasRootMarker,
   groupGetsHosts,
+  groupTakesHosts,
   panelInjectsHosts,
   conflictingKeys,
 } from './inject'

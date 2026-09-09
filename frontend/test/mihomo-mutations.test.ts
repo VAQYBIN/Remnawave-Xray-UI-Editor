@@ -207,10 +207,10 @@ describe('список в одну строку', () => {
 // а иногда и вовсе нет seq-узла (значение — null). Раньше соединение с такой
 // группой молча ничего не делало.
 describe('пустой блочный список', () => {
-  it('соединение с группой из default.yaml, где proxies содержит только маркер', () => {
+  it('соединение с группой из default.yaml, где proxies пуст (голый ключ с маркером-комментарием)', () => {
     const fixture = mihomoFixture('default')
     const md = parseMihomo(fixture)
-    const group = groupsOf(md).find((g) => g.hasMarker)!
+    const group = groupsOf(md).find((g) => g.proxies.length === 0)!
     const edits = connectMihomo(md, `group:${group.name}`, 'builtin:DIRECT').edits
     // Чистая вставка (from === to), а не замена — строка ключа с маркером не тронута
     expect(edits).toHaveLength(1)
@@ -220,7 +220,9 @@ describe('пустой блочный список', () => {
     const parsedOut = parseMihomo(out)
     const groupOut = groupsOf(parsedOut).find((g) => g.name === group.name)!
     expect(groupOut.proxies).toEqual(['DIRECT'])
-    expect(groupOut.hasMarker).toBe(true)
+    // Маркер-комментарий декоративен, но правка обязана его не тронуть — он
+    // остаётся частью документа как есть
+    expect(out).toContain('LEAVE THIS LINE!')
 
     // Остальные байты документа не тронуты: вырезав ровно вставленный кусок, получаем оригинал
     const edit = edits[0]!

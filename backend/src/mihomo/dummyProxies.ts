@@ -2,17 +2,14 @@
 // которых ещё нет — их подставит панель. Перед проверкой кладём фиктивные
 // серверы, как xray/dummyClient.ts кладёт фиктивного пользователя.
 //
+// Фиктивные имена дописываются в каждую группу без include-proxies: false —
+// так делает генератор панели; маркер-комментарий он не читает.
+//
 // ЕДИНСТВЕННОЕ место во всём проекте, где YAML печатается из модели: результат
 // уходит во временный файл для ядра и тут же удаляется, пользовательский
 // документ он не заменяет.
 
 import { parse, stringify } from 'yaml'
-
-// Вторая копия этой строки — frontend/src/entities/mihomo/marker.ts
-// (INJECT_MARKER). Общих файлов между workspace быть не должно, поэтому
-// дублирование неизбежно, но связи между копиями нет: правка одной не заметит
-// другую. Меняешь текст маркера — проверь и вторую копию.
-const MARKER = 'LEAVE THIS LINE!'
 
 /** Фиксированные значения: вердикт проверки не должен зависеть от случайности */
 const DUMMY = [
@@ -25,7 +22,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function withDummyProxies(yamlText: string): string {
-  const marked = yamlText.includes(MARKER)
   const config = parse(yamlText) as unknown
   if (!isRecord(config)) return yamlText
 
@@ -41,9 +37,7 @@ export function withDummyProxies(yamlText: string): string {
       delete group.remnawave
       if (remnawave?.['include-proxies'] === false) continue
       const proxies = Array.isArray(group.proxies) ? group.proxies : []
-      // Пустая группа ядру не нравится, поэтому имена добавляем и тем, у кого
-      // маркер стоял, и тем, кто остался бы вовсе без кандидатов
-      if (marked || proxies.length === 0) group.proxies = [...proxies, ...names]
+      group.proxies = [...proxies, ...names]
     }
   }
 

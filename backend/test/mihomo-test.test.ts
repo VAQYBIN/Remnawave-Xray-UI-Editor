@@ -36,13 +36,19 @@ rules:
 `
 
 describe('подстановка фиктивных прокси', () => {
-  it('заполняет корневой список и группы с маркером', () => {
+  it('заполняет корневой список и каждую группу без include-proxies: false', () => {
     const config = parse(withDummyProxies(TEMPLATE)) as {
       proxies: { name: string }[]
       'proxy-groups': { name: string; proxies: string[] }[]
     }
     expect(config.proxies.length).toBeGreaterThan(0)
     expect(config['proxy-groups'][0]!.proxies).toContain(config.proxies[0]!.name)
+  })
+
+  it('группа без маркера тоже получает фиктивные имена — панель дописывает по ключам, а не по комментарию', () => {
+    const text = 'proxy-groups:\n  - name: a\n    type: select\n    proxies:\n      - DIRECT\nrules:\n  - MATCH,a\n'
+    const config = parse(withDummyProxies(text)) as { proxies: { name: string }[]; 'proxy-groups': { proxies: string[] }[] }
+    expect(config['proxy-groups'][0]!.proxies).toEqual(['DIRECT', ...config.proxies.map((p) => p.name)])
   })
 
   it('заполняет payload inline-провайдеров — пустой ядро не примет', () => {

@@ -50,9 +50,11 @@ describe('диагностики', () => {
     expect(issues.some((i) => i.level === 'error' && i.message.includes('кольцо'))).toBe(true)
   })
 
-  it('маркер при include-proxies: false — предупреждение о пустой группе', () => {
-    const text =
-      'proxy-groups:\n  - name: a\n    remnawave:\n      include-proxies: false\n    proxies:\n      # LEAVE THIS LINE!\n'
+  it('include-proxies: false без кандидатов — предупреждение о пустой группе', () => {
+    // Маркер декоративен и здесь ни при чём: у группы нет ни proxies, ни use,
+    // ни include-all/include-all-providers — панель с include-proxies: false
+    // ей ничего не даст, и это ровно случай `!groupGetsHosts && proxies.length === 0`
+    const text = 'proxy-groups:\n  - name: a\n    remnawave:\n      include-proxies: false\n'
     expect(messages(text).join(' ')).toContain('останется пустой')
   })
 
