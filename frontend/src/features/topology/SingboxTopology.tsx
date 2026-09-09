@@ -17,9 +17,19 @@ import {
   type SingboxEditResult,
   type SingboxRefusal,
 } from '../../entities/graph/singbox/mutations'
-import type { SingboxDoc, SingboxRule, SingboxTraceResult } from '../../entities/singbox'
+import {
+  nodeIdOf,
+  startEndpoint,
+  startGroup,
+  startInbound,
+  startOutbound,
+  startServer,
+  type SingboxDoc,
+  type SingboxRule,
+  type SingboxTraceResult,
+} from '../../entities/singbox'
 import type { SingboxDraft } from '../editor/useSingboxDraft'
-import { Button, Dialog } from '../../shared/ui'
+import { Button, Dialog, MenuButton, type MenuItem } from '../../shared/ui'
 import { edgeTypes } from './edges'
 import { GraphCanvas } from './GraphCanvas'
 import { singboxNodeTypes } from './singboxNodes'
@@ -85,6 +95,40 @@ export function singboxTraceStateOf(
  */
 export function nextRule(): SingboxRule {
   return { domain: [], outbound: 'direct' }
+}
+
+const ADD_ITEMS: MenuItem[] = [
+  { id: 'inbound', label: 'Вход' },
+  { id: 'outbound', label: 'Выход' },
+  { id: 'server', label: 'Сервер' },
+  { id: 'group', label: 'Группа' },
+  { id: 'endpoint', label: 'Эндпоинт' },
+]
+
+/**
+ * Пункт меню → запись в конец своего списка и выбор нового узла. Чистая
+ * функция рядом с nextRule и по той же причине: внутри компонента её не
+ * проверить. Тег уникален — стартер считает его по документу.
+ */
+export function addFromMenu(
+  draft: Pick<SingboxDraft, 'applyOps' | 'setSelectedNode'>,
+  doc: SingboxDoc,
+  id: string,
+): void {
+  const plan = {
+    inbound: { list: 'inbounds' as const, value: () => startInbound(doc) },
+    outbound: { list: 'outbounds' as const, value: () => startOutbound(doc) },
+    server: { list: 'outbounds' as const, value: () => startServer(doc) },
+    group: { list: 'outbounds' as const, value: () => startGroup(doc) },
+    endpoint: { list: 'endpoints' as const, value: () => startEndpoint(doc) },
+  }[id as 'inbound' | 'outbound' | 'server' | 'group' | 'endpoint']
+  if (plan === undefined) return
+  const value = plan.value()
+  const current = doc[plan.list]
+  const index = Array.isArray(current) ? current.length : 0
+  draft.applyOps([{ op: 'insert', path: [plan.list], index, value }])
+  const nodeId = nodeIdOf(value, plan.list)
+  if (nodeId !== null) draft.setSelectedNode(nodeId)
 }
 
 export function SingboxTopology({
@@ -221,26 +265,18 @@ export function SingboxTopology({
           // `log`, `dns` и `experimental`. Верно и всегда — «редактор не нашёл»:
           // это утверждение о разборе, а не о содержимом файла.
           <>
-            Редактор не нашёл в документе ни одного входа, правила или выхода. Заведите правило
-            кнопкой ниже или впишите записи на вкладке JSON.
+            Редактор не нашёл в документе ни одного входа, правила или выхода. Заведите их
+            кнопками ниже — правило, меню «+ Добавить» — или впишите записи на вкладке JSON.
           </>
         ) : undefined
       }
       dockActions={
         <>
           <Button onClick={() => draft.changeDoc(addRule(doc, nextRule()))}>+ Правило</Button>
-          {/*
-            Списки без узлов на холсте: набор правил — свойство правила, а DNS
-            в граф не идёт вовсе, и колонка из девяти наборов была бы шумом. Отсюда
-            псевдоузел: инспектор рисует его по выбору, а канвас просто не находит, что
-            подсветить. `ghost` — чтобы не спорить с «+ Правило»: та заводит
-            запись, эти открывают список.
-          */}
-          <Button variant="ghost" onClick={() => draft.setSelectedNode('doc:rule-sets')}>
-            Наборы правил
-          </Button>
-          <Button variant="ghost" onClick={() => draft.setSelectedNode('doc:dns-servers')}>
-            DNS
+          <MenuButton label="+ Добавить" items={ADD_ITEMS} onPick={(id) => addFromMenu(draft, doc, id)} />
+          {/* Секции без узлов на холсте живут в панели «Документ»: одна кнопка вместо кнопки на секцию */}
+          <Button variant="ghost" onClick={() => draft.setSelectedNode('doc:settings')}>
+            Документ
           </Button>
         </>
       }

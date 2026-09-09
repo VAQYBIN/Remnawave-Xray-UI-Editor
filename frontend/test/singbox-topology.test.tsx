@@ -4,6 +4,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 import { edgeHues } from '../src/features/topology/edges'
 import {
+  addFromMenu,
   SINGBOX_TARGET_KINDS,
   singboxColumns,
   SingboxTopology,
@@ -81,10 +82,10 @@ describe('гнёзда коммутации', () => {
   })
 })
 
-// У наборов правил и серверов DNS узлов на холсте нет и не будет: набор —
-// свойство правила, а DNS в граф не идёт вовсе. Единственный вход к их формам —
-// кнопки дока, открывающие инспектор на псевдоузле.
-describe('кнопки дока для списков без узлов', () => {
+// У наборов правил, серверов DNS и прочих секций без узлов на холсте единственный
+// вход к их формам — псевдоузлы дока: меню «+ Добавить» заводит записи, кнопка
+// «Документ» открывает инспектор на doc:settings (сам инспектор — задача 17).
+describe('меню «+ Добавить»', () => {
   const DOC = parseSingbox('{"outbounds":[{"type":"direct","tag":"direct"}]}').doc!
 
   function draftStub(setSelectedNode: () => void): SingboxDraft {
@@ -93,13 +94,31 @@ describe('кнопки дока для списков без узлов', () => 
       selectedNode: null,
       setSelectedNode,
       changeDoc: vi.fn(),
+      applyOps: vi.fn(),
       nodeIssues: {},
       trace: undefined,
       focus: null,
     } as unknown as SingboxDraft
   }
 
-  it('открывают инспектор на псевдоузле, а не заводят запись', async () => {
+  it('каждый пункт вставляет запись в конец своего списка и выбирает её узел', () => {
+    const doc = parseSingbox('{"outbounds":[{"type":"direct","tag":"direct"}]}').doc!
+    const draft = { applyOps: vi.fn(), setSelectedNode: vi.fn() } as unknown as SingboxDraft
+    addFromMenu(draft, doc, 'group')
+    expect(draft.applyOps).toHaveBeenCalledWith([
+      { op: 'insert', path: ['outbounds'], index: 1, value: { type: 'selector', tag: 'select', outbounds: [] } },
+    ])
+    expect(draft.setSelectedNode).toHaveBeenCalledWith('group:select')
+    addFromMenu(draft, doc, 'inbound')
+    expect(draft.setSelectedNode).toHaveBeenLastCalledWith('inbound:mixed-in')
+    addFromMenu(draft, doc, 'endpoint')
+    expect(draft.applyOps).toHaveBeenLastCalledWith([
+      expect.objectContaining({ op: 'insert', path: ['endpoints'], index: 0 }),
+    ])
+    expect(draft.setSelectedNode).toHaveBeenLastCalledWith('out:wg')
+  })
+
+  it('док показывает меню и кнопку «Документ», старых кнопок нет', async () => {
     const setSelectedNode = vi.fn()
     const draft = draftStub(setSelectedNode)
     render(
@@ -108,13 +127,21 @@ describe('кнопки дока для списков без узлов', () => 
       </ReactFlowProvider>,
     )
 
-    await userEvent.click(screen.getByRole('button', { name: 'Наборы правил' }))
-    expect(setSelectedNode).toHaveBeenLastCalledWith('doc:rule-sets')
+    expect(screen.getByRole('button', { name: '+ Добавить' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Документ' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Наборы правил' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'DNS' })).toBeNull()
 
-    await userEvent.click(screen.getByRole('button', { name: 'DNS' }))
-    expect(setSelectedNode).toHaveBeenLastCalledWith('doc:dns-servers')
+    await userEvent.click(screen.getByRole('button', { name: '+ Добавить' }))
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Вход',
+      'Выход',
+      'Сервер',
+      'Группа',
+      'Эндпоинт',
+    ])
 
-    // Обе только открывают список; запись заводит уже кнопка внутри инспектора
-    expect(draft.changeDoc).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Документ' }))
+    expect(setSelectedNode).toHaveBeenLastCalledWith('doc:settings')
   })
 })
