@@ -13,6 +13,17 @@ const PROTOCOLS: Option[] = [
   { value: 'hysteria', label: 'Hysteria 2' },
 ]
 
+// Клиентский вход (socks, http — их заводит starter.ts шаблона подписки) не входит в
+// список серверных протоколов: без текущего значения в опциях Select не находит его
+// и показывает плейсхолдер «Не выбрано», а выбор любого пункта тогда читался бы как
+// СМЕНА протокола и стирал бы settings, хотя пользователь просто открыл форму. Список
+// серверных протоколов при этом не расширяется — пункт добавляется только для текущего
+// значения, как `optionsWith` в MihomoFieldsForm.
+function protocolOptions(protocol: string): Option[] {
+  if (PROTOCOLS.some((p) => p.value === protocol)) return PROTOCOLS
+  return [{ value: protocol, label: protocol }, ...PROTOCOLS]
+}
+
 const SS_METHODS: Option[] = [
   '2022-blake3-aes-128-gcm',
   '2022-blake3-aes-256-gcm',
@@ -54,6 +65,7 @@ interface Props {
 
 export function InboundForm({ value, onChange }: Props) {
   const protocol = (value.protocol as string) ?? 'vless'
+  const isKnownProtocol = PROTOCOLS.some((p) => p.value === protocol)
   const settings = (value.settings as Obj) ?? {}
   const sniffing = (value.sniffing as Obj) ?? {}
   const fallbacks = settings.fallbacks as Obj[] | undefined
@@ -144,7 +156,12 @@ export function InboundForm({ value, onChange }: Props) {
         onChange={(v) => patch((n) => { if (v === undefined) delete n.port; else n.port = v })} />
       <TextField label="Listen (адрес)" mono placeholder="0.0.0.0" value={value.listen as string | undefined}
         onChange={(v) => patch((n) => { if (v === undefined) delete n.listen; else n.listen = v })} />
-      <SelectField label="Протокол" value={protocol} options={PROTOCOLS}
+      <SelectField label="Протокол" value={protocol} options={protocolOptions(protocol)}
+        hint={
+          isKnownProtocol
+            ? undefined
+            : 'Форма знает только серверные протоколы; настройки socks/http и любого другого клиентского входа правятся на вкладке «JSON узла».'
+        }
         onChange={(v) =>
           patch((n) => {
             if (n.protocol === v) return

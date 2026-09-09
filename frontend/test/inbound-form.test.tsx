@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { selectOption } from './helpers'
+import { selectOption, selectedValue } from './helpers'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { InboundForm } from '../src/features/inspector/InboundForm'
@@ -199,5 +199,37 @@ describe('InboundForm — hysteria2, shadowsocks network, sniffing', () => {
     wrap(<InboundForm value={{ ...VLESS, sniffing: { enabled: false } }} onChange={vi.fn()} />)
     expect(screen.queryByLabelText('Только для маршрутизации (routeOnly)')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'fakedns' })).not.toBeInTheDocument()
+  })
+})
+
+describe('InboundForm — клиентский протокол вне списка (socks/http шаблона подписки)', () => {
+  const SOCKS = {
+    tag: 'socks-in',
+    port: 10808,
+    protocol: 'socks',
+    settings: { udp: true, auth: 'noauth' },
+  }
+
+  it('селект протокола показывает текущее значение вместо плейсхолдера, видна подсказка про JSON', () => {
+    wrap(<InboundForm value={SOCKS} onChange={vi.fn()} />)
+    expect(selectedValue('Протокол')).toBe('socks')
+    // data-value триггера всегда равен пропу value — реальный симптом плейсхолдера
+    // виден в подписи: без опции для текущего значения там осталось бы «Не выбрано»
+    expect(screen.getByLabelText('Протокол')).toHaveTextContent('socks')
+    expect(screen.getByText(/вкладке «JSON узла»/)).toBeInTheDocument()
+  })
+
+  it('правка тега не трогает settings и не меняет protocol', async () => {
+    const onChange = vi.fn()
+    wrap(<InboundForm value={SOCKS} onChange={onChange} />)
+    await userEvent.type(screen.getByLabelText('Тег'), '2')
+    const next = onChange.mock.lastCall![0] as Record<string, unknown>
+    expect(next.protocol).toBe('socks')
+    expect(next.settings).toEqual({ udp: true, auth: 'noauth' })
+  })
+
+  it('протокол из списка (vless): подсказки про JSON нет', () => {
+    wrap(<InboundForm value={VLESS} onChange={vi.fn()} />)
+    expect(screen.queryByText(/вкладке «JSON узла»/)).not.toBeInTheDocument()
   })
 })
