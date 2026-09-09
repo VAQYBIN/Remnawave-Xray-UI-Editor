@@ -35,7 +35,7 @@ function roundTrips(rule: MihomoRule): boolean {
     back.type === rule.type &&
     (back.payload ?? '') === (rule.payload ?? '') &&
     back.target === rule.target &&
-    back.modifiers.join('0000') === rule.modifiers.join('0000')
+    back.modifiers.join('\u0000') === rule.modifiers.join('\u0000')
   )
 }
 
