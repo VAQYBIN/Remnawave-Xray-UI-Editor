@@ -4,6 +4,7 @@
 
 import { expect, test } from '@playwright/test'
 import { CATALOG_SINGBOX_JSON, SINGBOX_JSON, SINGBOX_UUID, mockApi, mockSingbox } from './mocks'
+import { pickOption } from './helpers'
 
 const node = (id: string) => `.react-flow__node[data-id="${id}"]`
 
@@ -231,4 +232,91 @@ test('клик по диагностике ведёт к её месту в те
   // Каретка уехала на место ссылки: в тексте список диагностик ведёт к месту, а
   // не к узлу графа, — вкладку при этом не переключает
   await expect(page.locator('.cm-activeLine')).toContainText('"outbound": "Выбор"')
+})
+
+// Отдельный describe: своя фикстура (пустой документ) и своё условие готовности
+// страницы — вместо узла группы на холсте ждём кнопку «+ Добавить» (граф пуст).
+test.describe('с нуля', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page)
+    await mockSingbox(page, { template: {} })
+    await page.goto(`/templates/${SINGBOX_UUID}`)
+    await expect(page.getByRole('button', { name: '+ Добавить' })).toBeVisible()
+  })
+
+  test('шаблон собирается кнопками и формами, вкладка JSON не открывается', async ({ page }) => {
+    const patches: string[] = []
+    await page.route('**/api/templates/*', async (route) => {
+      if (route.request().method() === 'PATCH') patches.push(route.request().postData() ?? '')
+      await route.fallback()
+    })
+    const inspector = page.locator('aside.wb-inspector')
+    const add = async (item: string) => {
+      await page.getByRole('button', { name: '+ Добавить' }).click()
+      await page.getByRole('menuitem', { name: item }).click()
+    }
+
+    await add('Вход')
+    await expect(inspector.getByLabel('Тег')).toHaveValue('mixed-in')
+    await add('Группа')
+    await expect(page.locator(node('group:select'))).toBeVisible()
+    await add('Выход')
+    await expect(page.locator(node('out:direct'))).toBeVisible()
+
+    await page.getByRole('button', { name: '+ Правило' }).click()
+    // Кнопка дока сама выбор не переносит (правило заводится по индексу, а не
+    // тегом) — переходим на новый узел кликом, как это делает писатель
+    await page.locator(node('rule:0')).click()
+    await expect(inspector.getByLabel('Действие')).toBeVisible()
+    await inspector.getByLabel('Суффикс домена').fill('example.com')
+
+    await page.getByRole('button', { name: 'Документ' }).click()
+    await inspector.getByRole('button', { name: 'DNS-серверы' }).click()
+    await inspector.getByRole('button', { name: '+ Сервер' }).click()
+    await inspector.getByRole('button', { name: 'DNS-правила' }).click()
+    await inspector.getByRole('button', { name: '+ DNS-правило' }).click()
+    await inspector.getByRole('button', { name: 'Наборы правил' }).click()
+    await inspector.getByRole('button', { name: '+ Набор правил' }).click()
+    await inspector.getByRole('button', { name: 'Маршрут' }).click()
+    // Раздел route уже существует: «+ Правило» завёл его сам (`route ??= {}`),
+    // так что «Завести раздел» здесь не нужна — сразу форма
+    const routeRegion = inspector.getByRole('region', { name: 'Маршрут' })
+    // `final` не заполнен по умолчанию — форма прячет незаполненные поля под
+    // крышку «Ещё поля», иначе пустой раздел маршрута захламил бы верх формы
+    await routeRegion.getByRole('button', { name: /Ещё поля/ }).click()
+    await pickOption(page, routeRegion.getByLabel('final'), 'select')
+
+    await page.getByRole('button', { name: 'Сохранить в панель' }).click()
+    await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
+    await expect.poll(() => patches.length).toBe(1)
+    const body = JSON.parse(patches[0]!).templateJson
+    expect(body.inbounds[0].tag).toBe('mixed-in')
+    expect(body.outbounds.map((o: { tag: string }) => o.tag)).toEqual(['select', 'direct'])
+    expect(body.route.rules[0].domain_suffix).toEqual(['example.com'])
+    expect(body.route.final).toBe('select')
+    expect(body.dns.servers).toHaveLength(1)
+    expect(body.dns.rules).toHaveLength(1)
+    expect(body.route.rule_set).toHaveLength(1)
+    // Вкладка JSON так и не открывалась
+    await expect(page.locator('.cm-editor')).toHaveCount(0)
+  })
+})
+
+test('порядок выходов меняет маршрут по умолчанию на карточке', async ({ page }) => {
+  await page.locator(node('out:direct')).click()
+  await expect(page.locator(node('group:Выбор'))).toContainText('по умолчанию')
+  await page.locator('aside.wb-inspector').getByRole('button', { name: 'Переместить выше' }).click()
+  await expect(page.locator(node('out:direct'))).toContainText('по умолчанию')
+})
+
+test('рецепт DNS с fake-ip заводит серверы и правила', async ({ page }) => {
+  await page.getByRole('button', { name: 'Рецепты' }).click()
+  await page.getByRole('button', { name: /DNS с fake-ip/ }).click()
+  // Кнопка «Применить» отключена до заполнения обязательного параметра —
+  // адреса удалённого DNS (validateDns требует непустой remote)
+  await page.getByLabel('Удалённый DNS').fill('1.1.1.1')
+  await page.getByRole('button', { name: 'Применить' }).click()
+  await page.getByRole('button', { name: 'Документ' }).click()
+  await page.locator('aside.wb-inspector').getByRole('button', { name: 'DNS-серверы' }).click()
+  await expect(page.locator('aside.wb-inspector').getByText('dns-fakeip')).toBeVisible()
 })

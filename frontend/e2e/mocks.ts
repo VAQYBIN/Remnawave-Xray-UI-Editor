@@ -429,17 +429,23 @@ export async function mockMihomo(
  * этим — содержимое одного и инструменты вокруг него. Каталог перехватывается
  * здесь же — диалог импорта общий для всех трёх редакторов шаблона.
  * `core` задаёт ответ проверки ядром: отчёту нужен и принявший, и отклонивший
- * вердикт.
+ * вердикт. `template` подменяет содержимое документа — сценарию «с нуля»
+ * нужен пустой `{}` вместо готовой фикстуры `SINGBOX_JSON`.
  */
 export async function mockSingbox(
   page: Page,
-  opts: { core?: { available: boolean; ok: boolean; errors: string[] } } = {},
+  opts: { core?: { available: boolean; ok: boolean; errors: string[] }; template?: unknown } = {},
 ) {
   await page.route(`**/api/templates/${SINGBOX_UUID}/backups`, (r) =>
     r.fulfill({ json: { backups: [] } }),
   )
   await page.route(`**/api/templates/${SINGBOX_UUID}`, (r) =>
-    r.fulfill({ json: { template: SINGBOX_TEMPLATE, hash: SINGBOX_HASH } }),
+    r.fulfill({
+      json: {
+        template: { ...SINGBOX_TEMPLATE, templateJson: opts.template ?? SINGBOX_JSON },
+        hash: SINGBOX_HASH,
+      },
+    }),
   )
 
   await page.route(/\/api\/catalog\/templates$/, (r) =>
