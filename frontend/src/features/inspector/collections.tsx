@@ -65,8 +65,12 @@ export function KeyValueField({
   )
 }
 
-// Повторяемые карточки объектов (fallbacks, peers, certificates, dns-серверы).
-// Полностью controlled: рендер идёт от value из пропсов, буфера нет.
+/**
+ * Повторяемые карточки объектов (fallbacks, peers, certificates, dns-серверы).
+ * Полностью controlled: рендер идёт от value из пропсов, буфера нет.
+ * `reorder` включает стрелки: у списков, где порядок значим (пиры, серверы
+ * DNS), без них порядок правился бы только текстом.
+ */
 export function ListEditor<T extends object>({
   label,
   hint,
@@ -75,6 +79,7 @@ export function ListEditor<T extends object>({
   createItem,
   addLabel,
   renderItem,
+  reorder = false,
 }: {
   label: string
   hint?: string
@@ -83,8 +88,15 @@ export function ListEditor<T extends object>({
   createItem: () => T
   addLabel: string
   renderItem: (item: T, update: (patch: Partial<T>) => void, index: number) => ReactNode
+  reorder?: boolean
 }) {
   const items = value ?? []
+  const move = (from: number, to: number) => {
+    const next = [...items]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved!)
+    onChange(next)
+  }
   return (
     <div className="field">
       <span className="field-label">{label}</span>
@@ -94,6 +106,28 @@ export function ListEditor<T extends object>({
             <div className="list-editor-body">
               {renderItem(item, (patch) => onChange(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it))), i)}
             </div>
+            {reorder && (
+              <div className="list-editor-order">
+                <button
+                  type="button"
+                  className="chip-x"
+                  aria-label={`Переместить элемент ${i + 1} выше`}
+                  disabled={i === 0}
+                  onClick={() => move(i, i - 1)}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="chip-x"
+                  aria-label={`Переместить элемент ${i + 1} ниже`}
+                  disabled={i === items.length - 1}
+                  onClick={() => move(i, i + 1)}
+                >
+                  ↓
+                </button>
+              </div>
+            )}
             <button
               type="button"
               className="chip-x"

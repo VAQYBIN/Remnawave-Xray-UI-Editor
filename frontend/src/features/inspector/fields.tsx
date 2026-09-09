@@ -95,30 +95,105 @@ export function PortField({
   )
 }
 
+/**
+ * Число. По умолчанию — неотрицательное целое (порты, счётчики): именно так
+ * читались все прежние поля. Схема может разрешить дробное (`integer: false`)
+ * и отрицательное (`min < 0`); ввод ниже `min` не пишется — форма не подменяет
+ * набранное, она его просто не принимает.
+ *
+ * Локальный текстовый буфер, как у `PortField`: промежуточные состояния при
+ * наборе отрицательного или дробного числа («-», «-2.») не совпадают с
+ * итоговым паттерном и потому не коммитятся через onChange. Без буфера
+ * контролируемый инпут откатывал бы такой символ сразу после нажатия — React
+ * возвращает DOM к prop `value`, если onChange не вызван, — и набрать «-2.5»
+ * посимвольно было бы физически невозможно: каждая следующая цифра печаталась
+ * бы в уже очищенное поле. Значение из пропсов читается только при
+ * монтировании — внешние изменения требуют remount (key).
+ */
 export function NumberField({
   label,
+  hint,
   value,
   onChange,
   placeholder,
+  integer = true,
+  min,
 }: {
   label: string
+  hint?: string
   value: number | undefined
   onChange: (v: number | undefined) => void
   placeholder?: string
+  integer?: boolean
+  min?: number
 }) {
+  const allowNegative = min !== undefined && min < 0
+  const pattern = integer
+    ? allowNegative ? /^-?\d+$/ : /^\d+$/
+    : allowNegative ? /^-?\d+(\.\d+)?$/ : /^\d+(\.\d+)?$/
+  const [text, setText] = useState(value === undefined ? '' : String(value))
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <TextInput
-        value={value === undefined ? '' : String(value)}
+        value={text}
         placeholder={placeholder}
-        inputMode="numeric"
+        inputMode={integer && !allowNegative ? 'numeric' : 'decimal'}
         onChange={(e) => {
-          const t = e.target.value.trim()
+          const raw = e.target.value
+          setText(raw)
+          const t = raw.trim()
           if (t === '') return onChange(undefined)
-          if (/^\d+$/.test(t)) onChange(Number(t))
+          if (!pattern.test(t)) return
+          const n = Number(t)
+          if (min !== undefined && n < min) return
+          onChange(n)
         }}
       />
     </Field>
+  )
+}
+
+/**
+ * Булево поле с ТРЕМЯ состояниями. `CheckboxField` снимает ключ на false — для
+ * форм Xray это верно (false там всегда умолчание), а у sing-box явное
+ * `set_system_proxy: false` или `auto_route: false` — реальные значения, и
+ * снять ключ значило бы записать другое. Стиль — сегменты, как у переключателя
+ * «Форма / JSON узла».
+ */
+export function TriStateField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  value: boolean | undefined
+  onChange: (v: boolean | undefined) => void
+}) {
+  const states: { v: boolean | undefined; text: string }[] = [
+    { v: undefined, text: 'не задано' },
+    { v: true, text: 'да' },
+    { v: false, text: 'нет' },
+  ]
+  return (
+    <div className="field">
+      <span className="field-label">{label}</span>
+      <div className="segmented tristate" role="group" aria-label={label}>
+        {states.map((s) => (
+          <button
+            key={s.text}
+            type="button"
+            className="btn"
+            aria-pressed={value === s.v}
+            onClick={() => onChange(s.v)}
+          >
+            {s.text}
+          </button>
+        ))}
+      </div>
+      {hint ? <span className="field-hint">{hint}</span> : null}
+    </div>
   )
 }
 

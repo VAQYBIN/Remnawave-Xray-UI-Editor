@@ -1748,3 +1748,9 @@ p { margin: 0 0 10px; }
    grid в одну колонку, и боковой отступ у соседа сдвигал бы вторую пометку
    вправо вместо того, чтобы поставить её рядом с первой */
 .trace-set { font-size: 11px; color: var(--ink-dim); }
+
+/* Стрелки порядка у карточки списка: стоят столбиком между телом и крестиком */
+.list-editor-order { display: flex; flex-direction: column; gap: 2px; }
+.list-editor-order .chip-x:disabled { opacity: 0.35; cursor: default; }
+/* Тристейт — те же сегменты, что у «Форма / JSON узла», но во всю ширину поля */
+.tristate { align-self: flex-start; }
