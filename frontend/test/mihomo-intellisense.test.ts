@@ -30,24 +30,27 @@ function labels(src: string): string[] {
 }
 
 describe('контекст курсора', () => {
-  it('внутри элемента proxy-groups — секция группы', () => {
+  it('внутри элемента proxy-groups — поля группы', () => {
     const { text, pos } = at('proxy-groups:\n  - name: A\n    ‸\n')
-    const ctx = contextAt(text, pos)
-    expect(ctx?.section).toBe('proxy-group')
-    expect(ctx?.mode).toBe('key')
-    expect(ctx?.existingKeys).toContain('name')
+    const cursor = contextAt(text, pos)
+    expect(cursor?.path).toEqual(['proxy-groups', 0])
+    expect(cursor?.mode).toBe('key')
+    expect(cursor?.existingKeys).toContain('name')
+    expect(cursor?.fields?.map((f) => f.key)).toContain('type')
   })
 
-  it('внутри dns — секция dns', () => {
+  it('внутри dns — поля секции dns', () => {
     const { text, pos } = at('dns:\n  enable: true\n  ‸\n')
-    expect(contextAt(text, pos)?.section).toBe('dns')
+    const cursor = contextAt(text, pos)
+    expect(cursor?.path).toEqual(['dns'])
+    expect(cursor?.fields?.map((f) => f.key)).toContain('nameserver')
   })
 
   it('после двоеточия — режим значения с именем ключа', () => {
     const { text, pos } = at('proxy-groups:\n  - name: A\n    type: ‸\n')
-    const ctx = contextAt(text, pos)
-    expect(ctx?.mode).toBe('value')
-    expect(ctx?.key).toBe('type')
+    const cursor = contextAt(text, pos)
+    expect(cursor?.mode).toBe('value')
+    expect(cursor?.key).toBe('type')
   })
 
   it('пробел внутри значения значением его быть не отменяет', () => {
@@ -58,20 +61,20 @@ describe('контекст курсора', () => {
   })
 })
 
-// containerOf — приватная середина contextAt, и проверяется через его `parts`:
+// containerOf — приватная середина contextAt, и проверяется через его `path`:
 // отдельный экспорт потребовал бы синтетического пути и колонки, а значение
 // имеет ровно то, во что они складываются на настоящем тексте
 describe('отображение, которому принадлежит курсор', () => {
-  function parts(src: string) {
-    return ctx(src)?.parts
+  function path(src: string) {
+    return ctx(src)?.path
   }
 
   it('отступ пустой строки внутри элемента списка — сам элемент', () => {
-    expect(parts('proxy-groups:\n  - name: A\n    ‸\n')).toEqual(['proxy-groups', 0])
+    expect(path('proxy-groups:\n  - name: A\n    ‸\n')).toEqual(['proxy-groups', 0])
   })
 
   it('отступ внутри вложенной секции — сама секция', () => {
-    expect(parts('proxy-groups:\n  - name: A\n    remnawave:\n      ‸\n')).toEqual([
+    expect(path('proxy-groups:\n  - name: A\n    remnawave:\n      ‸\n')).toEqual([
       'proxy-groups',
       0,
       'remnawave',
@@ -79,91 +82,62 @@ describe('отображение, которому принадлежит кур
   })
 
   it('нулевая колонка — корень документа, а не секция выше', () => {
-    expect(parts('dns:\n  enable: true\n‸\n')).toEqual([])
+    expect(path('dns:\n  enable: true\n‸\n')).toEqual([])
   })
 
   it('после «type: » без значения — отображение группы, а не сама пара', () => {
-    expect(parts('proxy-groups:\n  - name: A\n    type: ‸\n')).toEqual(['proxy-groups', 0])
+    expect(path('proxy-groups:\n  - name: A\n    type: ‸\n')).toEqual(['proxy-groups', 0])
   })
 
   it('хозяин строки с дефисом — список, а не элемент', () => {
     // ключей у нового элемента ещё нет, и путь ведёт к списку: чей это будет
     // элемент по счёту, до написания неизвестно
     const next = ctx('proxy-groups:\n  - name: A\n  - ‸\n')
-    expect(next?.parts).toEqual(['proxy-groups'])
+    expect(next?.path).toEqual(['proxy-groups'])
     expect(next?.existingKeys).toEqual([])
+    expect(next?.mode).toBe('key')
   })
 
   it('пустой документ — корень', () => {
-    expect(parts('‸')).toEqual([])
+    expect(path('‸')).toEqual([])
   })
 })
 
-// Правило одно: подсказка выдаётся ТОЛЬКО в отображении, которому словарь знает
-// секцию. Не опознали место — молчим; откат к корню выдал бы описание чужого
-// ключа (у `port` внутри записи `proxies` это был бы «порт HTTP-входа»)
-describe('места, где словарь молчит', () => {
-  // Один документ на положительный и отрицательный случай: курсор ставится то в
-  // запись сервера, то в группу, то в dns — меняется место, а не фикстура
-  const doc = (where: 'server' | 'group' | 'dns'): string =>
-    [
-      'proxies:',
-      '  - name: сервер',
-      '    port: 443',
-      ...(where === 'server' ? ['    ‸'] : []),
-      'proxy-groups:',
-      '  - name: A',
-      ...(where === 'group' ? ['    ‸'] : []),
-      'dns:',
-      '  nameserver:',
-      '    - 1.1.1.1',
-      ...(where === 'dns' ? ['  ‸'] : []),
-      '',
-    ].join('\n')
-
-  it('внутри записи proxies подсказок нет, а внутри группы того же документа есть', () => {
-    expect(ctx(doc('server'))).toBeNull()
-    expect(labels(doc('server'))).toEqual([])
-    expect(ctx(doc('group'))?.section).toBe('proxy-group')
-    expect(labels(doc('group'))).toContain('type')
+// Раньше словарь был плоским, и «неописанное место» означало null курсора.
+// Теперь дерево схемы описывает почти всё (в том числе записи `proxies`), а
+// null остаётся только там, где позиция вообще не про документ (комментарий,
+// flow-коллекция). Для настоящих «дырок» схемы (`x-anchors`, карта без
+// записи, чужой ключ вложенного отображения) курсор возвращается, но
+// `fields` — undefined: подсказывать всё равно нечего
+describe('места, где схема не знает полей (курсор есть, fields — undefined)', () => {
+  it('произвольное отображение без описания в схеме (якоря шаблона) молчит', () => {
+    const cursor = ctx('x-anchors:\n  common: &common\n    type: http\n    ‸\n')
+    expect(cursor).not.toBeNull()
+    expect(cursor?.fields).toBeUndefined()
+    expect(labels('x-anchors:\n  common: &common\n    type: http\n    ‸\n')).toEqual([])
   })
 
-  it('в секции dns того же документа подсказки есть', () => {
-    expect(ctx(doc('dns'))?.section).toBe('dns')
-    expect(labels(doc('dns'))).toContain('enhanced-mode')
+  it('уровень самой карты proxy-providers полей не имеет — они у записи по имени', () => {
+    const cursor = ctx('proxy-providers:\n  ‸\n')
+    expect(cursor).not.toBeNull()
+    expect(cursor?.fields).toBeUndefined()
   })
 
-  it('новый элемент proxies не описан, новый элемент proxy-groups описан', () => {
-    expect(ctx('proxies:\n  - ‸\n')).toBeNull()
-    expect(labels('proxies:\n  - ‸\n')).toEqual([])
-    expect(ctx('proxy-groups:\n  - ‸\n')?.section).toBe('proxy-group')
-    expect(labels('proxy-groups:\n  - ‸\n')).toContain('name')
-  })
+  it('провайдеры описаны по имени записи', () => {
+    const httpProvider = ctx('proxy-providers:\n  наш:\n    type: http\n    ‸\n')
+    expect(httpProvider?.path).toEqual(['proxy-providers', 'наш'])
+    expect(httpProvider?.fields?.map((f) => f.key)).toEqual(expect.arrayContaining(['url', 'interval', 'proxy']))
 
-  it('элемент rules — скаляр, подсказывать там нечего', () => {
-    expect(ctx('rules:\n  - ‸\n')).toBeNull()
-    expect(ctx('rules:\n  - MATCH,DIRECT\n  - ‸\n')).toBeNull()
-  })
-
-  it('элемент списка серверов DNS — тоже', () => {
-    expect(ctx('dns:\n  enable: true\n  nameserver:\n    - ‸\n')).toBeNull()
-    // а сама секция dns на том же документе описана
-    expect(ctx('dns:\n  enable: true\n  nameserver:\n    - 1.1.1.1\n  ‸\n')?.section).toBe('dns')
-  })
-
-  it('произвольное отображение без секции (якоря шаблона) молчит', () => {
-    expect(ctx('x-anchors:\n  common: &common\n    type: http\n    ‸\n')).toBeNull()
-  })
-
-  it('провайдеры описаны по имени записи, но не на уровне самой карты', () => {
-    expect(ctx('proxy-providers:\n  наш:\n    type: http\n    ‸\n')?.section).toBe('proxy-provider')
-    expect(ctx('rule-providers:\n  наш:\n    type: http\n    ‸\n')?.section).toBe('rule-provider')
-    expect(ctx('proxy-providers:\n  ‸\n')).toBeNull()
+    const ruleProvider = ctx('rule-providers:\n  наш:\n    type: http\n    ‸\n')
+    expect(ruleProvider?.fields?.map((f) => f.key)).toEqual(expect.arrayContaining(['behavior', 'url']))
   })
 
   it('вложенные отображения словаря описаны, чужие — нет', () => {
-    expect(ctx('proxy-groups:\n  - name: A\n    remnawave:\n      ‸\n')?.section).toBe('proxy-group')
-    expect(ctx('proxy-groups:\n  - name: A\n    своё:\n      ‸\n')).toBeNull()
+    const known = ctx('proxy-groups:\n  - name: A\n    remnawave:\n      ‸\n')
+    expect(known?.fields?.map((f) => f.key)).toContain('include-proxies')
+
+    const unknown = ctx('proxy-groups:\n  - name: A\n    своё:\n      ‸\n')
+    expect(unknown?.fields).toBeUndefined()
   })
 
   it('внутри комментария подсказок нет', () => {
@@ -175,26 +149,62 @@ describe('места, где словарь молчит', () => {
   })
 })
 
+// Списки СКАЛЯРОВ (rules, DNS nameserver, network у tunnels): дефис заводит
+// не ключ отображения, а значение элемента, и подсказки те же, что у значения
+// самого поля-списка (enum элемента, ссылка). Списки ОБЪЕКТОВ (proxies,
+// proxy-groups, listeners…) теперь ВСЕ описаны схемой одинаково
+describe('элементы списков', () => {
+  it('элемент rules — скаляр без известных значений: курсор есть, подсказок нет', () => {
+    const cursor = ctx('rules:\n  - ‸\n')
+    expect(cursor).not.toBeNull()
+    expect(cursor?.mode).toBe('value')
+    expect(cursor?.key).toBe('rules')
+    expect(labels('rules:\n  - ‸\n')).toEqual([])
+    expect(labels('rules:\n  - MATCH,DIRECT\n  - ‸\n')).toEqual([])
+  })
+
+  it('элемент списка серверов DNS — тоже без подсказок, но курсор есть', () => {
+    const cursor = ctx('dns:\n  enable: true\n  nameserver:\n    - ‸\n')
+    expect(cursor?.mode).toBe('value')
+    expect(cursor?.key).toBe('nameserver')
+    expect(labels('dns:\n  enable: true\n  nameserver:\n    - ‸\n')).toEqual([])
+    // а сама секция dns на том же документе описана как обычно
+    expect(ctx('dns:\n  enable: true\n  nameserver:\n    - 1.1.1.1\n  ‸\n')?.path).toEqual(['dns'])
+  })
+
+  it('элемент списка network у tunnels — известные значения элемента (enum)', () => {
+    const doc = 'tunnels:\n  - target: a:1\n    network:\n      - ‸\n'
+    const cursor = ctx(doc)
+    expect(cursor?.mode).toBe('value')
+    expect(cursor?.key).toBe('network')
+    expect(labels(doc)).toEqual(expect.arrayContaining(['tcp', 'udp']))
+  })
+
+  it('новый элемент proxies теперь описан наравне с proxy-groups', () => {
+    expect(labels('proxies:\n  - ‸\n')).toEqual(expect.arrayContaining(['name', 'type']))
+    expect(labels('proxy-groups:\n  - ‸\n')).toContain('name')
+  })
+})
+
 // Второй распространённый стиль: дефисы списка стоят в колонке КЛЮЧА, а не с
 // отступом. Все фикстуры репозитория написаны с отступом 2, поэтому весь этот
 // стиль был слеп для суиты — отсюда отдельный блок
 describe('списки с нулевым отступом', () => {
   const GROUPS = 'proxy-groups:\n- name: A\n  type: select\n'
 
-  it('ключ внутри элемента описан секцией группы', () => {
-    expect(ctx(`${GROUPS}  ‸\n`)?.section).toBe('proxy-group')
+  it('ключ внутри элемента описан полями группы', () => {
+    expect(ctx(`${GROUPS}  ‸\n`)?.path).toEqual(['proxy-groups', 0])
     expect(labels(`${GROUPS}  ‸\n`)).toContain('filter')
   })
 
   it('новый элемент получает ключи группы', () => {
     const next = ctx(`${GROUPS}- ‸\n`)
-    expect(next?.section).toBe('proxy-group')
-    expect(next?.parts).toEqual(['proxy-groups'])
+    expect(next?.path).toEqual(['proxy-groups'])
     expect(next?.existingKeys).toEqual([])
     expect(labels(`${GROUPS}- ‸\n`)).toContain('name')
   })
 
-  it('значение ключа элемента подсказывается из словаря', () => {
+  it('значение ключа элемента подсказывается из схемы', () => {
     expect(labels('proxy-groups:\n- name: A\n  type: ‸\n')).toEqual(
       expect.arrayContaining(['select', 'url-test']),
     )
@@ -203,12 +213,6 @@ describe('списки с нулевым отступом', () => {
   it('дефис без пробела — тоже начало элемента', () => {
     expect(labels(`${GROUPS}-‸\n`)).toContain('name')
     expect(labels('proxy-groups:\n  -‸\n')).toContain('name')
-  })
-
-  it('proxies и rules в том же стиле по-прежнему молчат', () => {
-    expect(ctx('proxies:\n- name: сервер\n  port: 443\n  ‸\n')).toBeNull()
-    expect(ctx('proxies:\n- name: сервер\n- ‸\n')).toBeNull()
-    expect(ctx('rules:\n- MATCH,DIRECT\n- ‸\n')).toBeNull()
   })
 })
 
@@ -224,7 +228,7 @@ describe('flow-коллекции молчат', () => {
     expect(ctx('dns: {enhanced-mode: ‸}\n')).toBeNull()
   })
 
-  it('значения из словаря во flow-список не предлагаются', () => {
+  it('значения из схемы во flow-список не предлагаются', () => {
     // ключ у strategy enum'ный, и без проверки его варианты сыпались бы прямо
     // в скобки — туда, где ядро ждёт скаляр
     expect(labels('proxy-groups:\n  - name: A\n    strategy: [‸]\n')).toEqual([])
@@ -233,12 +237,12 @@ describe('flow-коллекции молчат', () => {
 
   it('на ключе строки с flow-значением контекст остаётся', () => {
     // курсор ещё вне скобок: строка написана flow-стилем, но правится ключ
-    expect(ctx('dns:\n  namese‸rver: [1.1.1.1]\n')?.section).toBe('dns')
-    expect(ctx('proxy-groups:\n  - name: A\n    proxi‸es: [DIRECT]\n')?.section).toBe('proxy-group')
+    expect(ctx('dns:\n  namese‸rver: [1.1.1.1]\n')?.path).toEqual(['dns'])
+    expect(ctx('proxy-groups:\n  - name: A\n    proxi‸es: [DIRECT]\n')?.path).toEqual(['proxy-groups', 0])
   })
 
   it('за закрытой скобкой подсказки снова работают', () => {
-    expect(ctx('proxies: [DIRECT]\n‸\n')?.section).toBe('root')
+    expect(ctx('proxies: [DIRECT]\n‸\n')?.path).toEqual([])
     expect(labels('proxies: [DIRECT]\n‸\n')).toContain('proxy-groups')
   })
 })
@@ -258,12 +262,14 @@ describe('вложенные списки', () => {
   ].join('\n')
 
   it('каждый уровень отвечает за себя', () => {
-    // внутренний список — имена целей, словарь их не описывает
-    expect(ctx(`${NESTED}      - ‸\n`)).toBeNull()
+    // внутренний список — имена целей документа (ref, не enum): группа A и
+    // встроенные цели, а не список ключей — элемент списка скаляров ключей не
+    // заводит вовсе
+    expect(labels(`${NESTED}      - ‸\n`)).toEqual(expect.arrayContaining(['A', 'DIRECT']))
     // внешний — список групп
-    expect(ctx(`${NESTED}  - ‸\n`)?.section).toBe('proxy-group')
+    expect(ctx(`${NESTED}  - ‸\n`)?.path).toEqual(['proxy-groups'])
     // ключевая строка внутри элемента — тоже группа
-    expect(ctx(`${NESTED}    ‸\n`)?.section).toBe('proxy-group')
+    expect(ctx(`${NESTED}    ‸\n`)?.path).toEqual(['proxy-groups', 0])
   })
 
   it('дефис, не попавший в колонку ни одного списка, молчит', () => {
@@ -274,12 +280,15 @@ describe('вложенные списки', () => {
 
   it('соседняя ветвь с дефисами в той же колонке не подменяет секцию', () => {
     // дефисы rules и proxy-groups стоят в одной колонке 2, но лежат в разных
-    // ветвях: путь курсора отбирает свою
-    expect(ctx('rules:\n  - MATCH,A\n  - ‸\nproxy-groups:\n  - name: A\n')).toBeNull()
+    // ветвях: путь курсора отбирает свою (rules, а не поля соседней группы)
+    const cursor = ctx('rules:\n  - MATCH,A\n  - ‸\nproxy-groups:\n  - name: A\n')
+    expect(cursor?.mode).toBe('value')
+    expect(cursor?.key).toBe('rules')
+    expect(cursor?.fields?.map((f) => f.key)).not.toContain('filter')
   })
 })
 
-describe('подсказки Mihomo', () => {
+describe('подсказки по дереву схемы', () => {
   it('ключи группы предлагаются и не повторяют уже введённые', () => {
     const got = labels('proxy-groups:\n  - name: A\n    type: select\n    ‸\n')
     expect(got).toEqual(expect.arrayContaining(['filter', 'interval', 'use']))
@@ -287,7 +296,7 @@ describe('подсказки Mihomo', () => {
     expect(got).not.toContain('type')
   })
 
-  it('значения типа группы предлагаются из словаря', () => {
+  it('значения типа группы предлагаются из схемы', () => {
     expect(labels('proxy-groups:\n  - name: A\n    type: ‸\n')).toEqual(
       expect.arrayContaining(['select', 'url-test', 'fallback', 'load-balance', 'relay']),
     )
@@ -299,23 +308,39 @@ describe('подсказки Mihomo', () => {
     expect(got).not.toContain('filter')
   })
 
-  it('в корне предлагаются секции верхнего уровня', () => {
-    expect(labels('‸\n')).toEqual(expect.arrayContaining(['mode', 'log-level', 'dns', 'tun']))
+  it('условие типа группы схема не ставит: tolerance и strategy предлагаются при любом типе', () => {
+    const got = labels('proxy-groups:\n  - name: A\n    type: url-test\n    ‸\n')
+    expect(got).toEqual(expect.arrayContaining(['tolerance', 'strategy']))
   })
 
-  it('имена секций словаря ключами корня не притворяются', () => {
-    // dns/tun/sniffer/profile в корне лежат под своими именами, а root и
-    // proxy-group — только имена секций: таких ключей в Mihomo нет
+  it('внутри proxies[0] при type: vless предлагают uuid и не предлагают cipher', () => {
+    const got = labels('proxies:\n  - name: srv\n    type: vless\n    ‸\n')
+    expect(got).toContain('uuid')
+    expect(got).not.toContain('cipher')
+  })
+
+  it('внутри ws-opts (транспорт vless) предлагают path и headers', () => {
+    const doc = 'proxies:\n  - name: srv\n    type: vless\n    network: ws\n    ws-opts:\n      ‸\n'
+    const got = labels(doc)
+    expect(got).toEqual(expect.arrayContaining(['path', 'headers']))
+  })
+
+  it('sniffer.sniff.HTTP предлагает ports и override-destination', () => {
+    const doc = 'sniffer:\n  sniff:\n    HTTP:\n      ‸\n'
+    expect(labels(doc)).toEqual(expect.arrayContaining(['ports', 'override-destination']))
+  })
+
+  it('в корне предлагаются все поля схемы, включая контейнеры', () => {
+    expect(labels('‸\n')).toEqual(
+      expect.arrayContaining(['mode', 'log-level', 'dns', 'tun', 'proxies', 'proxy-groups', 'rules', 'rule-providers']),
+    )
+  })
+
+  it('синтетических имён секций среди ключей корня нет', () => {
     const got = labels('‸\n')
     for (const name of ['root', 'proxy-group', 'proxy-provider', 'rule-provider']) {
       expect(got).not.toContain(name)
     }
-  })
-
-  it('в корне предлагаются и ключи-контейнеры', () => {
-    expect(labels('‸\n')).toEqual(
-      expect.arrayContaining(['proxies', 'proxy-groups', 'rules', 'rule-providers']),
-    )
   })
 
   it('уже написанный ключ-контейнер второй раз не предлагается', () => {
@@ -329,15 +354,21 @@ describe('подсказки Mihomo', () => {
     expect(got).toContain('type')
   })
 
-  it('подсказка несёт описание из словаря', () => {
+  it('подсказка несёт описание из схемы', () => {
     const option = (complete('dns:\n  ‸\n')?.options ?? []).find((o) => o.label === 'enhanced-mode')
     expect(String(option?.info ?? '')).toMatch(/fake-ip|redir-host|режим/i)
   })
 
+  it('устаревшее поле предлагается с пометкой замены', () => {
+    const option = (complete('‸\n')?.options ?? []).find((o) => o.label === 'enable-process')
+    expect(String(option?.info ?? '')).toMatch(/устарело/i)
+    expect(String(option?.info ?? '')).toContain('find-process-mode')
+  })
+
   /**
-   * Описание раздела одно на обоих потребителей: подсказку при наборе и
-   * наведение на уже написанный ключ (`mihomo-hover.test.ts`). Раньше секции
-   * доставалось здесь только НАЗВАНИЕ («DNS»), то есть ярлык вместо объяснения.
+   * Ключ-контейнер корня — обычное поле корневой схемы, а не отдельная
+   * запись словаря секций: описание при подсказке и при наведении
+   * (`mihomo-hover.test.ts`) берётся из ОДНОГО и того же поля.
    */
   it('ключ-раздел в корне предлагается с описанием, а не с названием секции', () => {
     const options = complete('‸\n')?.options ?? []
@@ -345,5 +376,30 @@ describe('подсказки Mihomo', () => {
     expect(info('dns')).toContain('резолвер')
     expect(info('rules')).toContain('первое совпавшее')
     expect(info('sub-rules')).toContain('SUB-RULE')
+  })
+
+  it('значения ref (proxy: у http-провайдера) — имена целей документа', () => {
+    const doc = [
+      'proxies:',
+      '  - name: srv1',
+      '    type: ss',
+      'proxy-groups:',
+      '  - name: g1',
+      '    type: select',
+      'proxy-providers:',
+      '  наш:',
+      '    type: http',
+      '    proxy: ‸',
+      '',
+    ].join('\n')
+    const got = labels(doc)
+    expect(got).toEqual(expect.arrayContaining(['srv1', 'g1', 'DIRECT']))
+  })
+
+  it('ключи объекта/списка/карты вставляются с двоеточием, переводом строки и отступом', () => {
+    const option = (complete('proxy-groups:\n  - name: A\n    ‸\n')?.options ?? []).find(
+      (o) => o.label === 'remnawave',
+    )
+    expect(option?.apply).toBe('remnawave:\n      ')
   })
 })

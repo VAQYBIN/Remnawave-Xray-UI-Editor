@@ -1,142 +1,99 @@
-// CompletionSource текстовой вкладки Mihomo: ключи секции и известные значения
-// из словаря docSchema. Проще, чем у Xray: словарь плоский, а вложенность
-// выражена точкой в имени ключа (`remnawave.include-proxies`), поэтому вместо
-// обхода дерева хватает одного взгляда на путь курсора.
+// CompletionSource текстовой вкладки Mihomo: ключи и значения по дереву схемы
+// entities/mihomo/schema. Дерево описывает вложенность само — не нужно ни
+// склейки по точке в имени ключа, ни отдельного списка ключей-контейнеров
+// корня: `dns`, `proxies`, `rules`… такие же поля схемы, как любые другие.
 
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
-import {
-  fieldsOf,
-  MIHOMO_SECTIONS,
-  sectionForKey,
-  type MihomoField,
-  type MihomoSectionName,
-} from '../../../entities/mihomo'
-import {
-  containerKey,
-  contextAt,
-  fieldFor,
-  nestedIn,
-  nestedNamespace,
-  plainContainerKeys,
-  type MihomoCursor,
-} from './context'
-
-/**
- * Секции, которые в корне документа лежат под собственным именем (`dns`, `tun`,
- * `sniffer`, `profile`). Вывод идёт из самого словаря, а не из списка в коде:
- * добавится секция — подсказка появится сама.
- */
-const SECTION_KEYS = Object.keys(MIHOMO_SECTIONS).filter(
-  (name) => sectionForKey(name) === name,
-) as MihomoSectionName[]
+import { parseMihomo } from '../../../entities/mihomo'
+import { mihomoRefs } from '../../../entities/mihomo/schema'
+import type { EnumValue, FieldSchema, RefKind } from '../../../shared/schema'
+// Текст устаревания — общий с формами по схеме (features/inspector/schema):
+// разойдясь, подсказка и форма описывали бы одну и ту же причину по-разному
+import { deprecatedNote } from '../../inspector/schema/labels'
+import { contextAt, fieldFor, type MihomoCursor } from './context'
 
 // Уже набранная часть ключа или значения — её подсказка заменяет
 const TYPED_RE = /[^\s:]*$/
 
-function completionType(field: MihomoField): string {
-  if (field.enum) return 'enum'
-  if (field.type === 'map') return 'namespace'
-  if (field.type === 'strings') return 'type'
+function completionType(field: FieldSchema): string {
+  if (field.kind === 'enum') return 'enum'
+  if (field.kind === 'object' || field.kind === 'map') return 'namespace'
+  if (field.kind === 'list') return 'type'
   return 'property'
 }
 
-function keyCompletion(label: string, field: MihomoField, suffix: string): Completion {
-  return {
-    label,
-    type: completionType(field),
-    detail: field.type,
-    info: field.doc,
-    apply: label + suffix,
-  }
+/** Отступ на два пробела глубже колонки, в которой начат ввод ключа */
+function childIndent(text: string, from: number): string {
+  const lineStart = text.lastIndexOf('\n', from - 1) + 1
+  return ' '.repeat(from - lineStart + 2)
 }
 
 /**
- * Ключи отображения. Составные имена словаря раскладываются на два вида
- * подсказок: снаружи предлагается сам префикс как вложенное отображение,
- * внутри него — короткие имена листьев.
+ * Двоеточие дописываем только в пустой хвост строки: посреди уже написанной
+ * пары подсказка иначе вставила бы второе двоеточие. У вложенного
+ * отображения/списка (`object`/`list`/`map`) добавляем ещё перевод строки с
+ * отступом — ключи YAML открываются не скобкой, как в JSON, а следующей
+ * строкой, и без переноса пользователь набирал бы его сам на каждый ключ.
  */
-function keyCompletions(
-  section: MihomoSectionName,
-  cursor: MihomoCursor,
-  scalarSuffix: string,
-  mapSuffix: string,
-): Completion[] {
-  const taken = new Set(cursor.existingKeys)
-  const fields = fieldsOf(section)
-  const prefix = nestedIn(cursor)
-
-  if (prefix !== undefined) {
-    const options: Completion[] = []
-    for (const field of fields) {
-      if (!field.key.startsWith(`${prefix}.`)) continue
-      const leaf = field.key.slice(prefix.length + 1)
-      if (taken.has(leaf)) continue
-      options.push(keyCompletion(leaf, field, scalarSuffix))
-    }
-    return options
+function keySuffix(field: FieldSchema, text: string, from: number, empty: boolean): string {
+  if (!empty) return ''
+  if (field.kind === 'object' || field.kind === 'list' || field.kind === 'map') {
+    return `:\n${childIndent(text, from)}`
   }
-
-  const options: Completion[] = []
-  const seen = new Set<string>()
-  for (const field of fields) {
-    const dot = field.key.indexOf('.')
-    if (dot < 0) {
-      if (taken.has(field.key)) continue
-      options.push(keyCompletion(field.key, field, field.type === 'map' ? mapSuffix : scalarSuffix))
-      continue
-    }
-    const head = field.key.slice(0, dot)
-    if (seen.has(head) || taken.has(head)) continue
-    seen.add(head)
-    options.push({
-      label: head,
-      type: 'namespace',
-      detail: 'map',
-      // Тот же текст, что показывает наведение на уже написанный ключ
-      info: nestedNamespace(section, head)?.doc,
-      apply: head + mapSuffix,
-    })
-  }
-
-  if (section === 'root') {
-    for (const name of SECTION_KEYS) {
-      if (taken.has(name)) continue
-      options.push({
-        label: name,
-        type: 'namespace',
-        detail: 'map',
-        // Название секции — подпись для формы инспектора, а не объяснение;
-        // если описание раздела есть, показываем его
-        info: containerKey(name)?.doc ?? MIHOMO_SECTIONS[name].title,
-        apply: name + mapSuffix,
-      })
-    }
-    for (const container of plainContainerKeys()) {
-      if (taken.has(container.key)) continue
-      options.push({
-        label: container.key,
-        type: 'namespace',
-        detail: container.type,
-        info: container.doc,
-        apply: container.key + mapSuffix,
-      })
-    }
-  }
-  return options
+  return ': '
 }
 
-/** Известные значения ключа: enum словаря либо булевы литералы */
-function valueCompletions(field: MihomoField | undefined): Completion[] {
+function keyInfo(field: FieldSchema): string {
+  return field.deprecated ? `${field.doc} ${deprecatedNote(field.deprecated)}` : field.doc
+}
+
+function keyCompletions(cursor: MihomoCursor, text: string, from: number, empty: boolean): Completion[] {
+  const taken = new Set(cursor.existingKeys)
+  const fields = cursor.fields ?? []
+  return fields
+    .filter((field) => !taken.has(field.key))
+    .map((field) => ({
+      label: field.key,
+      type: completionType(field),
+      detail: field.kind,
+      info: keyInfo(field),
+      apply: field.key + keySuffix(field, text, from, empty),
+    }))
+}
+
+/** Известные значения: у скаляра — свои, у списка (rules-элемент, `network` у tunnels) — у элемента */
+function enumOf(field: FieldSchema): EnumValue[] | undefined {
+  if (field.kind === 'enum') return field.enum
+  if (field.kind === 'list') return field.item?.enum
+  return undefined
+}
+
+/** Ссылка на цель документа: у скаляра — своя, у списка (`proxies`, `use` группы) — у элемента */
+function refKindOf(field: FieldSchema): RefKind | undefined {
+  return field.kind === 'list' ? field.item?.ref : field.ref
+}
+
+/** Известные значения ключа: enum словаря, булевы литералы либо имена целей документа */
+function valueCompletions(field: FieldSchema | undefined, text: string): Completion[] {
   if (field === undefined) return []
-  if (field.enum) {
-    return field.enum.map((e) => ({
+  const values = enumOf(field)
+  if (values && values.length > 0) {
+    return values.map((e) => ({
       label: e.value,
       type: 'enum',
-      info: e.doc ?? field.doc,
+      info: e.deprecated ? deprecatedNote(e.deprecated) : (e.doc ?? field.doc),
     }))
   }
-  if (field.type === 'boolean') {
-    return ['true', 'false'].map((value) => ({ label: value, type: 'keyword' }))
+  if (field.kind === 'boolean') {
+    return ['true', 'false'].map((v) => ({ label: v, type: 'keyword' }))
+  }
+  const refKind = refKindOf(field)
+  if (refKind !== undefined) {
+    // Md разбирается ещё раз: значения-ссылки нужны редко, и второй разбор той
+    // же — синхронной и дешёвой — библиотеки дешевле, чем тащить его через
+    // contextAt на каждый вызов подсказки
+    const names = mihomoRefs(parseMihomo(text))[refKind] ?? []
+    return names.map((name) => ({ label: name, type: 'reference' }))
   }
   return []
 }
@@ -149,23 +106,23 @@ export function mihomoCompletionSource(ctx: CompletionContext): CompletionResult
 
     const lineStart = text.lastIndexOf('\n', ctx.pos - 1) + 1
     const typed = TYPED_RE.exec(text.slice(lineStart, ctx.pos))?.[0] ?? ''
+    const from = ctx.pos - typed.length
 
     if (cursor.mode === 'value') {
       const options = valueCompletions(
         cursor.key === undefined ? undefined : fieldFor(cursor, cursor.key),
+        text,
       )
       if (options.length === 0) return null
-      return { from: ctx.pos - typed.length, to: ctx.pos, options, validFor: /^\S*$/ }
+      return { from, to: ctx.pos, options, validFor: /^\S*$/ }
     }
 
-    // Двоеточие дописываем только в пустой хвост строки: посреди уже написанной
-    // пары подсказка иначе вставила бы второе двоеточие
     const lineEnd = text.indexOf('\n', ctx.pos)
     const rest = text.slice(ctx.pos, lineEnd < 0 ? text.length : lineEnd)
     const empty = rest.trim() === ''
-    const options = keyCompletions(cursor.section, cursor, empty ? ': ' : '', empty ? ':' : '')
+    const options = keyCompletions(cursor, text, from, empty)
     if (options.length === 0) return null
-    return { from: ctx.pos - typed.length, to: ctx.pos, options, validFor: /^[A-Za-z0-9_.-]*$/ }
+    return { from, to: ctx.pos, options, validFor: /^[A-Za-z0-9_.-]*$/ }
   } catch {
     return null
   }

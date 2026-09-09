@@ -29,10 +29,10 @@ const DOC = [
 ].join('\n')
 
 describe('наведение на YAML-вкладке', () => {
-  it('известный ключ отдаёт описание из словаря', () => {
+  it('известный ключ отдаёт описание из схемы', () => {
     const found = hoverAt(DOC, inside(DOC, 'enhanced-mode'))
     expect(found?.key).toBe('enhanced-mode')
-    expect(found?.field.doc).toContain('Режим работы DNS')
+    expect(found?.field.doc).toContain('Режим выдачи адресов')
     expect(DOC.slice(found!.from, found!.to)).toBe('enhanced-mode')
   })
 
@@ -48,7 +48,7 @@ describe('наведение на YAML-вкладке', () => {
 
   it('ключ вложенной секции берёт описание из своей секции', () => {
     const found = hoverAt(DOC, inside(DOC, 'include-proxies'))
-    expect(found?.field.doc).toContain('У ГРУППЫ')
+    expect(found?.field.doc).toContain('панель НЕ дописывает')
   })
 
   it('одноимённый ключ в другой секции описан по-своему', () => {
@@ -56,11 +56,12 @@ describe('наведение на YAML-вкладке', () => {
     expect(group?.field.doc).toContain('проверки живости')
   })
 
-  it('ключ записи proxies не описывается корнем', () => {
-    // корневой `port` — «Порт HTTP-входа», и для порта сервера это враньё
-    expect(hoverAt(DOC, inside(DOC, 'port: 443'))).toBeNull()
-    expect(hoverAt(DOC, inside(DOC, 'name: сервер'))).toBeNull()
-    // а тот же ключ `name` в группе описан
+  it('запись proxies теперь описана схемой так же, как запись группы', () => {
+    // раньше словарь не описывал proxies вовсе; теперь PROXY_FIELDS покрывает
+    // и её — port внутри записи сервера не путается с корневым «портом входа»
+    expect(hoverAt(DOC, inside(DOC, 'port: 443'))?.field.doc).toContain('Порт сервера')
+    expect(hoverAt(DOC, inside(DOC, 'name: сервер'))?.field.doc).toContain('Имя сервера')
+    // а тот же ключ `name` в группе описан по-своему
     expect(hoverAt(DOC, inside(DOC, 'name: A'))?.field.doc).toContain('Имя группы')
   })
 
@@ -82,14 +83,14 @@ describe('наведение на YAML-вкладке', () => {
     ].join('\n')
     expect(hoverAt(flat, inside(flat, 'name: A'))?.field.doc).toContain('Имя группы')
     expect(hoverAt(flat, inside(flat, 'interval'))?.field.doc).toContain('проверки живости')
-    // и молчание там же, где при отступе: запись сервера словарь не описывает
-    expect(hoverAt(flat, inside(flat, 'port: 443'))).toBeNull()
-    expect(hoverAt(flat, inside(flat, 'name: сервер'))).toBeNull()
+    // запись сервера описана так же, как в блочном стиле с отступом
+    expect(hoverAt(flat, inside(flat, 'port: 443'))?.field.doc).toContain('Порт сервера')
+    expect(hoverAt(flat, inside(flat, 'name: сервер'))?.field.doc).toContain('Имя сервера')
   })
 
   it('ключ строки с flow-значением описан, а внутренность скобок молчит', () => {
     // обе стороны на одной фикстуре: стиль массовый, и терять на нём описание
-    // ключа нельзя, но внутри скобок стоят имена, которых словарь не знает
+    // ключа нельзя, но внутри скобок стоят имена, которых схема не знает
     const flow = [
       'dns:',
       '  nameserver: [1.1.1.1, 8.8.8.8]',
@@ -114,10 +115,8 @@ describe('наведение на YAML-вкладке', () => {
   /**
    * Ключи-контейнеры молчали, и молчали хуже всего: `dns`, `rules`, `proxies` —
    * самые крупные слова документа, и читатель чужого шаблона упирался ровно в
-   * них. Причина была не в незнании: `fieldFor` ищет ключ СРЕДИ ПОЛЕЙ секции, а
-   * `dns` — имя самой секции, поля с таким именем в ней нет и быть не может.
-   * Подсказка при наборе эти же ключи описывала — то есть редактор их знал и
-   * забывал, стоило их написать.
+   * них. Теперь контейнер — обычное поле корневой схемы (kind: object/list/map),
+   * и описание есть у самого поля — второго словаря секций для этого не нужно.
    */
   it('ключи-контейнеры корня описаны', () => {
     const text = [
@@ -170,14 +169,25 @@ describe('наведение на YAML-вкладке', () => {
   it('вложенное отображение составного ключа описано так же, как в подсказке', () => {
     const text = ['remnawave:', '  includeHiddenHosts: true', ''].join('\n')
     const found = hoverAt(text, inside(text, 'remnawave'))
-    expect(found?.field.doc).toContain('includeHiddenHosts')
+    expect(found?.field.doc).toContain('Ключи панели Remnawave')
+  })
+
+  it('remnawave у группы описан той же фразой, что и у корня документа', () => {
+    const found = hoverAt(DOC, inside(DOC, 'remnawave:'))
+    expect(found?.field.doc).toContain('Ключи панели Remnawave')
+  })
+
+  it('устаревший ключ показывает пометку с заменой', () => {
+    const text = 'enable-process: true\n'
+    const found = hoverAt(text, inside(text, 'enable-process'))
+    expect(found?.field.deprecated?.replacement).toContain('find-process-mode')
   })
 
   it('разметка тултипа несёт ключ, описание и значения', () => {
     const found = hoverAt(DOC, inside(DOC, 'enhanced-mode'))
-    const dom = renderHoverTooltip(found!.key, found!.field)
+    const dom = renderHoverTooltip(found!.key, { ...found!.field, type: found!.field.kind })
     expect(dom.querySelector('.cm-xray-hover-key')?.textContent).toContain('enhanced-mode')
-    expect(dom.querySelector('.cm-xray-hover-doc')?.textContent).toContain('Режим работы DNS')
+    expect(dom.querySelector('.cm-xray-hover-doc')?.textContent).toContain('Режим выдачи адресов')
     expect([...dom.querySelectorAll('.cm-xray-hover-enum-row code')].map((n) => n.textContent)).toEqual(
       ['fake-ip', 'redir-host'],
     )

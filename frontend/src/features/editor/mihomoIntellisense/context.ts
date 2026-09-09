@@ -1,119 +1,25 @@
-// Где стоит курсор: в какой секции документа, вводится ключ или значение, какие
-// ключи в этом отображении уже есть. Дерево берём у библиотеки `yaml` — она
-// разбирает актуальный текст целиком и синхронно, поэтому здесь нет ни бюджета
-// разбора, ни отстающего снимка дерева, как у резолвера Xray (см. CLAUDE.md).
+// Где стоит курсор: путь от корня документа и поля схемы для этого места.
+// Дерево берём у библиотеки `yaml` — она разбирает актуальный текст целиком и
+// синхронно, поэтому здесь нет ни бюджета разбора, ни отстающего снимка дерева,
+// как у резолвера Xray (см. CLAUDE.md).
+//
+// Раньше место описывал плоский словарь docSchema (секция по имени), теперь —
+// дерево entities/mihomo/schema через mihomoFieldsAt/mihomoFieldAt: вложенность
+// (remnawave, override, health-check, sniffer.sniff.HTTP) читается спуском по
+// дереву, а не склейкой по точке в имени ключа. Контейнеры корня (dns, proxies,
+// rules…) — обычные поля корневой схемы, отдельного списка для них не нужно.
 
 import { isMap, isSeq } from 'yaml'
 import type { PathParts } from '../../../entities/xray'
-import {
-  fieldOf,
-  fieldsOf,
-  parseMihomo,
-  pathAt,
-  rangeOf,
-  sectionForKey,
-  type MihomoDoc,
-  type MihomoField,
-  type MihomoSectionName,
-} from '../../../entities/mihomo'
-
-/**
- * Ключ, за которым стоит не значение, а целый раздел документа. В словаре
- * `docSchema` таких нет намеренно: он питает ещё и формы инспектора, и `rules`
- * стал бы там текстовым полем поверх списка правил. Описания живут здесь, и
- * читают их ОБА потребителя — список ключей корня и наведение: пока они лежали
- * внутри `complete.ts`, подсказка при наборе эти ключи описывала, а наведение
- * на уже написанные молчало.
- */
-export interface MihomoContainerKey {
-  key: string
-  doc: string
-  /** Отображение или список — тултип показывает это значком типа */
-  type: 'map' | 'list'
-}
-
-const CONTAINER_KEYS: MihomoContainerKey[] = [
-  {
-    key: 'proxies',
-    type: 'list',
-    doc: 'Список серверов. Панель дописывает подставленные хосты в конец этого списка; статические записи ставятся впереди.',
-  },
-  {
-    key: 'proxy-groups',
-    type: 'list',
-    doc: 'Группы выбора и балансировки: селекторы, url-test, fallback и прочие.',
-  },
-  {
-    key: 'rules',
-    type: 'list',
-    doc: 'Правила маршрутизации. Проверяются сверху вниз, побеждает первое совпавшее; трафик, не подошедший ни под одно, уходит напрямую.',
-  },
-  {
-    key: 'sub-rules',
-    type: 'map',
-    doc: 'Именованные подсписки правил для SUB-RULE. Если в подсписке не совпало ни одно правило, проход возвращается в основной список.',
-  },
-  {
-    key: 'proxy-providers',
-    type: 'map',
-    doc: 'Внешние источники серверов: файл или URL, с интервалом обновления.',
-  },
-  {
-    key: 'rule-providers',
-    type: 'map',
-    doc: 'Внешние наборы правил: файл или URL, с интервалом обновления.',
-  },
-  {
-    key: 'dns',
-    type: 'map',
-    doc: 'Встроенный резолвер ядра: серверы, режим fake-ip, политики по доменам. Работает, когда внутри стоит enable: true, иначе имена резолвит система.',
-  },
-  {
-    key: 'tun',
-    type: 'map',
-    doc: 'Приём трафика через виртуальный сетевой интерфейс: система отдаёт ядру весь трафик, а не только направленный в его порты. Требует прав в системе.',
-  },
-  {
-    key: 'sniffer',
-    type: 'map',
-    doc: 'Определение домена по содержимому соединения (SNI у TLS, Host у HTTP). Нужен, когда клиент пришёл сразу по IP: без него правила по доменам такой трафик не увидят.',
-  },
-  {
-    key: 'profile',
-    type: 'map',
-    doc: 'Что ядро помнит между перезапусками: выбранного участника группы и соответствия fake-ip.',
-  },
-]
-
-/** Описание ключа-контейнера ВЕРХНЕГО уровня, если он нам знаком */
-export function containerKey(key: string): MihomoContainerKey | undefined {
-  return CONTAINER_KEYS.find((c) => c.key === key)
-}
-
-/** Контейнеры, у которых нет своей секции словаря — остальные придут из него */
-export function plainContainerKeys(): MihomoContainerKey[] {
-  return CONTAINER_KEYS.filter((c) => sectionForKey(c.key) === undefined)
-}
-
-/**
- * Вложенное отображение составного ключа (`remnawave`, `override`,
- * `health-check`): описания у него нет, зато есть перечень листьев — его и
- * показываем. Один текст на подсказку и на наведение, чтобы не разошлись.
- */
-export function nestedNamespace(
-  section: MihomoSectionName,
-  head: string,
-): MihomoContainerKey | undefined {
-  const leaves = fieldsOf(section)
-    .filter((f) => f.key.startsWith(`${head}.`))
-    .map((f) => f.key.slice(head.length + 1))
-  if (leaves.length === 0) return undefined
-  return { key: head, type: 'map', doc: `Вложенное отображение: ${leaves.join(', ')}` }
-}
+import { parseMihomo, pathAt, rangeOf, type MihomoDoc } from '../../../entities/mihomo'
+import { mihomoFieldAt, mihomoFieldsAt } from '../../../entities/mihomo/schema'
+import { valueAt, type FieldSchema, type SchemaPath } from '../../../shared/schema'
 
 export interface MihomoCursor {
-  section: MihomoSectionName
-  parts: PathParts
+  /** Путь до отображения, которому принадлежит курсор */
+  path: SchemaPath
+  /** Поля схемы этого места; undefined — схема места не знает (элемент списка строк, flow) */
+  fields: FieldSchema[] | undefined
   /** Ключи, уже введённые в этом отображении — из них подсказки вычитаются */
   existingKeys: string[]
   mode: 'key' | 'value'
@@ -127,54 +33,6 @@ export interface MihomoCursor {
 const VALUE_RE = /^\s*(?:-\s*)?([A-Za-z0-9_-]+)\s*:(?:\s.*)?$/
 // Отступ строки и, если строка заводит элемент списка, его дефис
 const KEY_INDENT_RE = /^(\s*)(-\s*)?/
-
-/**
- * Хвост пути внутри секции. Пусто — это сама секция; единственный сегмент,
- * который служит префиксом составного ключа (`remnawave`, `override`,
- * `health-check`), — вложенное отображение той же секции. Всё остальное
- * словарь не описывает.
- */
-function withinSection(rest: PathParts, section: MihomoSectionName): MihomoSectionName | null {
-  if (rest.length === 0) return section
-  const [only] = rest
-  if (rest.length === 1 && typeof only === 'string') {
-    return fieldsOf(section).some((f) => f.key.startsWith(`${only}.`)) ? section : null
-  }
-  return null
-}
-
-/**
- * Секция словаря, описывающая отображение по этому пути; null — про это место
- * словарь не знает ничего, и тогда молчание единственный честный ответ.
- * Откат к корню был бы враньём: `port` внутри записи `proxies` — порт сервера,
- * а не «порт HTTP-входа» из корневых настроек.
- *
- * `item` — курсор заводит НОВЫЙ элемент списка (строка начинается с дефиса), и
- * путь ведёт к самому списку. Единственный описанный список отображений —
- * `proxy-groups`; `proxies` и `rules` словарь не описывает, у `rules` элементы
- * и вовсе скаляры.
- */
-function sectionOf(parts: PathParts, item: boolean): MihomoSectionName | null {
-  if (item) return parts.length === 1 && parts[0] === 'proxy-groups' ? 'proxy-group' : null
-
-  const [head, second] = parts
-  if (head === undefined) return 'root'
-  if (head === 'proxy-groups') {
-    return typeof second === 'number' ? withinSection(parts.slice(2), 'proxy-group') : null
-  }
-  if (head === 'proxy-providers') {
-    return typeof second === 'string' ? withinSection(parts.slice(2), 'proxy-provider') : null
-  }
-  if (head === 'rule-providers') {
-    return typeof second === 'string' ? withinSection(parts.slice(2), 'rule-provider') : null
-  }
-  if (typeof head !== 'string') return null
-  const section = sectionForKey(head)
-  if (section !== undefined) return withinSection(parts.slice(1), section)
-  // Не секция — значит либо вложенное отображение составного ключа корня
-  // (`remnawave`), либо место, которого словарь не знает
-  return withinSection(parts, 'root')
-}
 
 function keyOf(node: unknown): string | undefined {
   const value = (node as { value?: unknown } | null)?.value
@@ -321,6 +179,12 @@ function inComment(before: string): boolean {
   return false
 }
 
+/** Свежий индекс списка по реальному документу — валиден для любой глубины пути */
+function freshIndex(md: MihomoDoc, listPath: PathParts): number {
+  const value = valueAt(md.json, listPath)
+  return Array.isArray(value) ? value.length : 0
+}
+
 export function contextAt(text: string, pos: number): MihomoCursor | null {
   if (pos < 0 || pos > text.length) return null
   const md = parseMihomo(text)
@@ -329,8 +193,8 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
   const before = text.slice(lineStart, pos)
   if (inComment(before)) return null
   const value = VALUE_RE.exec(before)
-  const mode = value ? 'value' : 'key'
-  const key = value?.[1]
+  let mode: 'key' | 'value' = value ? 'value' : 'key'
+  let key = value?.[1]
   const indent = KEY_INDENT_RE.exec(before)
   // Строка с дефисом — это ЭЛЕМЕНТ списка, и хозяин у неё сам список: секцию
   // элемента задаёт он, а самого элемента в тексте может ещё не быть. Дефис
@@ -352,10 +216,48 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
     if (probe >= 0) parts = pathAt(md, probe)
   }
 
+  let fields: FieldSchema[] | undefined
   if (item) {
     const seq = seqAtColumn(md, parts, column)
     if (seq === null) return null
-    parts = seq
+    const listField = mihomoFieldAt(seq, md.json)
+    if (listField !== undefined && listField.kind === 'list' && listField.item?.kind !== 'object') {
+      // Скалярный список (rules, nameserver, network у tunnels…): дефис заводит
+      // ЗНАЧЕНИЕ элемента, а не ключ отображения — те же подсказки, что и у
+      // значения самого поля-списка (enum элемента, ссылка на цель документа)
+      parts = seq.slice(0, -1)
+      const last = seq[seq.length - 1]
+      mode = 'value'
+      key = typeof last === 'string' ? last : undefined
+      fields = mihomoFieldsAt(parts, md.json)
+    } else if (parts.length > seq.length + 1) {
+      // Список объектов (proxy-groups, proxies, listeners…), а курсор стоит
+      // ГЛУБЖЕ границы элемента — на его собственном ключе или значении (тот
+      // же дефис, но дальше на строке, например «- name: серв‸ер»). Путь
+      // резолвится колонкой КОНТЕНТА, а не колонкой самого дефиса: содержимое
+      // элемента сдвинуто вправо ровно на длину «- », и без поправки колонка
+      // курсора совпала бы с колонкой дефиса, а не ключа
+      const contentColumn = column + (indent?.[2]?.length ?? 0)
+      parts = containerOf(md, parts, contentColumn)
+      if (mode === 'value' && parts.length > 0 && parts[parts.length - 1] === key) {
+        parts = parts.slice(0, -1)
+      }
+      fields = mihomoFieldsAt(parts, md.json)
+    } else {
+      // Граница элемента: своего ключа/значения на этой строке ещё нет
+      // (дефис пуст либо на нём стоит только ключ без значения). Элемента в
+      // тексте может не быть вовсе — тогда индекс берётся СВЕЖИЙ, тот, где
+      // valueAt документа даёт undefined; если элемент уже существует
+      // (пусть даже как заготовка со значением null), используется его
+      // настоящий индекс — для условий `when` разницы с undefined нет.
+      // `mode`/`key`, посчитанные выше по тексту строки, не трогаем: «- ‸» —
+      // это КЛЮЧ нового элемента, а «- name: ‸» — ЗНАЧЕНИЕ уже введённого
+      const index = parts.length > seq.length && typeof parts[seq.length] === 'number'
+        ? (parts[seq.length] as number)
+        : freshIndex(md, seq)
+      fields = mihomoFieldsAt([...seq, index], md.json)
+      parts = seq
+    }
   } else {
     parts = containerOf(md, parts, column)
     // Страховка на случай, когда отступ ничего не решил: значение вводится
@@ -363,36 +265,18 @@ export function contextAt(text: string, pos: number): MihomoCursor | null {
     if (mode === 'value' && parts.length > 0 && parts[parts.length - 1] === key) {
       parts = parts.slice(0, -1)
     }
+    fields = mihomoFieldsAt(parts, md.json)
   }
-
-  const section = sectionOf(parts, item)
-  if (section === null) return null
 
   const node = nodeAt(md, parts)
   const existingKeys = isMap(node)
     ? node.items.map((pair) => keyOf(pair.key)).filter((k): k is string => k !== undefined)
     : []
 
-  return { section, parts, existingKeys, mode, key }
+  return { path: parts, fields, existingKeys, mode, key }
 }
 
-/**
- * Имя вложенного отображения словаря, в котором стоит курсор (`remnawave`,
- * `override`, `health-check`). Составные ключи словаря — это путь через такое
- * отображение, а не имя ключа с точкой, поэтому в тексте строка несёт только
- * короткое имя листа.
- */
-export function nestedIn(cursor: MihomoCursor): string | undefined {
-  const last = cursor.parts[cursor.parts.length - 1]
-  if (typeof last !== 'string') return undefined
-  return fieldsOf(cursor.section).some((f) => f.key.startsWith(`${last}.`)) ? last : undefined
-}
-
-/** Поле словаря по имени ключа строки — с учётом вложенного отображения */
-export function fieldFor(cursor: MihomoCursor, key: string): MihomoField | undefined {
-  const prefix = nestedIn(cursor)
-  return (
-    (prefix === undefined ? undefined : fieldOf(cursor.section, `${prefix}.${key}`)) ??
-    fieldOf(cursor.section, key)
-  )
+/** Поле словаря по имени ключа строки */
+export function fieldFor(cursor: MihomoCursor, key: string): FieldSchema | undefined {
+  return cursor.fields?.find((f) => f.key === key)
 }
