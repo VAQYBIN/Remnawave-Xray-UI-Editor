@@ -1,13 +1,17 @@
 // CompletionSource для JSON-вкладки sing-box: контекстные подсказки ключей и
-// значений по словарю `docSchema`. Ключи фильтруются от уже введённых, значения
-// берутся из enum поля — в том числе внутри массивов-энумов вроде `network`.
+// значений по схеме `entities/singbox/schema`. Ключи фильтруются от уже
+// введённых, значения берутся из enum поля — в том числе внутри массивов-энумов
+// вроде `network`.
 //
-// Там, где словарь ничего не описывает, источник возвращает null и молчит.
+// Там, где схема ничего не описывает, источник возвращает null и молчит.
 // Выдуманная подсказка хуже отсутствующей: она читается как знание, а ядро
 // развивается быстрее словаря, и незнакомый ключ здесь — норма, а не ошибка.
 
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
-import type { SingboxField } from '../../../entities/singbox/docSchema'
+import type { EnumValue, FieldSchema } from '../../../shared/schema'
+// Текст устаревания — общий с формами по схеме (`features/inspector/schema`):
+// разойдясь, подсказка и форма описывали бы одну и ту же причину по-разному
+import { deprecatedNote } from '../../inspector/schema/labels'
 import {
   containerAt,
   singboxArrayAt,
@@ -22,14 +26,14 @@ const KEY_RE = /[{,]\s*("?)([A-Za-z0-9_$-]*)$/
 // внутри массива: [ "tc  |  , "  — вводим элемент
 const ARRAY_ITEM_RE = /[[,]\s*("?)([^"{}[\],]*)$/
 
-function completionType(field: SingboxField): string {
-  if (field.enum) return 'enum'
-  if (field.type === 'object') return 'namespace'
-  if (field.type === 'array' || field.type === 'strings') return 'type'
+function completionType(field: FieldSchema): string {
+  if (field.kind === 'enum') return 'enum'
+  if (field.kind === 'object' || field.kind === 'map') return 'namespace'
+  if (field.kind === 'list') return 'type'
   return 'property'
 }
 
-function keyOptions(fields: SingboxField[], existing: string[], quoted: boolean): Completion[] {
+function keyOptions(fields: FieldSchema[], existing: string[], quoted: boolean): Completion[] {
   const taken = new Set(existing)
   const options: Completion[] = []
   for (const field of fields) {
@@ -37,7 +41,7 @@ function keyOptions(fields: SingboxField[], existing: string[], quoted: boolean)
     options.push({
       label: field.key,
       type: completionType(field),
-      detail: field.type,
+      detail: field.kind,
       info: field.doc,
       apply: quoted ? field.key : `"${field.key}"`,
     })
@@ -45,22 +49,31 @@ function keyOptions(fields: SingboxField[], existing: string[], quoted: boolean)
   return options
 }
 
-function enumOptions(field: SingboxField | undefined, quoted: boolean): Completion[] {
-  if (!field?.enum) return []
-  return field.enum.map((e) => ({
+/** Значения перечисления поля: у `enum` — свои, у списка строк (`strs`) — у элемента */
+function enumValuesOf(field: FieldSchema | undefined): EnumValue[] {
+  if (!field) return []
+  if (field.kind === 'enum') return field.enum ?? []
+  if (field.kind === 'list') return field.item?.enum ?? []
+  return []
+}
+
+function enumOptions(field: FieldSchema | undefined, quoted: boolean): Completion[] {
+  const values = enumValuesOf(field)
+  return values.map((e) => ({
     label: e.value,
     type: 'enum',
-    info: e.doc ?? field.doc,
+    detail: e.deprecated ? 'устарело' : undefined,
+    info: e.deprecated ? deprecatedNote(e.deprecated) : (e.doc ?? field?.doc),
     apply: quoted ? e.value : `"${e.value}"`,
   }))
 }
 
-function scalarValueOptions(field: SingboxField | undefined, quoted: boolean): Completion[] {
+function scalarValueOptions(field: FieldSchema | undefined, quoted: boolean): Completion[] {
   if (!field) return []
   const fromEnum = enumOptions(field, quoted)
   if (fromEnum.length > 0) return fromEnum
   // булевы литералы пишутся без кавычек — предлагаем только вне строки
-  if (field.type === 'boolean' && !quoted) {
+  if (field.kind === 'boolean' && !quoted) {
     return ['true', 'false'].map((v) => ({ label: v, type: 'keyword', apply: v }))
   }
   return []
@@ -87,7 +100,7 @@ export function singboxCompletionSource(ctx: CompletionContext): CompletionResul
 
     // ── курсор в объекте: ключи или скалярные значения ──
     const cursor = singboxPathAt(ctx.state, ctx.pos)
-    if (!cursor || cursor.section === undefined) return null
+    if (!cursor || cursor.fields === undefined) return null
     const fields = singboxFields(cursor)
     const before = ctx.state.doc.sliceString(container.from, ctx.pos)
 

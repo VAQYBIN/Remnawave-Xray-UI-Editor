@@ -1,15 +1,19 @@
 // Наведение на JSON-вкладке sing-box: под курсором ключ (или его скалярное
-// значение) — показываем описание из словаря и допустимые значения.
+// значение) — показываем описание из схемы и допустимые значения.
 //
 // Чистая `hoverSingboxAt` отделена от расширения намеренно: она не знает ни про
 // EditorView, ни про DOM, и её проверяют тесты. Обёртка только рисует, и рисует
 // ОБЩИМ `renderHoverTooltip` — тем же, что у вкладок Xray и Mihomo.
+//
+// Ключ-раздел, за которым стоит не значение, а вложенное отображение
+// (`remnawave`), теперь описан как обычное поле `kind: 'object'` — у него свой
+// `doc` в схеме, отдельного случая для него, в отличие от прежнего словаря,
+// не нужно.
 
 import { hoverTooltip, type Tooltip } from '@codemirror/view'
 import type { EditorState } from '@codemirror/state'
 import type { SyntaxNode } from '@lezer/common'
-import { nestedNamespaceDoc } from '../../../entities/singbox/docPath'
-import type { SingboxField } from '../../../entities/singbox/docSchema'
+import type { FieldSchema } from '../../../shared/schema'
 import { renderHoverTooltip } from '../hoverTooltipDom'
 import { singboxFields, singboxPathAt, treeAt } from './context'
 
@@ -62,7 +66,7 @@ function keyAtNode(
 
 export interface SingboxHover {
   key: string
-  field: SingboxField
+  field: FieldSchema
   from: number
   to: number
 }
@@ -77,18 +81,11 @@ export function hoverSingboxAt(
     const at = keyAtNode(state, node)
     if (!at) return null
     const cursor = singboxPathAt(state, pos)
-    if (!cursor || cursor.section === undefined) return null
+    if (!cursor) return null
 
     const field = singboxFields(cursor).find((f) => f.key === at.key)
-    if (field) return { ...at, field }
-
-    // Ключ, за которым стоит не значение, а вложенное отображение (`remnawave`):
-    // своего поля в словаре у него нет, зато есть перечень листьев. Текст берём
-    // у `docPath`, одним на обоих потребителей — наведение и подсказку при
-    // наборе: разойдясь, они описывали бы один ключ по-разному
-    const doc = nestedNamespaceDoc(cursor.section, at.key)
-    if (doc === undefined) return null
-    return { ...at, field: { key: at.key, doc, type: 'object' } }
+    if (!field) return null
+    return { ...at, field }
   } catch {
     return null
   }
@@ -102,7 +99,9 @@ export function singboxHover() {
       pos: found.from,
       end: found.to,
       above: true,
-      create: () => ({ dom: renderHoverTooltip(found.key, found.field) }),
+      // renderHoverTooltip рисует бейдж по `type` — у схемы это поле называется
+      // `kind`, отдельного преобразователя ради одной строки заводить незачем
+      create: () => ({ dom: renderHoverTooltip(found.key, { ...found.field, type: found.field.kind }) }),
     }
   })
 }

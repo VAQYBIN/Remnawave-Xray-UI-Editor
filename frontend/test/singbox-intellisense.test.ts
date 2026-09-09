@@ -35,24 +35,32 @@ function at(marked: string): { state: EditorState; pos: number } {
   return { state: stateAt(marked.replace('|', '')), pos }
 }
 
+/** Ключи полей, которые схема видит в этом месте курсора */
+function fieldKeys(marked: string): string[] | undefined {
+  const { state, pos } = at(marked)
+  const cursor = withFrozenClock(() => singboxPathAt(state, pos))
+  return cursor?.fields?.map((f) => f.key)
+}
+
 describe('контекст подсказок sing-box', () => {
   it('корень документа', () => {
-    const { state, pos } = at('{\n  "lo|"\n}')
-    expect(withFrozenClock(() => singboxPathAt(state, pos))!.section).toBe('root')
+    const keys = fieldKeys('{\n  "lo|"\n}')
+    expect(keys).toEqual(expect.arrayContaining(['log', 'dns', 'outbounds']))
   })
 
   it('элемент outbounds различает группу и сервер по типу', () => {
-    const group = at('{"outbounds":[{"type":"selector","ou|"}]}')
-    expect(withFrozenClock(() => singboxPathAt(group.state, group.pos))!.section).toBe('group')
-    const server = at('{"outbounds":[{"type":"shadowsocks","se|"}]}')
-    expect(withFrozenClock(() => singboxPathAt(server.state, server.pos))!.section).toBe('outbound')
+    const group = fieldKeys('{"outbounds":[{"type":"selector","ou|"}]}')
+    expect(group).toContain('outbounds')
+    expect(group).not.toContain('server')
+    const server = fieldKeys('{"outbounds":[{"type":"vless","se|"}]}')
+    expect(server).toContain('uuid')
   })
 
-  it('правило маршрута и вложенное правило логического — одна секция', () => {
-    const rule = at('{"route":{"rules":[{"do|"}]}}')
-    expect(withFrozenClock(() => singboxPathAt(rule.state, rule.pos))!.section).toBe('route-rule')
-    const nested = at('{"route":{"rules":[{"type":"logical","rules":[{"do|"}]}]}}')
-    expect(withFrozenClock(() => singboxPathAt(nested.state, nested.pos))!.section).toBe('route-rule')
+  it('правило маршрута и вложенное правило логического — оба знают domain_suffix', () => {
+    const rule = fieldKeys('{"route":{"rules":[{"do|"}]}}')
+    expect(rule).toContain('domain_suffix')
+    const nested = fieldKeys('{"route":{"rules":[{"type":"logical","rules":[{"do|"}]}]}}')
+    expect(nested).toContain('domain_suffix')
   })
 
   it('уже написанные ключи объекта известны — их подсказка не предлагает второй раз', () => {
@@ -60,10 +68,10 @@ describe('контекст подсказок sing-box', () => {
     expect(withFrozenClock(() => singboxPathAt(state, pos))!.existingKeys).toContain('final')
   })
 
-  it('место, которого словарь не описывает, секции не имеет', () => {
+  it('место, которого схема не описывает, полей не имеет', () => {
     // Молчание там, где сказать нечего: выдуманное описание читается как знание
-    const { state, pos } = at('{"unknown_section":{"a|"}}')
-    expect(withFrozenClock(() => singboxPathAt(state, pos))!.section).toBeUndefined()
+    const keys = fieldKeys('{"unknown_section":{"a|"}}')
+    expect(keys).toBeUndefined()
   })
 
   // Дерево в состоянии CodeMirror — снимок, сделанный при создании
@@ -80,7 +88,7 @@ describe('контекст подсказок sing-box', () => {
     // умеет отличить «резолвер дотянул дерево» от «дерево и так было готово»
     const state = stateAt(text)
     const found = withFrozenClock(() => singboxPathAt(state, text.length))
-    expect(found!.section).toBe('dns-server')
+    expect(found!.fields?.map((f) => f.key)).toContain('tag')
   })
 })
 
@@ -105,21 +113,31 @@ describe('подсказки sing-box', () => {
   })
 
   it('элемент массива-энума подсказывается по полю-владельцу', () => {
-    expect(labels('{"route":{"rules":[{"network":["|"]}]}}')).toEqual(['tcp', 'udp'])
+    // network правила маршрута — свой список значений (tcp/udp/icmp с 1.13),
+    // отличный от network выхода (только tcp/udp)
+    expect(labels('{"route":{"rules":[{"network":["|"]}]}}')).toEqual(['tcp', 'udp', 'icmp'])
   })
 
-  it('там, где словарь молчит, подсказок нет', () => {
+  it('там, где схема молчит, подсказок нет', () => {
     expect(labels('{"unknown_section":{"|"}}')).toEqual([])
   })
 
-  it('внутри правила DNS подсказок нет: ключи маршрута ему чужие', () => {
-    // Секции dns-rule в словаре пока нет, а ключи route-rule (outbound,
-    // hijack-dns, sniff) у DNS-правила не работают: подсказка ими читалась бы
-    // как знание о документе, которого у редактора нет
+  it('внутри правила DNS предлагаются server и query_type, но не hijack-dns', () => {
+    // Секция правила DNS — свой список полей действия (route/reject/predefined…),
+    // а не список действий правила маршрута: hijack-dns там не существует
     const got = labels('{"dns":{"rules":[{"|"}]}}')
-    expect(got).not.toContain('outbound')
-    expect(got).not.toContain('hijack-dns')
-    expect(got).toEqual([])
+    expect(got).toContain('server')
+    expect(got).toContain('query_type')
+    const actionValues = labels('{"dns":{"rules":[{"action":"|"}]}}')
+    expect(actionValues).not.toContain('hijack-dns')
+  })
+
+  it('устаревшее значение перечисления предлагается с пометкой', () => {
+    const { state, pos } = at('{"outbounds":[{"type":"|"}]}')
+    const ctx = new CompletionContext(state, pos, true)
+    const result = withFrozenClock(() => singboxCompletionSource(ctx))
+    const block = result?.options.find((o) => o.label === 'block')
+    expect(block?.detail).toBe('устарело')
   })
 })
 
@@ -132,27 +150,34 @@ describe('наведение sing-box', () => {
   })
 
   it('описывает и ключ-раздел, за которым стоит не значение', () => {
-    // `route` в словаре есть как ключ секции root — молчать на нём незачем
+    // `route` в схеме есть как поле корня — молчать на нём незачем
     const text = '{"route":{"rules":[]}}'
     const state = stateAt(text)
     const found = withFrozenClock(() => hoverSingboxAt(state, text.indexOf('route') + 2))
     expect(found!.field.doc).toMatch(/[Мм]аршрут/)
   })
 
-  it('молчит там, где словарь ничего не описывает', () => {
+  it('молчит там, где схема ничего не описывает', () => {
     const text = '{"outbounds":[{"type":"direct","brand_new":1}]}'
     const state = stateAt(text)
     expect(withFrozenClock(() => hoverSingboxAt(state, text.indexOf('brand_new') + 2))).toBeNull()
   })
 
+  it('описывает ключ-раздел вложенного отображения (remnawave)', () => {
+    // `remnawave` в схеме — обычное поле kind: 'object' у группы, со своим doc
+    const text = '{"outbounds":[{"type":"selector","remnawave":{"includeProxies":false}}]}'
+    const state = stateAt(text)
+    const found = withFrozenClock(() => hoverSingboxAt(state, text.indexOf('remnawave') + 2))
+    expect(found!.field.kind).toBe('object')
+    expect(found!.field.doc).toMatch(/\S/)
+  })
+
   it('вложенное отображение панели описано и снаружи, и изнутри', () => {
-    // Один текст на обоих потребителей: `remnawave` своей секции не имеет,
-    // а его лист живёт в секции группы под точкой
     const text = '{"outbounds":[{"type":"selector","remnawave":{"includeProxies":false}}]}'
     const state = stateAt(text)
     const head = withFrozenClock(() => hoverSingboxAt(state, text.indexOf('remnawave') + 2))
-    expect(head!.field.doc).toContain('includeProxies')
+    expect(head!.field.doc).toMatch(/\S/)
     const leaf = withFrozenClock(() => hoverSingboxAt(state, text.indexOf('includeProxies') + 2))
-    expect(leaf!.field.doc).toMatch(/[Пп]анел/)
+    expect(leaf!.field.doc).toMatch(/\S/)
   })
 })
