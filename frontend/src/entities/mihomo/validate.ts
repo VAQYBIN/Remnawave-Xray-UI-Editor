@@ -100,9 +100,11 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
     }
 
     // Симметрично провайдеру ниже: include-proxies: true значим только у
-    // proxy-providers (включает подстановку хостов панели в payload); у
-    // группы этот ключ ничего не делает — там подстановку регулирует сам
-    // факт наличия маркера, а не include-proxies.
+    // proxy-providers (включает подстановку хостов панели в payload). У
+    // группы панель по умолчанию и без того дописывает хосты —
+    // `panelInjectsHosts` читает ключ как `includeProxies !== false`, — так
+    // что явный `true` не меняет ничего: у группы значим только явный
+    // `false`, которым подстановку отключают.
     if (group.remnawave.includeProxies === true) {
       issues.push(
         issue(
