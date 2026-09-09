@@ -59,12 +59,23 @@ describe('SchemaForm: раскладка', () => {
     expect(screen.queryByLabelText('tag')).toBeNull()
   })
 
-  it('условное поле появляется вместе со значением соседа', () => {
+  it('условное поле становится доступным вместе со значением соседа, а не подскакивает наверх', async () => {
     const { writer } = makeWriter()
+    const moreToggle = () => screen.getByRole('button', { name: /^Ещё поля/ })
     const { rerender } = render(<SchemaForm fields={FIELDS} value={{ type: 'direct' }} path={PATH} writer={writer} />)
+
+    // Условие не выполнено (type: direct) — uuid отсутствует в списке полей вовсе, крышка ни при чём
     expect(screen.queryByText('uuid')).toBeNull()
+    const titleBefore = moreToggle().textContent
+
     rerender(<SchemaForm fields={FIELDS} value={{ type: 'vless' }} path={PATH} writer={writer} />)
+    // Условие выполнилось — uuid стал ДОСТУПЕН (появился в списке полей), но остаётся
+    // незаполненным: он должен быть под той же крышкой «Ещё поля», что и остальные пустые
+    // поля, — НЕ подскакивать наверх сам по себе только из-за того, что стал видимым.
+    expect(screen.queryByText('uuid')).toBeNull()
+    await userEvent.click(moreToggle())
     expect(screen.getByText('uuid')).toBeInTheDocument()
+    expect(moreToggle().textContent).not.toBe(titleBefore)
   })
 })
 

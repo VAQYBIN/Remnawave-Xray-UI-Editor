@@ -127,12 +127,16 @@ function FieldSet({
 }: FieldSetProps) {
   const skipped = new Set(skip)
   const shown = visibleFields(fields, value).filter((f) => !skipped.has(f.key) && (showPanelKeys || !f.panelKey))
-  // Условное поле, показавшееся из-за значения соседа, — уже само по себе сигнал,
-  // а не умолчание: прятать его за «Ещё поля» значило бы заставлять искать то,
-  // что пользователь только что открыл своим вводом.
-  const isPromoted = (f: FieldSchema) => isFilled(value[f.key]) || f.when !== undefined
-  const filled = shown.filter(isPromoted)
-  const rest = shown.filter((f) => !isPromoted(f))
+  // Заполненность — единственный сигнал, поднимающий поле наверх. Условие `when`
+  // само по себе таким сигналом НЕ является: в реальном словаре (sing-box) условным
+  // оказывается почти каждое поле (dial-поля исключают только группы через `notIn`,
+  // tls/transport/multiplex зависят от `type`), и если поднимать наверх любое поле,
+  // чьё условие выполнилось, «Ещё поля» опустеет, а верх формы захламят десятки
+  // пустых полей — ровно наоборот тому, что просит правило 1 (заполненные сверху,
+  // незаполненные — под крышкой). Значение, которое вписал пользователь, — вот что
+  // отличает «уже настроено» от «просто стало доступно».
+  const filled = shown.filter((f) => isFilled(value[f.key]))
+  const rest = shown.filter((f) => !isFilled(value[f.key]))
   const unknown = unknownKeys(fields, value).filter((k) => !skipped.has(k))
   const deprecated = new Map(deprecatedAt(fields, value).map((d) => [d.key, d.deprecation]))
 
