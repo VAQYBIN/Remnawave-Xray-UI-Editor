@@ -48,4 +48,14 @@ describe('схема маршрута', () => {
     expect(headless).toEqual(expect.arrayContaining(['domain', 'domain_suffix', 'ip_cidr', 'port', 'process_name', 'query_type', 'invert', 'type', 'mode', 'rules']))
     for (const k of ['inbound', 'clash_mode', 'rule_set', 'action', 'outbound']) expect(headless, k).not.toContain(k)
   })
+
+  it('network_type у headless-правила не делит объект поля с правилом маршрута и не получает when по action', () => {
+    // Матчер в ROUTE_RULE_FIELDS отличим от поля действия route-options по notIn
+    // (у поля действия — `in: ['route-options']`, у матчера — `notIn: ['route-options']`)
+    const routeMatcher = ROUTE_RULE_FIELDS.find((f) => f.key === 'network_type' && f.when?.notIn !== undefined)
+    const headlessField = HEADLESS_RULE_FIELDS.find((f) => f.key === 'network_type')
+    expect(headlessField).not.toBe(routeMatcher)
+    expect(headlessField?.when).toBeUndefined()
+    expect(routeMatcher?.when).toEqual({ key: 'action', notIn: ['route-options'] })
+  })
 })

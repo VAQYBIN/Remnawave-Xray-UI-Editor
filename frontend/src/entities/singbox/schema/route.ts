@@ -120,10 +120,13 @@ export const ROUTE_RULE_FIELDS: FieldSchema[] = [
 
 // `network_type` описан дважды: у route-options это отдельное поле действия,
 // а общий матчер того же имени стоит в COMMON_MATCHERS без условия. Чтобы в
-// видимом наборе ключ был один, матчер получает условие «не route-options»
+// видимом наборе ключ был один, матчер получает условие «не route-options».
+// Элементы COMMON_MATCHERS разделяются с HEADLESS_RULE_FIELDS (тот же спред
+// массива, те же объекты) — правка на месте протекла бы туда, поэтому слот
+// заменяется свежим объектом, а не мутируется.
 {
-  const matcher = ROUTE_RULE_FIELDS.find((f) => f.key === 'network_type' && f.when === undefined)!
-  matcher.when = { key: 'action', notIn: ['route-options'] }
+  const idx = ROUTE_RULE_FIELDS.findIndex((f) => f.key === 'network_type' && f.when === undefined)
+  ROUTE_RULE_FIELDS[idx] = { ...ROUTE_RULE_FIELDS[idx], when: { key: 'action', notIn: ['route-options'] } }
 }
 
 ROUTE_RULE_FIELDS.push(
