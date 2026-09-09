@@ -1,69 +1,65 @@
-import { useMemo, useState } from 'react'
-import {
-  DEFAULT_PARAMS,
-  RECIPES,
-  planFor,
-  validateFor,
-  type AllParams,
-  type RecipeId,
-  type XrayConfig,
-} from '../../entities/xray'
+// Диалог рецептов, обобщённый по модели: список слева, форма параметров и
+// предпросмотр справа, diff по кнопке. Реестр Xray стал первым экземпляром
+// (`xrayRecipes.tsx`), поведение и разметка у него прежние — его тесты
+// контрольная группа этого обобщения.
+
+import { useMemo, useState, type ReactNode } from 'react'
+import type { Recipe, RecipePlan } from '../../shared/recipes/types'
 import { Button, Dialog } from '../../shared/ui'
 import { DiffView } from '../editor/DiffView'
-import { BalanceForm } from './forms/BalanceForm'
-import { BlockForm } from './forms/BlockForm'
-import { ChainForm } from './forms/ChainForm'
-import { TorrentForm } from './forms/TorrentForm'
-import { WarpForm } from './forms/WarpForm'
 
-interface Props {
+export interface RecipeEntry<TModel, TParams = unknown> {
+  recipe: Recipe<TModel, TParams>
+  Form: (props: { value: TParams; onChange: (v: TParams) => void; model: TModel }) => ReactNode
+}
+
+interface Props<TModel> {
   open: boolean
-  config: XrayConfig
-  onApply: (config: XrayConfig) => void
-  onOpenGeo: () => void
+  model: TModel
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- параметры у рецептов разные, пара recipe/Form согласована внутри записи
+  entries: RecipeEntry<TModel, any>[]
+  /** Текст для diff: у JSON-документов — JSON.stringify(model, null, 2) */
+  print: (model: TModel) => string
+  onApply: (model: TModel) => void
+  /** Кнопка «Geo-базы» у заметок с needsGeo; у ядер без geo-баз не передаётся */
+  onOpenGeo?: () => void
   onClose: () => void
 }
 
-export function RecipesDialog({ open, config, onApply, onOpenGeo, onClose }: Props) {
-  const [id, setId] = useState<RecipeId>('warp')
+export function RecipesDialog<TModel>({ open, model, entries, print, onApply, onOpenGeo, onClose }: Props<TModel>) {
+  const [id, setId] = useState(entries[0]?.recipe.id ?? '')
   // Параметры всех рецептов держим сразу: переключение списка не теряет введённое
-  const [params, setParams] = useState<AllParams>(DEFAULT_PARAMS)
+  const [params, setParams] = useState<Record<string, unknown>>(() =>
+    Object.fromEntries(entries.map((e) => [e.recipe.id, e.recipe.defaults])),
+  )
   const [diff, setDiff] = useState(false)
+
+  const entry = entries.find((e) => e.recipe.id === id) ?? entries[0]
+  const current = entry === undefined ? undefined : params[entry.recipe.id] ?? entry.recipe.defaults
 
   // Закрытый диалог не считает план и не рисует формы: иначе их поля и кнопки
   // остаются в дереве доступности и перехватывают поиск по подписям на всей странице
-  const plan = useMemo(
-    () => (open ? planFor(config, id, params) : { config, changes: [], notes: [] }),
-    [open, config, id, params],
+  const plan = useMemo<RecipePlan<TModel>>(
+    () => (open && entry ? entry.recipe.plan(model, current) : { model, changes: [], notes: [] }),
+    [open, entry, model, current],
   )
-  const error = validateFor(id, params)
+  const error = entry ? entry.recipe.validate(current) : null
   const canApply = error === null && plan.changes.some((c) => c.status === 'add')
 
-  const inboundTags = (config.inbounds ?? [])
-    .map((i) => i.tag)
-    .filter((t): t is string => typeof t === 'string')
-  const outboundTags = (config.outbounds ?? [])
-    .map((o) => o.tag)
-    .filter((t): t is string => typeof t === 'string')
-
   function apply() {
-    onApply(plan.config)
+    onApply(plan.model)
     setDiff(false)
     onClose()
   }
 
   return (
     <Dialog open={open} title="Рецепты" onClose={onClose} wide>
-      {!open ? null : diff ? (
+      {!open || entry === undefined ? null : diff ? (
         <>
           <p className="muted" style={{ marginTop: 0 }}>
             Слева — текущий черновик, справа — каким он станет после рецепта.
           </p>
-          <DiffView
-            original={JSON.stringify(config, null, 2)}
-            modified={JSON.stringify(plan.config, null, 2)}
-            maxHeight="55vh"
-          />
+          <DiffView original={print(model)} modified={print(plan.model)} maxHeight="55vh" />
           <div className="row" style={{ marginTop: 12 }}>
             <Button variant="ghost" onClick={() => setDiff(false)}>
               ← К параметрам
@@ -78,59 +74,31 @@ export function RecipesDialog({ open, config, onApply, onOpenGeo, onClose }: Pro
         <>
           <div className="recipes-layout">
             <div className="recipe-list">
-              {RECIPES.map((r) => (
+              {entries.map((e) => (
                 <button
-                  key={r.id}
+                  key={e.recipe.id}
                   type="button"
-                  className={r.id === id ? 'recipe-item recipe-item-active' : 'recipe-item'}
-                  aria-pressed={r.id === id}
-                  onClick={() => setId(r.id)}
+                  className={e.recipe.id === entry.recipe.id ? 'recipe-item recipe-item-active' : 'recipe-item'}
+                  aria-pressed={e.recipe.id === entry.recipe.id}
+                  onClick={() => setId(e.recipe.id)}
                 >
-                  <span className="recipe-item-title">{r.title}</span>
-                  <span className="recipe-item-summary">{r.summary}</span>
+                  <span className="recipe-item-title">{e.recipe.title}</span>
+                  <span className="recipe-item-summary">{e.recipe.summary}</span>
                 </button>
               ))}
             </div>
 
             <div className="recipe-body">
-              {id === 'warp' && (
-                <WarpForm value={params.warp} onChange={(warp) => setParams({ ...params, warp })} />
-              )}
-              {id === 'torrent' && (
-                <TorrentForm
-                  value={params.torrent}
-                  inboundTags={inboundTags}
-                  onChange={(torrent) => setParams({ ...params, torrent })}
-                />
-              )}
-              {id === 'ads' && (
-                <BlockForm value={params.ads} onChange={(ads) => setParams({ ...params, ads })} />
-              )}
-              {id === 'private' && (
-                <BlockForm value={params.private} onChange={(v) => setParams({ ...params, private: v })} />
-              )}
-              {id === 'chain' && (
-                <ChainForm
-                  value={params.chain}
-                  outboundTags={outboundTags}
-                  onChange={(chain) => setParams({ ...params, chain })}
-                />
-              )}
-              {id === 'balance' && (
-                <BalanceForm
-                  value={params.balance}
-                  outboundTags={outboundTags}
-                  onChange={(balance) => setParams({ ...params, balance })}
-                />
-              )}
+              <entry.Form
+                value={current}
+                model={model}
+                onChange={(v) => setParams({ ...params, [entry.recipe.id]: v })}
+              />
 
               <h3 className="recipe-preview-title">Будет добавлено</h3>
               <ul className="recipe-changes" aria-label="Изменения рецепта">
                 {plan.changes.map((c, i) => (
-                  <li
-                    key={`${c.text}:${i}`}
-                    className={c.status === 'add' ? 'recipe-add' : 'recipe-exists'}
-                  >
+                  <li key={`${c.text}:${i}`} className={c.status === 'add' ? 'recipe-add' : 'recipe-exists'}>
                     <span aria-hidden="true">{c.status === 'add' ? '+' : '✓'}</span> {c.text}
                   </li>
                 ))}
@@ -139,7 +107,7 @@ export function RecipesDialog({ open, config, onApply, onOpenGeo, onClose }: Pro
               {plan.notes.map((n) => (
                 <p key={n.text} className="recipe-note">
                   {n.text}
-                  {n.needsGeo === true && (
+                  {n.needsGeo === true && onOpenGeo !== undefined && (
                     <Button variant="ghost" onClick={onOpenGeo}>
                       Geo-базы
                     </Button>

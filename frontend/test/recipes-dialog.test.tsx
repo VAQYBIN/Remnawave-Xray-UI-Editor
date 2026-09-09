@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RecipesDialog } from '../src/features/recipes/RecipesDialog'
+import { XRAY_RECIPES } from '../src/features/recipes/xrayRecipes'
 import type { XrayConfig } from '../src/entities/xray'
 
 const CONFIG = {
@@ -17,7 +18,15 @@ function renderWith(config: XrayConfig) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
-      <RecipesDialog open config={config} onApply={onApply} onOpenGeo={onOpenGeo} onClose={() => {}} />
+      <RecipesDialog
+        open
+        model={config}
+        entries={XRAY_RECIPES}
+        print={(c) => JSON.stringify(c, null, 2)}
+        onApply={onApply}
+        onOpenGeo={onOpenGeo}
+        onClose={() => {}}
+      />
     </QueryClientProvider>,
   )
   return { onApply, onOpenGeo }

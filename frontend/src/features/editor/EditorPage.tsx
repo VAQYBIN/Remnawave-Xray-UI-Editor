@@ -17,6 +17,7 @@ import { relativeTime } from '../../shared/lib/relativeTime'
 import { Button, Dialog } from '../../shared/ui'
 import { CheckReportDialog } from '../diagnostics/CheckReportDialog'
 import { RecipesDialog } from '../recipes/RecipesDialog'
+import { XRAY_RECIPES } from '../recipes/xrayRecipes'
 import { useConfigDraft } from './useConfigDraft'
 import { Workbench } from './Workbench'
 import { SaveDialog } from './SaveDialog'
@@ -149,7 +150,9 @@ function EditorInner({ profile }: { profile: Profile }) {
       {parsedConfig !== undefined && (
         <RecipesDialog
           open={recipesOpen}
-          config={parsedConfig}
+          model={parsedConfig}
+          entries={XRAY_RECIPES}
+          print={(c) => JSON.stringify(c, null, 2)}
           onApply={(next) => {
             draft.changeConfig(next)
             // Правила рецепта вставляются в начало: позиционные rule:N сдвигаются
