@@ -14,7 +14,7 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)
 ![Remnawave](https://img.shields.io/badge/Remnawave-3.4.3-6E56CF)
-![tests](https://img.shields.io/badge/tests-2442_passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-2651_passing-brightgreen)
 
 <img src="docs/screenshots/topology.png" width="900" alt="Топология трафика графом: сквады, три inbound'а, пять правил маршрутизации, балансер с обсерваторией и пять outbound'ов, соединённые цветными кабелями" />
 
@@ -475,10 +475,10 @@ docker compose -f docker-compose.build.yml up -d --build
 
 ```bash
 npm test                                    # тесты обоих workspace
-npm test -w backend                         # backend (vitest): 473 теста
-npm test -w frontend                        # frontend (vitest, jsdom): 1969 тестов
+npm test -w backend                         # backend (vitest): 471 теста (+3 отложенных)
+npm test -w frontend                        # frontend (vitest, jsdom): 2180 тестов
 (cd frontend && npx playwright install chromium)   # один раз перед первым e2e
-npm run e2e -w frontend                     # Playwright: 51 сценарий в 15 файлах
+npm run e2e -w frontend                     # Playwright: 100 сценариев в 19 файлах
 ```
 
 Три контура тестов не пересекаются:
