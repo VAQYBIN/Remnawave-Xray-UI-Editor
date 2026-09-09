@@ -5,107 +5,85 @@ import { SingboxExtraFields } from '../src/features/inspector/SingboxExtraFields
 import { SingboxOutboundForm } from '../src/features/inspector/SingboxOutboundForm'
 import { SingboxRuleForm } from '../src/features/inspector/SingboxRuleForm'
 import { optionLabels, selectOption, selectedValue } from './helpers'
+import { makeWriter } from './schemaHelpers'
+
+const REFS = { outbound: ['direct', 'proxy'], inbound: [], 'dns-server': ['dns-local'], 'rule-set': [] }
 
 describe('форма выхода sing-box', () => {
   it('у группы список участников показан на чтение, пока его заполняет панель', () => {
-    const onChange = vi.fn()
-    render(
-      <SingboxOutboundForm
-        value={{ type: 'selector', tag: 'g', outbounds: null }}
-        knownTags={['direct']}
-        onChange={onChange}
-      />,
-    )
-    // `\S`, а не `\w` из брифа: JS-класс `\w` — это [A-Za-z0-9_], и по-русски
-    // такой шаблон не совпал бы ни с каким текстом вообще
-    expect(screen.getByText(/заполн\S+ панел/i)).toBeInTheDocument()
+    const { writer } = makeWriter([{ path: ['outbounds', 0, 'outbounds'], reason: 'Список заполняет панель.' }])
+    render(<SingboxOutboundForm value={{ type: 'selector', tag: 'g', outbounds: null }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
+    expect(screen.getByLabelText('Участники (список заполняет панель)')).toHaveAttribute('readonly')
+    expect(screen.getByText(/Панель перезапишет его целиком/)).toBeInTheDocument()
     expect(screen.queryByLabelText('Участники')).toBeNull()
   })
 
-  it('кнопка закрепления ставит ключ панели и открывает список', async () => {
-    const onChange = vi.fn()
-    render(
-      <SingboxOutboundForm
-        value={{ type: 'selector', tag: 'g', outbounds: null }}
-        knownTags={['direct']}
-        onChange={onChange}
-      />,
-    )
-    await userEvent.click(screen.getByRole('button', { name: /закрепить/i }))
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ remnawave: { includeProxies: false } }),
-    )
+  it('кнопка закрепления ставит ключ панели одной операцией', async () => {
+    const { ops, writer } = makeWriter([{ path: ['outbounds', 0, 'outbounds'], reason: 'x' }])
+    render(<SingboxOutboundForm value={{ type: 'selector', tag: 'g', outbounds: null }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Закрепить список' }))
+    expect(ops).toEqual([{ op: 'set', path: ['outbounds', 0, 'remnawave'], value: { includeProxies: false } }])
   })
 
-  it('обратная кнопка снимает ключ целиком, а не ставит true', () => {
-    // includeProxies: true — не «как было»: осмысленное значение у ключа ровно
-    // одно, и оставлять его в документе значит хранить след правки
-    const onChange = vi.fn()
-    render(
-      <SingboxOutboundForm
-        value={{ type: 'selector', tag: 'g', outbounds: [], remnawave: { includeProxies: false } }}
-        knownTags={['direct']}
-        onChange={onChange}
-      />,
-    )
-    screen.getByRole('button', { name: /открепить/i }).click()
-    expect(onChange).toHaveBeenCalledWith(expect.not.objectContaining({ remnawave: expect.anything() }))
+  it('обратная кнопка снимает ключ целиком, а не ставит true', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxOutboundForm value={{ type: 'selector', tag: 'g', outbounds: [], remnawave: { includeProxies: false } }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Открепить список' }))
+    expect(ops).toEqual([{ op: 'remove', path: ['outbounds', 0, 'remnawave'] }])
   })
 
-  it('у сервера показаны адрес и порт, а списка участников нет', () => {
-    render(
-      <SingboxOutboundForm
-        value={{ type: 'shadowsocks', tag: 's', server: '1.2.3.4', server_port: 443 }}
-        knownTags={[]}
-        onChange={vi.fn()}
-      />,
-    )
+  it('закреплённая группа правит участников списком строк', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxOutboundForm value={{ type: 'selector', tag: 'g', outbounds: ['direct'], remnawave: { includeProxies: false } }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
+    // outbounds — в skip: без него SchemaForm нарисовал бы тот же список ещё раз своим полем `outbounds`
+    expect(screen.queryByText('outbounds')).toBeNull()
+    await userEvent.type(screen.getByLabelText('Участники'), '\nproxy')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['outbounds', 0, 'outbounds'], value: ['direct', 'proxy'] })
+  })
+
+  it('у сервера показаны адрес и порт, протокольные поля приходят из схемы', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxOutboundForm value={{ type: 'vless', tag: 's', server: '1.2.3.4', server_port: 443, uuid: 'u' }} path={['outbounds', 2]} writer={writer} refs={REFS} />)
     expect(screen.getByLabelText('Сервер')).toHaveValue('1.2.3.4')
-    expect(screen.queryByText(/заполн\S+ панел/i)).toBeNull()
+    expect(screen.getByLabelText('Порт сервера')).toHaveValue('443')
+    expect(screen.getByLabelText('uuid')).toHaveValue('u')
+    expect(screen.queryByLabelText('Участники')).toBeNull()
+    await userEvent.type(screen.getByLabelText('Сервер'), '5')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['outbounds', 2, 'server'], value: '1.2.3.45' })
+    // tls, transport, multiplex и dial-поля — под «Ещё поля»: они не заполнены,
+    // а `when` сам по себе наверх не поднимает (правило 1 — заполненность)
+    await userEvent.click(screen.getByRole('button', { name: /Ещё поля/ }))
+    expect(screen.getByRole('button', { name: 'tls' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'transport' })).toBeInTheDocument()
   })
 
-  it('удалённый в 1.13 тип остаётся выбранным и объяснён', async () => {
-    // Словарь такой тип больше не предлагает, но в чужом шаблоне он уже стоит:
-    // выпади он из списка — открытие любого другого варианта показало бы выбор,
-    // которого в списке нет, а сам тип потерялся бы при первой же правке
-    render(
-      <SingboxOutboundForm
-        value={{ type: 'block', tag: 'block' }}
-        knownTags={[]}
-        onChange={vi.fn()}
-      />,
-    )
+  it('смена типа — одна операция; удалённый тип остаётся выбранным и объяснён', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxOutboundForm value={{ type: 'block', tag: 'b' }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
     expect(selectedValue('Тип')).toBe('block')
-    expect(await optionLabels('Тип')).toContain('block')
-    expect(screen.getByText(/удал[её]н.*1\.13/i)).toBeInTheDocument()
-    expect(screen.getByText(/reject/)).toBeInTheDocument()
+    expect(screen.getByText(/1\.13\.0/)).toBeInTheDocument()
+    await selectOption('Тип', 'direct')
+    expect(ops).toEqual([{ op: 'set', path: ['outbounds', 0, 'type'], value: 'direct' }])
   })
 
-  it('у живого типа подсказки про удаление нет', () => {
-    render(
-      <SingboxOutboundForm value={{ type: 'direct', tag: 'direct' }} knownTags={[]} onChange={vi.fn()} />,
-    )
-    expect(screen.queryByText(/удал[её]н.*1\.13/i)).toBeNull()
+  it('пустой тег уходит писателю как set с пустой строкой — отказ объясняет инспектор', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxOutboundForm value={{ type: 'direct', tag: 'd' }} path={['outbounds', 0]} writer={writer} refs={REFS} />)
+    await userEvent.clear(screen.getByLabelText('Тег'))
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['outbounds', 0, 'tag'], value: '' })
   })
 
-  it('у конечной точки свои типы, а полей сервера нет', async () => {
-    // Запись лежит в endpoints: адрес там задаётся пирами, а тип vless ядро в
-    // этом списке не примет вовсе
+  it('конечная точка: типы wireguard/tailscale, пиры списком, полей сервера нет', async () => {
+    const { ops, writer } = makeWriter()
     render(
-      <SingboxOutboundForm
-        value={{ type: 'wireguard', tag: 'wg' }}
-        knownTags={[]}
-        isEndpoint
-        onChange={vi.fn()}
-      />,
+      <SingboxOutboundForm value={{ type: 'wireguard', tag: 'wg', address: ['10.0.0.2/32'], peers: [{ public_key: 'k' }] }} path={['endpoints', 0]} writer={writer} refs={REFS} isEndpoint />,
     )
-    expect(screen.getByText(/конечная точка/i)).toBeInTheDocument()
+    expect(await optionLabels('Тип')).toEqual(['wireguard', 'tailscale'])
     expect(screen.queryByLabelText('Сервер')).toBeNull()
-    expect(screen.queryByLabelText('Порт сервера')).toBeNull()
-    // Тег правится по-прежнему: узел на холсте адресуется именно им
-    expect(screen.getByLabelText('Тег')).toHaveValue('wg')
-    const options = await optionLabels('Тип')
-    expect(options).toEqual(['wireguard', 'tailscale'])
+    expect(screen.getByRole('group', { name: 'peers' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '+ Добавить' }))
+    expect(ops.at(-1)?.op).toBe('insert')
+    expect(ops.at(-1)?.path).toEqual(['endpoints', 0, 'peers'])
   })
 })
 
