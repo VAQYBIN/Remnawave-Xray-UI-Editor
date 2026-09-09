@@ -226,7 +226,24 @@ export function SingboxTopology({
           </>
         ) : undefined
       }
-      dockActions={<Button onClick={() => draft.changeDoc(addRule(doc, nextRule()))}>+ Правило</Button>}
+      dockActions={
+        <>
+          <Button onClick={() => draft.changeDoc(addRule(doc, nextRule()))}>+ Правило</Button>
+          {/*
+            Списки без узлов на холсте: набор правил — свойство правила, а DNS
+            в граф не идёт вовсе, и колонка из девяти наборов была бы шумом. Отсюда
+            псевдоузел: инспектор рисует его по выбору, а канвас просто не находит, что
+            подсветить. `ghost` — чтобы не спорить с «+ Правило»: та заводит
+            запись, эти открывают список.
+          */}
+          <Button variant="ghost" onClick={() => draft.setSelectedNode('doc:rule-sets')}>
+            Наборы правил
+          </Button>
+          <Button variant="ghost" onClick={() => draft.setSelectedNode('doc:dns-servers')}>
+            DNS
+          </Button>
+        </>
+      }
       dockExtra={dockExtra}
       dockRow={dockRow}
     >

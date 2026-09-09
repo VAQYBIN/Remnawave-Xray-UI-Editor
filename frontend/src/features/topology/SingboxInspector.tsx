@@ -8,7 +8,7 @@
 // записью `changeDoc`. Собирается документ ровно в одном месте — в мутациях
 // графа, и форма не обязана знать, где лежит правимый элемент.
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   fieldFor,
   GROUP_OUTBOUND_TYPES,
@@ -21,6 +21,7 @@ import {
   type SingboxInbound,
   type SingboxOutbound,
   type SingboxRule,
+  type SingboxRuleSet,
 } from '../../entities/singbox'
 import {
   moveRule,
@@ -30,12 +31,23 @@ import {
   withOutboundAt,
 } from '../../entities/graph/singbox/mutations'
 import { Button } from '../../shared/ui'
+import { SingboxDnsServerForm } from '../inspector/SingboxDnsServerForm'
 import { SingboxInboundForm } from '../inspector/SingboxInboundForm'
 import { SingboxOutboundForm } from '../inspector/SingboxOutboundForm'
 import { SingboxRuleForm } from '../inspector/SingboxRuleForm'
+import { SingboxRuleSetForm } from '../inspector/SingboxRuleSetForm'
 import type { SingboxDraft } from '../editor/useSingboxDraft'
 
-type Kind = 'inbound' | 'rule' | 'group' | 'out' | 'hosts' | 'builtin' | 'other'
+type Kind =
+  | 'inbound'
+  | 'rule'
+  | 'group'
+  | 'out'
+  | 'hosts'
+  | 'builtin'
+  | 'rule-sets'
+  | 'dns-servers'
+  | 'other'
 
 const KIND_LABEL: Record<Kind, string> = {
   inbound: 'вход',
@@ -44,6 +56,8 @@ const KIND_LABEL: Record<Kind, string> = {
   out: 'выход',
   hosts: 'подстановка',
   builtin: 'встроенное действие',
+  'rule-sets': 'наборы правил',
+  'dns-servers': 'DNS',
   other: 'узел',
 }
 
@@ -73,7 +87,21 @@ const ENDPOINT_NOTE =
 const EMPTY_TAG_NOTE =
   'Тег — адрес узла на холсте, и пустым он не остаётся: узел исчез бы, а ссылки на него повисли. Наберите новое имя поверх старого.'
 
+/**
+ * Псевдоузлы: id, которого в графе нет вовсе. Узлов у `route.rule_set` и
+ * `dns.servers` на холсте не заводится — набор правил это свойство правила, а
+ * DNS в граф не идёт совсем, и колонка из девяти наборов была бы шумом.
+ * Инспектор разводит такой id так же, как настоящий, и открывают его кнопки
+ * дока.
+ */
+const PSEUDO_NODES: Record<string, Kind> = {
+  'doc:rule-sets': 'rule-sets',
+  'doc:dns-servers': 'dns-servers',
+}
+
 function kindOf(nodeId: string): Kind {
+  const pseudo = PSEUDO_NODES[nodeId]
+  if (pseudo !== undefined) return pseudo
   const prefix = nodeId.slice(0, nodeId.indexOf(':'))
   return prefix === 'inbound' ||
     prefix === 'rule' ||
@@ -134,6 +162,52 @@ function BuiltinCard({ action }: { action: string }) {
         самого правила.
       </p>
     </>
+  )
+}
+
+/**
+ * Список записей, у которых узла на холсте нет. Адрес записи — ИНДЕКС, а не тег:
+ * тег у набора необязателен и может дублироваться, и правка, найденная по нему,
+ * уехала бы в чужую запись или сразу в обе.
+ */
+function DocList<T>({
+  items,
+  empty,
+  addLabel,
+  removeLabel,
+  titleOf,
+  onAdd,
+  onRemove,
+  renderItem,
+}: {
+  items: T[]
+  /** Чего в документе нет и что даст кнопка: пустая панель молчала бы и о том, и о другом */
+  empty: string
+  addLabel: string
+  /** Подпись кнопки удаления: номер, а не тег — безымянных записей бывает две и больше */
+  removeLabel: (index: number) => string
+  titleOf: (item: T, index: number) => string
+  onAdd: () => void
+  onRemove: (index: number) => void
+  renderItem: (item: T, index: number) => ReactNode
+}) {
+  return (
+    <div className="list-editor">
+      {items.length === 0 && <p className="muted">{empty}</p>}
+      {items.map((item, i) => (
+        // Ключ — позиция: она и есть адрес записи, а тега у неё может не быть
+        <div key={i} className="list-editor-card">
+          <div className="list-editor-body">
+            <span className="eyebrow">{titleOf(item, i)}</span>
+            {renderItem(item, i)}
+          </div>
+          <button type="button" className="chip-x" aria-label={removeLabel(i)} onClick={() => onRemove(i)}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <Button onClick={onAdd}>{addLabel}</Button>
+    </div>
   )
 }
 
@@ -211,6 +285,26 @@ export function SingboxInspector({ draft, doc, nodeId, onClose }: Props) {
     setNote(null)
     draft.changeDoc(nextDoc)
     follow(`inbound:${nextTag}`)
+  }
+
+  const ruleSets: SingboxRuleSet[] = Array.isArray(doc.route?.rule_set) ? doc.route.rule_set : []
+  const dnsServers: Record<string, unknown>[] = Array.isArray(doc.dns?.servers) ? doc.dns.servers : []
+
+  /** Секции может не быть вовсе — заводим по месту, иначе первая запись уходила бы в никуда */
+  function writeRuleSets(next: SingboxRuleSet[]) {
+    const nextDoc = structuredClone(doc)
+    nextDoc.route = nextDoc.route ?? {}
+    nextDoc.route.rule_set = next
+    setNote(null)
+    draft.changeDoc(nextDoc)
+  }
+
+  function writeDnsServers(next: Record<string, unknown>[]) {
+    const nextDoc = structuredClone(doc)
+    nextDoc.dns = nextDoc.dns ?? {}
+    nextDoc.dns.servers = next
+    setNote(null)
+    draft.changeDoc(nextDoc)
   }
 
   function move(dir: -1 | 1) {
@@ -318,6 +412,46 @@ export function SingboxInspector({ draft, doc, nodeId, onClose }: Props) {
                 <SingboxInboundForm key={shownId} value={inbound} onChange={changeInbound} />
               )
             })()}
+          {kind === 'rule-sets' && (
+            <DocList
+              items={ruleSets}
+              empty="Редактор не нашёл в документе ни одного набора правил. Кнопка ниже заведёт удалённый набор в формате binary — тег и ссылку впишете сами."
+              addLabel="+ Набор правил"
+              removeLabel={(i) => `Удалить набор #${i + 1}`}
+              titleOf={(set, i) =>
+                typeof set.tag === 'string' && set.tag !== '' ? set.tag : `набор #${i + 1}`
+              }
+              onAdd={() => writeRuleSets([...ruleSets, { type: 'remote', tag: '', format: 'binary', url: '' }])}
+              onRemove={(i) => writeRuleSets(ruleSets.filter((_, at) => at !== i))}
+              renderItem={(set, i) => (
+                <SingboxRuleSetForm
+                  value={set}
+                  onChange={(next) => writeRuleSets(ruleSets.map((s, at) => (at === i ? next : s)))}
+                />
+              )}
+            />
+          )}
+          {kind === 'dns-servers' && (
+            <DocList
+              items={dnsServers}
+              empty="Редактор не нашёл в документе ни одного сервера DNS. Кнопка ниже заведёт первый — тег и адрес впишете сами."
+              addLabel="+ Сервер"
+              removeLabel={(i) => `Удалить сервер #${i + 1}`}
+              titleOf={(server, i) =>
+                typeof server.tag === 'string' && server.tag !== ''
+                  ? server.tag
+                  : `сервер #${i + 1}`
+              }
+              onAdd={() => writeDnsServers([...dnsServers, { tag: '', server: '' }])}
+              onRemove={(i) => writeDnsServers(dnsServers.filter((_, at) => at !== i))}
+              renderItem={(server, i) => (
+                <SingboxDnsServerForm
+                  value={server}
+                  onChange={(next) => writeDnsServers(dnsServers.map((sv, at) => (at === i ? next : sv)))}
+                />
+              )}
+            />
+          )}
           {kind === 'hosts' && <HostsCard doc={doc} />}
           {kind === 'builtin' && <BuiltinCard action={name} />}
           {kind === 'other' && <p className="muted">Для этого узла формы нет.</p>}

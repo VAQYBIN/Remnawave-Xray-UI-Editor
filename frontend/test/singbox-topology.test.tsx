@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { ReactFlowProvider } from '@xyflow/react'
+import { describe, expect, it, vi } from 'vitest'
 import { edgeHues } from '../src/features/topology/edges'
 import {
   SINGBOX_TARGET_KINDS,
   singboxColumns,
+  SingboxTopology,
   singboxTraceStateOf,
 } from '../src/features/topology/SingboxTopology'
+import type { SingboxDraft } from '../src/features/editor/useSingboxDraft'
 import { buildSingboxGraph, layoutSingbox } from '../src/entities/graph/singbox/buildGraph'
 import { parseSingbox } from '../src/entities/singbox/parse'
 import { singboxFixture } from './helpers'
@@ -73,5 +78,43 @@ describe('гнёзда коммутации', () => {
     // Вид отсюда обязан иметь правило подсветки в tokens.css, иначе data-accepts
     // проставится, а цель не подсветится — кабель тянется вслепую
     expect([...SINGBOX_TARGET_KINDS]).toEqual(['group', 'out'])
+  })
+})
+
+// У наборов правил и серверов DNS узлов на холсте нет и не будет: набор —
+// свойство правила, а DNS в граф не идёт вовсе. Единственный вход к их формам —
+// кнопки дока, открывающие инспектор на псевдоузле.
+describe('кнопки дока для списков без узлов', () => {
+  const DOC = parseSingbox('{"outbounds":[{"type":"direct","tag":"direct"}]}').doc!
+
+  function draftStub(setSelectedNode: () => void): SingboxDraft {
+    return {
+      storageKey: 'template:sb-1',
+      selectedNode: null,
+      setSelectedNode,
+      changeDoc: vi.fn(),
+      nodeIssues: {},
+      trace: undefined,
+      focus: null,
+    } as unknown as SingboxDraft
+  }
+
+  it('открывают инспектор на псевдоузле, а не заводят запись', async () => {
+    const setSelectedNode = vi.fn()
+    const draft = draftStub(setSelectedNode)
+    render(
+      <ReactFlowProvider>
+        <SingboxTopology draft={draft} doc={DOC} />
+      </ReactFlowProvider>,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Наборы правил' }))
+    expect(setSelectedNode).toHaveBeenLastCalledWith('doc:rule-sets')
+
+    await userEvent.click(screen.getByRole('button', { name: 'DNS' }))
+    expect(setSelectedNode).toHaveBeenLastCalledWith('doc:dns-servers')
+
+    // Обе только открывают список; запись заводит уже кнопка внутри инспектора
+    expect(draft.changeDoc).not.toHaveBeenCalled()
   })
 })

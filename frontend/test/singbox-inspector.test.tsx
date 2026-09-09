@@ -96,4 +96,60 @@ describe('инспектор sing-box', () => {
     expect(draft.changeDoc).not.toHaveBeenCalled()
     expect(screen.getByRole('alert')).toHaveTextContent(/тег/i)
   })
+
+  // Списков наборов правил и серверов DNS на холсте нет и не будет: набор —
+  // свойство правила, а DNS в граф не идёт вовсе. Вход к их формам — псевдоузел:
+  // id, которого в графе нет, инспектор разводит его так же, как настоящий.
+  describe('списки без узлов на холсте', () => {
+    const SETS = parseSingbox(`{
+      "route": {"rule_set": [
+        {"type":"remote","tag":"geosite-ru","format":"binary","url":"https://a"},
+        {"type":"remote","tag":"geoip-ru","format":"binary","url":"https://b"}
+      ]}
+    }`).doc!
+
+    it('правка набора уходит в запись по индексу, а не по тегу', async () => {
+      const draft = makeDraft('doc:rule-sets')
+      render(<SingboxInspector draft={draft} doc={SETS} nodeId="doc:rule-sets" />)
+      const tags = screen.getAllByLabelText('Тег')
+      expect(tags.map((t) => (t as HTMLInputElement).value)).toEqual(['geosite-ru', 'geoip-ru'])
+
+      await userEvent.type(tags[1]!, '2')
+      const next = (draft.changeDoc as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0]
+      // Изменён ровно второй набор, первый доехал нетронутым
+      expect(next.route.rule_set[1].tag).toBe('geoip-ru2')
+      expect(next.route.rule_set[0].tag).toBe('geosite-ru')
+      expect(next.route.rule_set[1].url).toBe('https://b')
+    })
+
+    it('пустой список говорит, чего нет, а кнопка заводит первый сервер', async () => {
+      const draft = makeDraft('doc:dns-servers')
+      render(<SingboxInspector draft={draft} doc={parseSingbox('{}').doc!} nodeId="doc:dns-servers" />)
+      // Утверждение о РАЗБОРЕ, а не о файле — та же формула, что у пустого холста
+      expect(screen.getByText(/ни одного сервера/i)).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: '+ Сервер' }))
+      const next = (draft.changeDoc as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0]
+      expect(next.dns.servers).toHaveLength(1)
+      // Ключ адреса — `server`: так его называет словарь и так читает ядро
+      expect(next.dns.servers[0]).toEqual({ tag: '', server: '' })
+    })
+
+    it('удаление снимает запись по индексу и не трогает соседей', async () => {
+      // Оба набора безымянны: удаляй мы по тегу, вылетел бы не тот или сразу оба
+      const doc = parseSingbox(`{
+        "route": {"rule_set": [
+          {"type":"remote","url":"https://a"},
+          {"type":"remote","url":"https://b"}
+        ]}
+      }`).doc!
+      const draft = makeDraft('doc:rule-sets')
+      render(<SingboxInspector draft={draft} doc={doc} nodeId="doc:rule-sets" />)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Удалить набор #2' }))
+      const next = (draft.changeDoc as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0]
+      expect(next.route.rule_set).toHaveLength(1)
+      expect(next.route.rule_set[0].url).toBe('https://a')
+    })
+  })
 })
