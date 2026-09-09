@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { applyEdits, originAt, readFieldAt, removeFieldAt, setFieldAt } from '../src/entities/mihomo/edits'
+import { applyEdits, originAt, removeFieldAt, setFieldAt } from '../src/entities/mihomo/edits'
 import { groupsOf } from '../src/entities/mihomo/groups'
 import { parseMihomo } from '../src/entities/mihomo/parse'
+import { valueAt } from '../src/shared/schema'
 import { mihomoFixture } from './helpers'
 
 // Переименование группы (renameGroup), правила-сплайсы (setRuleTarget/
@@ -145,11 +146,10 @@ describe('правки полей секций (setFieldAt/removeFieldAt: тол
     expect(originAt(md, ['proxy-groups', 0], 'remnawave.include-proxies')).toBe('alias')
     expect(setFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies', true)).toEqual([])
     expect(removeFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies')).toEqual([])
-    // Читатель продолжает видеть значение — форма должна показать его, просто без права записи
-    expect(readFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies')).toEqual({
-      value: false,
-      origin: 'alias',
-    })
+    // Читатель продолжает видеть значение — форма должна показать его, просто
+    // без права записи (читает `md.json`, снимок с развёрнутыми ссылками, а
+    // не отдельный обход — см. parse.ts)
+    expect(valueAt(md.json, ['proxy-groups', 0, 'remnawave', 'include-proxies'])).toBe(false)
     // Отказ не должен быть посекционным: правка через тот же путь у группы B —
     // из ТОГО ЖЕ якоря, и тоже отказывает, а не «повезло» с индексом группы A
     expect(setFieldAt(md, ['proxy-groups', 1], 'remnawave.include-proxies', true)).toEqual([])
@@ -162,13 +162,6 @@ describe('правки полей секций (setFieldAt/removeFieldAt: тол
     )
   })
 
-  it('чтение поля видит и собственный ключ, и пришедший через слияние', () => {
-    const md = parseMihomo(DOC)
-    expect(readFieldAt(md, ['proxy-groups', 0], 'type')).toEqual({ value: 'select', origin: 'own' })
-    expect(readFieldAt(md, ['proxy-groups', 0], 'remnawave.include-proxies').value).toBe(false)
-    expect(readFieldAt(md, ['dns'], 'нет-такого').origin).toBe('absent')
-  })
-
   // Ключ свой, но его ЗНАЧЕНИЕ — ссылка. Диапазон значения здесь — токен `*n`,
   // и замена по нему стирает саму ссылку, подменяя её литералом: авторское
   // объявление якоря молча теряет потребителя. Читать при этом можно и нужно.
@@ -178,7 +171,7 @@ describe('правки полей секций (setFieldAt/removeFieldAt: тол
     ].join('\n')
     const md = parseMihomo(text)
     expect(originAt(md, ['proxy-groups', 0], 'interval')).toBe('alias')
-    expect(readFieldAt(md, ['proxy-groups', 0], 'interval').value).toBe(300)
+    expect(valueAt(md.json, ['proxy-groups', 0, 'interval'])).toBe(300)
     expect(setFieldAt(md, ['proxy-groups', 0], 'interval', 999)).toEqual([])
     // Соседний СОБСТВЕННЫЙ ключ той же секции по-прежнему пишется: отказ поточечный
     expect(setFieldAt(md, ['proxy-groups', 0], 'type', 'url-test')).not.toEqual([])
@@ -284,7 +277,7 @@ describe('финальное ревью: блочное значение пол�
     expect(parseMihomo(next).issues).toEqual([])
     const group = groupsOf(parseMihomo(next))[0]!
     expect(group.proxies).toEqual([])
-    expect(readFieldAt(parseMihomo(next), ['proxy-groups', 0], 'icon').value).toBe('end.png')
+    expect(valueAt(parseMihomo(next).json, ['proxy-groups', 0, 'icon'])).toBe('end.png')
   })
 
   it('снятие однострочного поля на той же фикстуре работает как раньше', () => {

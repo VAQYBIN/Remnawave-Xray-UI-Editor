@@ -296,7 +296,11 @@ function MihomoEditor({
         entries={MIHOMO_RECIPE_ENTRIES}
         print={(m) => m.text}
         onApply={(next) => {
+          // Как импорт и отмена/возврат: рецепт может вставить и сдвинуть
+          // правила по индексу, а выбранный узел адресуется позицией — старый
+          // выбор после этого указывал бы уже не туда
           draft.writeDraft(next.text, { history: true })
+          draft.setSelectedNode(null)
           draft.setRecipesOpen(false)
         }}
         onClose={() => draft.setRecipesOpen(false)}

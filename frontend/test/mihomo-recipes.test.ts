@@ -239,6 +239,8 @@ describe('отказ писателя становится заметкой пл
     )
     const plan = planPrivate(md, {})
     expect(plan.changes.some((c) => c.status === 'add')).toBe(false)
+    // Отказ — не «уже есть»: запись не применена вовсе (I2-минорная находка)
+    expect(plan.changes.some((c) => c.status === 'refused')).toBe(true)
     expect(plan.model.text).toBe(md.text)
     expect(plan.notes.some((n) => n.text.includes('rules') && n.text.includes('ссылку на якорь'))).toBe(true)
   })
@@ -246,7 +248,7 @@ describe('отказ писателя становится заметкой пл
   it('ensureListEntry сам по себе: отказ не меняет документ и не молчит', () => {
     const md = parseMihomo('r: &r\n  - MATCH,DIRECT\nrules: *r\n')
     const res = ensureListEntry(md, ['rules'], 'RULE-SET,geoip-private,DIRECT,no-resolve', 'start')
-    expect(res.status).toBe('exists')
+    expect(res.status).toBe('refused')
     expect(res.md.text).toBe(md.text)
     expect(res.notes).toHaveLength(1)
     expect(res.notes[0]?.text).toContain('rules')

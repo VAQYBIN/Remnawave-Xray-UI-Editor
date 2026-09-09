@@ -54,6 +54,9 @@ describe('инспектор узла Mihomo', () => {
     const draft = draftStub({ selectedNode: 'group:A' })
     render(<MihomoInspector draft={draft} md={md} nodeId="group:A" />)
     await userEvent.type(screen.getByLabelText('Имя'), 'B')
+    // Коммит — на blur/Enter, не на каждой клавише (I1)
+    expect(draft.rename).not.toHaveBeenCalled()
+    await userEvent.tab()
     expect(draft.rename).toHaveBeenLastCalledWith('group', 'A', 'AB')
   })
 

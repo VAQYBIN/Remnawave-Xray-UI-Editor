@@ -18,7 +18,7 @@ const PROTOCOLS: Option[] = [
 // и показывает плейсхолдер «Не выбрано», а выбор любого пункта тогда читался бы как
 // СМЕНА протокола и стирал бы settings, хотя пользователь просто открыл форму. Список
 // серверных протоколов при этом не расширяется — пункт добавляется только для текущего
-// значения, как `optionsWith` в MihomoFieldsForm.
+// значения, тем же приёмом, что `typeOptions` в общем слое схемы форм.
 function protocolOptions(protocol: string): Option[] {
   if (PROTOCOLS.some((p) => p.value === protocol)) return PROTOCOLS
   return [{ value: protocol, label: protocol }, ...PROTOCOLS]

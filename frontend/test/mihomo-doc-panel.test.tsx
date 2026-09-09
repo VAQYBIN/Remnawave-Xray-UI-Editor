@@ -8,6 +8,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { parseMihomo } from '../src/entities/mihomo'
+import * as mihomoSchema from '../src/entities/mihomo/schema'
 import { applyMihomoOps } from '../src/entities/mihomo/write'
 import { MihomoDocPanel } from '../src/features/topology/MihomoDocPanel'
 import type { MihomoDraft } from '../src/features/editor/useMihomoDraft'
@@ -108,5 +109,32 @@ describe('панель «Документ» Mihomo — стабильность 
     await userEvent.type(input, '1')
     expect(document.activeElement).toBe(input)
     expect(input).toHaveValue('u1')
+  })
+})
+
+/** Родитель с несвязанным состоянием: перерисовывает MihomoDocPanel теми же
+ *  пропами (тот же `md`), чтобы отличить «пересчитано по причине» от «пересчитано просто так» */
+function RerenderHarness({ md, draft }: { md: ReturnType<typeof parseMihomo>; draft: MihomoDraft }) {
+  const [, force] = useState(0)
+  return (
+    <div>
+      <button onClick={() => force((n) => n + 1)}>force-rerender</button>
+      <MihomoDocPanel draft={draft} md={md} />
+    </div>
+  )
+}
+
+describe('панель «Документ» Mihomo — I2: mihomoRefs не пересчитывается зря', () => {
+  // Находка ревью: `mihomoRefs(md)` звался БЕЗ мемоизации на каждый рендер
+  // панели — включая перерисовку по причине, не связанной с документом
+  // (родитель обновил своё состояние, `md` остался тем же объектом).
+  it('перерисовка панели с тем же md не зовёт mihomoRefs повторно', async () => {
+    const spy = vi.spyOn(mihomoSchema, 'mihomoRefs')
+    const md = parseMihomo('mode: rule\n')
+    const draft = draftStub()
+    render(<RerenderHarness md={md} draft={draft} />)
+    const before = spy.mock.calls.length
+    await userEvent.click(screen.getByRole('button', { name: 'force-rerender' }))
+    expect(spy.mock.calls.length).toBe(before)
   })
 })

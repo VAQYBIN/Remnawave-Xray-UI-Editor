@@ -26,6 +26,9 @@ describe('форма подсписка Mihomo', () => {
     await userEvent.click(screen.getByRole('button', { name: '+ Правило' }))
     expect(ops.at(-1)).toEqual({ op: 'insert', path: ['sub-rules', 's'], index: 2, value: 'DOMAIN-SUFFIX,example.com,DIRECT' })
     await userEvent.type(screen.getByLabelText('Имя'), '2')
+    // Коммит — на blur/Enter, не на каждой клавише (I1)
+    expect(onRename).not.toHaveBeenCalled()
+    await userEvent.tab()
     expect(onRename).toHaveBeenLastCalledWith('s2')
   })
 

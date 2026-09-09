@@ -252,6 +252,38 @@ rules:
   - MATCH,Каталог
 `
 
+/**
+ * Каркас, который панель кладёт в НОВЫЙ шаблон (копия
+ * `backend/src/templates/starterMihomo.ts`, дословно). Сценарий «с нуля»
+ * стартует с него, а не с пустого документа: голый `proxies:` (значение
+ * `null`, комментарий-маркер) — ровно та форма, на которой раньше отказывала
+ * вставка в режиме модели (см. C1 финального ревью), и открывать шаблон
+ * впервые пользователь будет именно с этим содержимым, а не с чистого листа.
+ */
+export const MIHOMO_STARTER_YAML = `mode: rule
+log-level: info
+ipv6: false
+unified-delay: true
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+
+proxies: # LEAVE THIS LINE!
+
+proxy-groups:
+  - name: → Remnawave
+    type: select
+    proxies: # LEAVE THIS LINE!
+
+rules:
+  - MATCH,→ Remnawave
+`
+
 /** base64 от utf-8, как хранит панель: в именах групп бывает кириллица */
 const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64')
 

@@ -98,8 +98,11 @@ export function RecipesDialog<TModel>({ open, model, entries, print, onApply, on
               <h3 className="recipe-preview-title">Будет добавлено</h3>
               <ul className="recipe-changes" aria-label="Изменения рецепта">
                 {plan.changes.map((c, i) => (
-                  <li key={`${c.text}:${i}`} className={c.status === 'add' ? 'recipe-add' : 'recipe-exists'}>
-                    <span aria-hidden="true">{c.status === 'add' ? '+' : '✓'}</span> {c.text}
+                  <li
+                    key={`${c.text}:${i}`}
+                    className={c.status === 'add' ? 'recipe-add' : c.status === 'refused' ? 'recipe-refused' : 'recipe-exists'}
+                  >
+                    <span aria-hidden="true">{c.status === 'add' ? '+' : c.status === 'refused' ? '⨯' : '✓'}</span> {c.text}
                   </li>
                 ))}
               </ul>

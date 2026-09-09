@@ -67,6 +67,20 @@ describe('applyMihomoOps: режим модели', () => {
     expect(groupsOf(next)[0]!.proxies).toEqual(['DIRECT'])
   })
 
+  it('вставка в голый ключ `proxies:` (значение null) не отказывает — панельный каркас', () => {
+    // `backend/src/templates/starterMihomo.ts` кладёт ровно такой ключ и в
+    // корень, и в группу: `proxies:` без значения, за ним комментарий-маркер.
+    // `doc.hasIn` на нём отвечает true (комментарий несёт Scalar(null)), и
+    // старая проверка «есть — но это не список» отказывала на пустом месте.
+    const md = parseMihomo(mihomoFixture('default'))
+    const { md: next, refused } = applyMihomoOps(md, [
+      { op: 'insert', path: ['proxies'], index: 0, value: { name: 's', type: 'direct' } },
+      { op: 'insert', path: ['proxy-groups', 0, 'proxies'], index: 0, value: 's' },
+    ])
+    expect(refused).toEqual([])
+    expect(groupsOf(next)[0]!.proxies).toEqual(['s'])
+  })
+
   it('CRLF-документ остаётся CRLF после перепечатки', () => {
     const md = parseMihomo(mihomoFixture('default').replace(/\r?\n/g, '\r\n'))
     const { md: next } = applyMihomoOps(md, [{ op: 'set', path: ['profile', 'store-selected'], value: true }])

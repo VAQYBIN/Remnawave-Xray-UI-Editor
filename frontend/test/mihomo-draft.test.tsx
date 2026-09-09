@@ -113,6 +113,32 @@ describe('черновик Mihomo', () => {
     expect(result.current.selectedNode).toBe('rule:1')
   })
 
+  it('все операции отказали — выбор не переносится (документ не изменился)', () => {
+    // Находка ревью-минора: `select` применялся даже когда ни одна операция
+    // не прошла — узел, на который просился перенос (например, после смены
+    // тега кабелем), в документе так и не появился, а выбор врал об успехе.
+    const text = [
+      'x-anchors:',
+      '  base: &base',
+      '    type: select',
+      'proxy-groups:',
+      '  - name: A',
+      '    <<: *base',
+      '    proxies: [DIRECT]',
+      'rules:',
+      '  - DOMAIN,a.com,A',
+      '',
+    ].join('\n')
+    const { result } = renderDraft(text)
+    act(() => result.current.setSelectedNode('group:A'))
+    act(() => result.current.applyOps(
+      [{ op: 'set', path: ['proxy-groups', 0, 'type'], value: 'fallback' }],
+      'rule:0',
+    ))
+    expect(result.current.selectedNode).toBe('group:A')
+    expect(result.current.text).toBe(text)
+  })
+
   it('правки складываются в историю по одной', () => {
     const { result } = renderDraft()
     act(() => result.current.applyOps([{ op: 'set', path: ['proxy-groups', 0, 'type'], value: 'fallback' }]))
@@ -125,7 +151,7 @@ describe('черновик Mihomo', () => {
   // основным набором: без них проброс мог бы разойтись с `entities/mihomo`
   // молча, а потребитель (формы инспектора) появится только в следующих задачах.
 
-  it('originOf пропускает наружу все четыре происхождения: own, merged, alias, absent', () => {
+  it('originAt пропускает наружу все четыре происхождения: own, merged, alias, absent', () => {
     // Одна фикстура на весь союз: `name` — своё поле, `type` приходит слиянием
     // `<<: *base`, `remnawave` — ссылка на якорь, `filter` отсутствует.
     // Сужение союза в пробросе (например, `merged` → `own`) обязано покраснеть

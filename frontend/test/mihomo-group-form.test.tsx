@@ -23,6 +23,9 @@ describe('MihomoGroupForm', () => {
     await selectOption('Тип', 'url-test')
     expect(ops.at(-1)).toEqual({ op: 'set', path: ['proxy-groups', 0, 'type'], value: 'url-test' })
     await userEvent.type(screen.getByLabelText('Имя'), '2')
+    // Коммит — на blur/Enter, не на каждой клавише (I1)
+    expect(onRename).not.toHaveBeenCalled()
+    await userEvent.tab()
     expect(onRename).toHaveBeenLastCalledWith('G2')
   })
 
@@ -33,12 +36,43 @@ describe('MihomoGroupForm', () => {
     expect(screen.getByText(/dialer-proxy/)).toBeInTheDocument()
   })
 
-  it('отказ переименования показывается у поля, набранное не теряется', async () => {
+  it('отказ переименования показывается у поля по blur, набранное не теряется', async () => {
     const { writer } = makeWriter()
     render(<MihomoGroupForm value={value} path={['proxy-groups', 0]} writer={writer} refs={mihomoRefs(md)} name="G" onRename={(to) => (to === 's' ? 'Имя занято.' : null)} />)
     await userEvent.clear(screen.getByLabelText('Имя'))
     await userEvent.type(screen.getByLabelText('Имя'), 's')
+    await userEvent.tab()
     expect(screen.getByText('Имя занято.')).toBeInTheDocument()
     expect(screen.getByLabelText('Имя')).toHaveValue('s')
+  })
+
+  it('коммит по Enter, не дожидаясь blur', async () => {
+    const onRename = vi.fn(() => null)
+    const { writer } = makeWriter()
+    render(<MihomoGroupForm value={value} path={['proxy-groups', 0]} writer={writer} refs={mihomoRefs(md)} name="G" onRename={onRename} />)
+    const field = screen.getByLabelText('Имя')
+    await userEvent.type(field, '2{Enter}')
+    expect(onRename).toHaveBeenCalledTimes(1)
+    expect(onRename).toHaveBeenLastCalledWith('G2')
+  })
+
+  it('blur без изменения имени не зовёт onRename', async () => {
+    const onRename = vi.fn(() => null)
+    const { writer } = makeWriter()
+    render(<MihomoGroupForm value={value} path={['proxy-groups', 0]} writer={writer} refs={mihomoRefs(md)} name="G" onRename={onRename} />)
+    await userEvent.click(screen.getByLabelText('Имя'))
+    await userEvent.tab()
+    expect(onRename).not.toHaveBeenCalled()
+  })
+
+  it('Escape отменяет набранное и возвращает буфер к имени документа, не коммитя его', async () => {
+    const onRename = vi.fn(() => null)
+    const { writer } = makeWriter()
+    render(<MihomoGroupForm value={value} path={['proxy-groups', 0]} writer={writer} refs={mihomoRefs(md)} name="G" onRename={onRename} />)
+    const field = screen.getByLabelText('Имя')
+    await userEvent.type(field, '2')
+    await userEvent.keyboard('{Escape}')
+    expect(field).toHaveValue('G')
+    expect(onRename).not.toHaveBeenCalled()
   })
 })

@@ -41,13 +41,6 @@ const j = (md: MihomoDoc): Record<string, unknown> => (typeof md.json === 'objec
 const rec = (v: unknown): Record<string, unknown> | undefined => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined)
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 
-/** Вид цели маршрута по имени: группа перед сервером, как у resolveTarget */
-function targetKind(md: MihomoDoc, name: string): NamedKind | null {
-  if (namesOf(md, 'group').includes(name)) return 'group'
-  if (namesOf(md, 'proxy').includes(name)) return 'proxy'
-  return null
-}
-
 /** Имена наборов внутри условия правила: `(RULE-SET,x)` на любой глубине */
 function ruleSetsInPayload(payload: string): string[] {
   const out: string[] = []
@@ -58,9 +51,21 @@ function ruleSetsInPayload(payload: string): string[] {
 export function referenceSites(md: MihomoDoc): RefSite[] {
   const sites: RefSite[] = []
   const root = j(md)
+  // Находка ревью I2: `targetKind` раньше звался на КАЖДОМ месте ссылки и сам
+  // строил список имён групп/серверов полным обходом дерева (`namesOf` →
+  // `groupsOf`/`proxiesOf`) — на документе с N ссылками и M именами это
+  // O(N·M) вместо O(N+M). Множества строятся один раз на весь вызов.
+  const groupNames = new Set(namesOf(md, 'group'))
+  const proxyNames = new Set(namesOf(md, 'proxy'))
+  /** Вид цели маршрута по имени: группа перед сервером, как у resolveTarget */
+  const targetKind = (name: string): NamedKind | null => {
+    if (groupNames.has(name)) return 'group'
+    if (proxyNames.has(name)) return 'proxy'
+    return null
+  }
   const target = (path: PathParts, value: unknown) => {
     if (typeof value !== 'string' || value === '') return
-    const kind = targetKind(md, value)
+    const kind = targetKind(value)
     // Имя, которого нет ни среди групп, ни среди серверов, — тоже ссылка (на
     // хост панели или опечатку): валидации нужно знать о ней, kind — лучший из
     // возможных; переименование по такому имени никогда не спросят
@@ -128,7 +133,7 @@ export function referenceSites(md: MihomoDoc): RefSite[] {
         sites.push({ kind: 'sub-rule', name: rule.target, path: at, form: 'rule' })
         continue
       }
-      const kind = targetKind(md, rule.target)
+      const kind = targetKind(rule.target)
       sites.push({ kind: kind ?? 'proxy', name: rule.target, path: at, form: 'rule' })
     }
   }
@@ -228,9 +233,17 @@ export function renameAt(md: MihomoDoc, kind: NamedKind, from: string, to: strin
         break
       }
       case 'policy-key': {
-        // Ключ отображения: переименовать сам ключ, значение оставить
+        // Ключ отображения: переименовать сам ключ, значение оставить.
+        // Находка ревью C2: `n.replace(from, to)` бил по ПЕРВОМУ вхождению
+        // подстроки `from` в сегменте, а не по разобранному имени — у
+        // `"rule-set:ru"` подстрока `ru` совпадает и внутри слова `rule`, и
+        // замена уходила в «adsle-set:ru» вместо «rule-set:ads». Сегмент
+        // собирается заново из разобранных частей, а не substring-заменой.
         const key = String(path[path.length - 1])
-        const nextKey = key.split(',').map((n) => (n.trim() === from || n.trim() === `rule-set:${from}` ? n.replace(from, to) : n)).join(',')
+        const nextKey = key.split(',').map((n) => {
+          const t = n.trim()
+          return t === from ? to : t === `rule-set:${from}` ? `rule-set:${to}` : n
+        }).join(',')
         ops.push({ op: 'set', path: [...path.slice(0, -1), nextKey], value: valueAtJson(md, path) })
         ops.push({ op: 'remove', path })
         break

@@ -13,7 +13,7 @@
 // Каждая операция перечитывает документ: следующая считает диапазоны по уже
 // изменённому тексту, и пачка операций в одном вызове безопасна.
 
-import { isAlias, isMap, isNode, isSeq, parseDocument, type Document, type Pair } from 'yaml'
+import { isAlias, isMap, isNode, isScalar, isSeq, parseDocument, type Document, type Pair } from 'yaml'
 import type { DocOp, SchemaPath } from '../../shared/schema'
 import { applyEdits, newlineOf, originAt, removeFieldAt, setFieldAt } from './edits'
 import { dealias, mergedHas, mergedNode } from './merge'
@@ -142,9 +142,17 @@ function applyModelOp(doc: Document.Parsed, op: DocOp): ModelOpOutcome {
       // и там, где последний узел отсутствует, — ровно то отличие, которое
       // нужно от «есть значение, но это не список» (замена его пустым
       // списком стёрла бы то, что там было записано).
+      //
+      // Третий случай — голый ключ БЕЗ значения (`proxies: # LEAVE THIS
+      // LINE!`, каркас `starterMihomo.ts`): `hasIn` на нём отвечает true
+      // (под ключом лежит `Scalar(null)`, комментарий несёт именно он), хотя
+      // писать туда нечего — это то же «отсутствует», просто с довеском в
+      // виде декоративного маркера панели.
       const exists = doc.hasIn(op.path)
-      let seq = doc.getIn(op.path, true)
-      if (!exists) {
+      const cur = doc.getIn(op.path, true)
+      const missing = !exists || (isScalar(cur) && cur.value === null)
+      let seq = cur
+      if (missing) {
         seq = doc.createNode([])
         doc.setIn(op.path, seq)
       } else if (!isSeq(seq)) {

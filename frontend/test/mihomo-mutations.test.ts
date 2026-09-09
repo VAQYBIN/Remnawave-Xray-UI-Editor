@@ -10,6 +10,7 @@ import { applyMihomoOps } from '../src/entities/mihomo/write'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { rulesOf } from '../src/entities/mihomo/rules'
 import { groupsOf } from '../src/entities/mihomo/groups'
+import { mihomoFixture } from './helpers'
 
 const base =
   'proxy-groups:\n  - name: VPN\n    proxies:\n      - DIRECT\n  - name: Fast\n    include-all: true\n' +
@@ -105,6 +106,17 @@ describe('соединение', () => {
   it('из узла подстановки кабель не тянется', () => {
     const md = parseMihomo('proxy-groups:\n  - name: A\n')
     expect(connectMihomo(md, 'hosts:root', 'group:A').refusal).toBe('invalid-pair')
+  })
+
+  it('группа → сервер на панельном каркасе (голый `proxies:` в группе) применяется без отказа', () => {
+    // `default.yaml` воспроизводит форму `backend/src/templates/starterMihomo.ts`:
+    // `proxies:` без значения — Scalar(null), а не отсутствующий ключ.
+    const md = parseMihomo(mihomoFixture('default'))
+    const res = connectMihomo(md, 'group:→ Remnawave', 'proxy:s')
+    expect(res.refusal).toBeUndefined()
+    const { md: next, refused } = applyMihomoOps(md, res.ops)
+    expect(refused).toEqual([])
+    expect(groupsOf(next)[0]!.proxies).toEqual(['s'])
   })
 })
 

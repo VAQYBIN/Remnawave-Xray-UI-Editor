@@ -2,8 +2,9 @@
 // «завести значение/запись/элемент списка, если их ещё нет». Отказ писателя
 // (путь через алиас `*имя` или ключ из слияния `<<:`) не должен тонуть молча —
 // applyOrNote переводит каждый refused в RecipeNote плана, а ensure*-примитивы
-// в этом случае отвечают status: 'exists' (документ не изменился, changes
-// плана не покажут ложный add).
+// в этом случае отвечают status: 'refused' (документ не изменился, а
+// «уже есть» про запись, которую ни разу не записали, — неправда: находка
+// ревью финального прохода, 'exists' до этого смешивал два разных исхода).
 
 import type { DocOp, SchemaPath } from '../../../shared/schema'
 import { valueAt } from '../../../shared/schema'
@@ -14,7 +15,7 @@ import { applyMihomoOps } from '../write'
 
 export interface EnsureResult {
   md: MihomoDoc
-  status: 'add' | 'exists'
+  status: 'add' | 'exists' | 'refused'
   notes: RecipeNote[]
 }
 
@@ -74,7 +75,7 @@ export function ensureListEntry(
   if (list.some((item) => sameEntry(item, entry))) return { md, status: 'exists', notes: [] }
   const index = placement === 'start' ? 0 : placement === 'end' ? list.length : beforeFinalMatch(md)
   const res = applyOrNote(md, [{ op: 'insert', path: listPath, index, value: entry }])
-  return { md: res.md, status: res.notes.length > 0 ? 'exists' : 'add', notes: res.notes }
+  return { md: res.md, status: res.notes.length > 0 ? 'refused' : 'add', notes: res.notes }
 }
 
 export function ensureMapEntry(
@@ -86,11 +87,11 @@ export function ensureMapEntry(
   const raw = valueAt(md.json, mapPath)
   if (typeof raw === 'object' && raw !== null && name in (raw as object)) return { md, status: 'exists', notes: [] }
   const res = applyOrNote(md, [{ op: 'set', path: [...mapPath, name], value }])
-  return { md: res.md, status: res.notes.length > 0 ? 'exists' : 'add', notes: res.notes }
+  return { md: res.md, status: res.notes.length > 0 ? 'refused' : 'add', notes: res.notes }
 }
 
 export function ensureScalar(md: MihomoDoc, path: SchemaPath, value: string | number | boolean): EnsureResult {
   if (valueAt(md.json, path) !== undefined) return { md, status: 'exists', notes: [] }
   const res = applyOrNote(md, [{ op: 'set', path, value }])
-  return { md: res.md, status: res.notes.length > 0 ? 'exists' : 'add', notes: res.notes }
+  return { md: res.md, status: res.notes.length > 0 ? 'refused' : 'add', notes: res.notes }
 }

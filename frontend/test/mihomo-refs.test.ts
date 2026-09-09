@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { referencesTo, referenceSites, renameAt, renameRefusalText } from '../src/entities/mihomo/refs'
 import { parseMihomo } from '../src/entities/mihomo/parse'
+import { mihomoFixture } from './helpers'
 
 const DOC = [
   'dns:', '  nameserver-policy:', '    "rule-set:ads,ru": 8.8.8.8', '  fake-ip-filter:', '    - rule-set:ads',
@@ -38,6 +39,21 @@ describe('referencesTo', () => {
   })
 })
 
+// I2: `targetKind` раньше строил список имён групп/серверов ПОЛНЫМ обходом
+// документа на КАЖДОМ месте ссылки (O(N·M)); теперь множества строятся один
+// раз на вызов `referenceSites`. Регрессия по количеству и краевым записям —
+// на настоящем шаблоне (93 ссылки, 31 правило) достаточно, чтобы заметить
+// расхождение от рефакторинга, не переписывая весь список руками.
+describe('I2: referenceSites не меняет результат после хойстинга имён', () => {
+  it('roscomvpn: то же число ссылок и те же крайние записи', () => {
+    const md = parseMihomo(mihomoFixture('roscomvpn'))
+    const sites = referenceSites(md)
+    expect(sites).toHaveLength(93)
+    expect(sites[0]).toEqual({ kind: 'group', name: '⚡️ Авто', path: ['proxy-groups', 0, 'proxies', 0], form: 'scalar' })
+    expect(sites.at(-1)).toEqual({ kind: 'group', name: 'PROXY', path: ['rules', 30], form: 'rule' })
+  })
+})
+
 describe('renameAt', () => {
   it('переименовывает запись и все ссылки; ссылок на старое имя не остаётся', () => {
     const md = parseMihomo(DOC)
@@ -63,6 +79,49 @@ describe('renameAt', () => {
     expect(renameAt(md, 'group', 'G', 'DIRECT').refusal).toBe('taken')
     expect(renameAt(md, 'group', 'G', 'a\nb').refusal).toBe('unprintable')
     expect(renameAt(md, 'group', 'X', 'Y').refusal).toBe('not-found')
+  })
+})
+
+// C2: `renameAt` раньше переписывал ключ `rule-set:` подстрокой (`n.replace`),
+// а не разбором — `"rule-set:ru"` содержит `ru` дважды (второй раз — внутри
+// слова `rule`), и `.replace('ru', 'ads')` бил по ПЕРВОМУ найденному
+// вхождению, а не по имени набора. Переименование `ru` → `ads` — нарочно
+// выбранная пара: подстрока совпадает и в префиксе `rule-set:`, и в соседнем
+// имени `geosite-ru`, которое переименование не должно тронуть вовсе.
+describe('C2: переименование не портит совпадение подстроки в rule-set:', () => {
+  const DOC2 = [
+    'dns:',
+    '  nameserver-policy:',
+    '    "rule-set:ru,geosite-ru": 1.1.1.1',
+    '  proxy-server-nameserver-policy:',
+    '    "rule-set:ru": 8.8.8.8',
+    '  fake-ip-filter:', '    - rule-set:ru',
+    'rule-providers:',
+    '  ru: {type: http, behavior: domain, url: u}',
+    'rules:',
+    '  - RULE-SET,ru,DIRECT',
+    '  - AND,((RULE-SET,ru),(DST-PORT,443)),DIRECT',
+    '',
+  ].join('\n')
+
+  it('rule-set: ru → ads — все места переписаны верно, geosite-ru и DST-PORT/443 не тронуты', () => {
+    const md = parseMihomo(DOC2)
+    const { md: next, refusal } = renameAt(md, 'rule-provider', 'ru', 'ads')
+    expect(refusal).toBeUndefined()
+    expect(referencesTo(next, 'rule-provider', 'ru')).toEqual([])
+    expect(referencesTo(next, 'rule-provider', 'ads')).toHaveLength(5)
+
+    // Ключи заведены заново через set+remove (тот же приём, что и в тесте
+    // выше) — yaml печатает их без кавычек, это стиль исходного скаляра, а не
+    // требование синтаксиса
+    expect(next.text).toContain('rule-set:ads,geosite-ru: 1.1.1.1')
+    expect(next.text).toContain('rule-set:ads: 8.8.8.8')
+    expect(next.text).toContain('- rule-set:ads')
+    expect(next.text).not.toContain('adsle-set')
+    expect(next.text).toContain('RULE-SET,ads,DIRECT')
+    expect(next.text).toContain('AND,((RULE-SET,ads),(DST-PORT,443)),DIRECT')
+    // Имя набора, которое совпадает подстрокой, но не переименовывалось, цело
+    expect(next.text).toContain('geosite-ru')
   })
 })
 

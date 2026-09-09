@@ -295,8 +295,14 @@ export function useMihomoDraft({
     if (refused.length > 0) setRefusal(refused[0]!.reason)
     else setRefusal(null)
     const { writeDraft, setSelectedNode } = coreRef.current
-    if (next !== current) writeDraft(next.text, { history: true })
-    if (select !== undefined) setSelectedNode(select)
+    // `select` переносит выбор только вместе с настоящей правкой: если ВСЕ
+    // операции отказали, `next === current` (writer ничего не перепечатал), и
+    // менять выбор было бы враньём об успехе — узел, на который просился
+    // перенос (например, из-за смены тега), в документе так и не появился.
+    if (next !== current) {
+      writeDraft(next.text, { history: true })
+      if (select !== undefined) setSelectedNode(select)
+    }
   }, [])
 
   // Материализация якоря/слияния — правка документа по явному выбору

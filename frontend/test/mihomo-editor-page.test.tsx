@@ -210,6 +210,25 @@ describe('страница редактора Mihomo', () => {
     )
   })
 
+  // Рецепт может вставить и сдвинуть правила по индексу — как импорт и
+  // отмена/возврат, применение снимает выбор узла (минорная находка ревью):
+  // старый id адресует уже не ту запись документа.
+  it('применение рецепта снимает выбор узла', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    await userEvent.click(screen.getByRole('button', { name: '+ Правило' }))
+    await waitFor(() => expect(document.querySelector('aside.wb-inspector')).not.toBeNull())
+    await userEvent.click(screen.getByRole('button', { name: 'Рецепты' }))
+    await userEvent.click(screen.getByRole('button', { name: /Блокировка рекламы/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts['template:u-1']?.text).toContain(
+        'RULE-SET,geosite-category-ads-all,REJECT',
+      ),
+    )
+    expect(document.querySelector('aside.wb-inspector')).toBeNull()
+  })
+
   // Пустой шаблон панели (encodedTemplateYaml: null) — законная точка старта
   // «с нуля»: холст обязан рисоваться с кнопкой «+ Добавить», а не гаснуть
   // пустым состоянием — адаптер отдаёт модель всегда, даже у пустого документа

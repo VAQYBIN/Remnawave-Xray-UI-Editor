@@ -3,7 +3,7 @@
 // форма → ТЕКСТ документа» и то, что уходит в панель.
 
 import { expect, test } from '@playwright/test'
-import { CATALOG_MIHOMO_YAML, MIHOMO_UUID, MIHOMO_YAML, mockApi, mockMihomo } from './mocks'
+import { CATALOG_MIHOMO_YAML, MIHOMO_STARTER_YAML, MIHOMO_UUID, MIHOMO_YAML, mockApi, mockMihomo } from './mocks'
 import { pickOption } from './helpers'
 
 /** Строк в документе панели: столько же строк рисует CodeMirror на вкладке YAML */
@@ -290,13 +290,18 @@ test('выбранная запись отличается на вид от ос
   expect(chosen).not.toBe(await bg(cards.nth(0)))
 })
 
-// Отдельный describe: своя фикстура (пустой документ, encodedTemplateYaml:
-// null) и своё условие готовности страницы — вместо узла группы на холсте
-// ждём кнопку «+ Добавить» (граф пуст).
+// Отдельный describe: своя фикстура — панельный каркас нового шаблона
+// (`MIHOMO_STARTER_YAML`, копия `backend/src/templates/starterMihomo.ts`), а
+// не пустой документ. У каркаса есть голый ключ `proxies:` (значение null,
+// комментарий-маркер) и в корне, и в группе — ровно та форма, на которой
+// `applyMihomoOps` отказывал вставке до фикса C1; сценарий подключает сервер
+// к группе кабелем, то есть проходит через этот путь взаправду. Условие
+// готовности страницы — кнопка «+ Добавить» в доке, а не пустой граф: у
+// каркаса уже есть узел группы.
 test.describe('с нуля', () => {
   test.beforeEach(async ({ page }) => {
     await mockApi(page)
-    await mockMihomo(page, { template: null })
+    await mockMihomo(page, { template: MIHOMO_STARTER_YAML })
     await page.goto(`/templates/${MIHOMO_UUID}`)
     await expect(page.getByRole('button', { name: '+ Добавить' })).toBeVisible()
   })
@@ -334,8 +339,11 @@ test.describe('с нуля', () => {
     await inspector.getByLabel('Значение').fill('example.com')
 
     await page.getByRole('button', { name: 'Документ' }).click()
-    await inspector.getByRole('button', { name: 'DNS' }).click()
-    await inspector.getByRole('region', { name: 'DNS' }).getByRole('button', { name: 'Завести раздел' }).click()
+    // TUN, а не DNS: у каркаса секция dns уже заведена (со своим fake-ip),
+    // и кнопки «Завести раздел» там нет — она рисуется только когда раздела в
+    // документе нет вовсе
+    await inspector.getByRole('button', { name: 'TUN' }).click()
+    await inspector.getByRole('region', { name: 'TUN' }).getByRole('button', { name: 'Завести раздел' }).click()
 
     await page.getByRole('button', { name: 'Рецепты' }).click()
     await page.getByRole('dialog').getByText('Локальные сети напрямую').click()
@@ -360,6 +368,7 @@ test.describe('с нуля', () => {
     expect(yaml).toContain('sub-rule:')
     expect(yaml).toContain('- name: вход')
     expect(yaml).toContain('DOMAIN-SUFFIX,example.com,DIRECT')
+    expect(yaml).toContain('tun:')
     expect(yaml).toContain('enhanced-mode: fake-ip')
     expect(yaml).toContain('RULE-SET,geoip-private,DIRECT,no-resolve')
     // Вкладка YAML так и не открывалась

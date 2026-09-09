@@ -10,9 +10,9 @@
 // же (ещё не изменённого) исходного текста; пересекающиеся диапазоны кидают
 // исключение, а не молча портят документ.
 
-import { isAlias, isMap, isScalar, isSeq, stringify, type Pair } from 'yaml'
+import { isAlias, isMap, isSeq, stringify, type Pair } from 'yaml'
 import type { PathParts } from '../xray/config'
-import { dealias, mergedHas, mergedNode } from './merge'
+import { dealias, mergedHas } from './merge'
 import { rangeOf, type MihomoDoc, type Range } from './parse'
 
 export interface TextEdit {
@@ -98,8 +98,9 @@ export function scalar(value: string | boolean | number): string | null {
  * узла. Правка по такому пути изменила бы ВСЕ места, которые используют этот
  * алиас, и притом произвольно выбрала бы, чьей строкой считать удаление —
  * тот же класс дефекта, что и `merged` (слияние `<<`), только сооружённый
- * через `*alias`, а не через `<<`. Читателям (`readFieldAt`) `alias` не
- * мешает — значение читается как обычно, просто без права записи.
+ * через `*alias`, а не через `<<`. Читателям (`md.json`, снимок с
+ * развёрнутыми алиасами и слияниями — см. `parse.ts`) `alias` не мешает —
+ * значение читается как обычно, просто без права записи.
  *
  * Тем же членом отвечает и второй случай (ревью раунд 2, находки 1 и 2): сам
  * ЛИСТ пути — ссылка (`interval: *n`, `proxies: *base`). Ключ здесь свой, но
@@ -166,9 +167,8 @@ function afterBlock(text: string, to: number): number {
 
 /**
  * Отображение по пути; undefined — путь не ведёт к отображению. Общий спуск для
- * `originAt`/`setFieldAt`/`removeFieldAt`/`readFieldAt` — писатель адресует
- * поле парой (путь до узла графа, ключ внутри него), а не голым индексом
- * группы.
+ * `originAt`/`setFieldAt`/`removeFieldAt` — писатель адресует поле парой
+ * (путь до узла графа, ключ внутри него), а не голым индексом группы.
  */
 function mapAt(md: MihomoDoc, parts: PathParts): unknown {
   let node: unknown = md.doc.contents
@@ -321,40 +321,5 @@ export function removeFieldAt(md: MihomoDoc, parts: PathParts, key: string): Tex
   // что и прежняя арифметика, — подстановка без побочных эффектов.
   const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
   return [{ from: lineStart, to: afterBlock(md.text, range.to), insert: '' }]
-}
-
-/**
- * Значение поля вместе с происхождением. Формы читают ТОЛЬКО отсюда: отдельный
- * читатель разошёлся бы с писателем в трактовке якорей — а это ровно то место,
- * где расхождение стоит порчи чужого файла.
- */
-export function readFieldAt(
-  md: MihomoDoc,
-  parts: PathParts,
-  key: string,
-): { value: string | number | boolean | string[] | undefined; origin: FieldOrigin } {
-  const origin = originAt(md, parts, key)
-  if (origin === 'absent') return { value: undefined, origin }
-  const owner = ownerOf(md, mapAt(md, parts), key)
-  if (owner === undefined) return { value: undefined, origin: 'absent' }
-  // Через слияние значение лежит у якоря — читаем его тем же обходом `<<`,
-  // которым groups.ts читает behavior и type в живых шаблонах
-  const node = dealias(md, mergedNode(md, owner.map, owner.leaf))
-  if (isSeq(node)) {
-    const json = node.toJSON()
-    return {
-      value: Array.isArray(json) ? json.filter((v): v is string => typeof v === 'string') : [],
-      origin,
-    }
-  }
-  if (!isScalar(node)) return { value: undefined, origin }
-  const value = node.value
-  return {
-    value:
-      typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-        ? value
-        : undefined,
-    origin,
-  }
 }
 

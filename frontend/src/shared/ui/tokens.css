@@ -1644,6 +1644,7 @@ p { margin: 0 0 10px; }
 }
 .recipe-add { color: var(--ink); }
 .recipe-exists { color: var(--ink-dim); }
+.recipe-refused { color: var(--danger); }
 .recipe-note {
   margin: 0;
   font-size: var(--t-sm);
