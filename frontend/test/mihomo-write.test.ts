@@ -115,6 +115,84 @@ describe('замки и отказ', () => {
   })
 })
 
+describe('материализация: вложенные ссылки внутри значения', () => {
+  // `interval`/`ref`/`ref2` заходят в группы только через `<<:`, а сами их
+  // значения несут СВОЮ ссылку (`z: *inner`) либо СВОЁ слияние (`<<: *inner`) —
+  // ревью задачи 6: материализация обязана развернуть их так же глубоко, как
+  // `mergedNode`, а не скопировать буквальный узел без контекста документа.
+  const NESTED = [
+    'x:', '  inner: &inner', '    k: 1',
+    '  base: &base', '    interval: 300', '    obj:', '      z: *inner',
+    '  mbase: &mbase', '    obj2:', '      <<: *inner', '      extra: 2',
+    'proxy-groups:',
+    '  - name: A', '    type: select', '    <<: *base',
+    '  - name: B', '    type: select', '    <<: *mbase',
+    'tun:', '  ref: *base', '',
+  ].join('\n')
+
+  it('merged-значение с вложенным alias материализуется без служебного мусора вместо значения', () => {
+    const md = parseMihomo(NESTED)
+    const next = materializeAt(md, ['proxy-groups', 0, 'obj'])
+    expect(mihomoLockAt(next, ['proxy-groups', 0, 'obj'])).toBeNull()
+    expect((next.json as { 'proxy-groups': { obj: unknown }[] })['proxy-groups'][0]!.obj).toEqual({ z: { k: 1 } })
+    // Якорь объявления `base` цел — материализация задела только группу A
+    expect((next.json as { x: { base: { obj: unknown } } }).x.base.obj).toEqual({ z: { k: 1 } })
+  })
+
+  it('merged-значение со своим `<<:` внутри материализуется, а не бросает исключение', () => {
+    const md = parseMihomo(NESTED)
+    const next = materializeAt(md, ['proxy-groups', 1, 'obj2'])
+    expect(mihomoLockAt(next, ['proxy-groups', 1, 'obj2'])).toBeNull()
+    expect((next.json as { 'proxy-groups': { obj2: unknown }[] })['proxy-groups'][1]!.obj2).toEqual({
+      k: 1,
+      extra: 2,
+    })
+  })
+
+  it('alias-значение с вложенным alias материализуется без служебного мусора вместо значения', () => {
+    const md = parseMihomo(NESTED)
+    const next = materializeAt(md, ['tun', 'ref'])
+    expect(mihomoLockAt(next, ['tun', 'ref'])).toBeNull()
+    expect((next.json as { tun: { ref: unknown } }).tun.ref).toEqual({ interval: 300, obj: { z: { k: 1 } } })
+  })
+})
+
+describe('applyMihomoOps: отказ без изменений в режиме модели', () => {
+  it('move с индексом за пределами списка — отказ, документ не перепечатан', () => {
+    const md = parseMihomo('rules:\n  - MATCH,DIRECT\n  - DOMAIN,a.com,DIRECT\n')
+    const { md: next, refused } = applyMihomoOps(md, [{ op: 'move', path: ['rules'], from: 0, to: 5 }])
+    expect(refused.length).toBe(1)
+    expect(refused[0]!.op).toEqual({ op: 'move', path: ['rules'], from: 0, to: 5 })
+    expect(next.text).toBe(md.text)
+  })
+
+  it('remove отсутствующего пути — отказ, документ не перепечатан', () => {
+    // Родитель `dns` есть, а ключа `enable` в нём нет: `deleteIn` в этом
+    // случае возвращает `false` (не бросает) — именно этот случай
+    // и требует явной проверки результата, а не только try/catch.
+    const md = parseMihomo('dns:\n  timeout: 1\nipv6: false\n')
+    const { md: next, refused } = applyMihomoOps(md, [{ op: 'remove', path: ['dns', 'enable'] }])
+    expect(refused.length).toBe(1)
+    expect(next.text).toBe(md.text)
+  })
+
+  it('insert в путь со скалярным значением — отказ, значение не заменяется пустым списком', () => {
+    const md = parseMihomo('mode: rule\n')
+    const { md: next, refused } = applyMihomoOps(md, [{ op: 'insert', path: ['mode'], index: 0, value: 'x' }])
+    expect(refused.length).toBe(1)
+    expect(next.text).toBe(md.text)
+  })
+
+  it('insert в отсутствующий путь — список заводится (это не отказ, а поведение режима модели)', () => {
+    const md = parseMihomo('mode: rule\n')
+    const { md: next, refused } = applyMihomoOps(md, [
+      { op: 'insert', path: ['sub-rules', 'ads'], index: 0, value: 'MATCH,DIRECT' },
+    ])
+    expect(refused).toEqual([])
+    expect((next.json as { 'sub-rules': { ads: string[] } })['sub-rules'].ads).toEqual(['MATCH,DIRECT'])
+  })
+})
+
 describe('renameKeyAt', () => {
   it('переименовывает ключ отображения на месте, не меняя порядок записей', () => {
     const md = parseMihomo('rule-providers:\n  a: {type: http, url: u}\n  b: {type: file, path: p}\n')

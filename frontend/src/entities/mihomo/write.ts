@@ -13,7 +13,7 @@
 // Каждая операция перечитывает документ: следующая считает диапазоны по уже
 // изменённому тексту, и пачка операций в одном вызове безопасна.
 
-import { isAlias, isMap, isSeq, parseDocument, type Document, type Pair } from 'yaml'
+import { isAlias, isMap, isNode, isSeq, parseDocument, type Document, type Pair } from 'yaml'
 import type { DocOp, SchemaPath } from '../../shared/schema'
 import { applyEdits, newlineOf, originAt, removeFieldAt, setFieldAt } from './edits'
 import { dealias, mergedHas, mergedNode } from './merge'
@@ -109,32 +109,61 @@ function spliceOp(md: MihomoDoc, op: DocOp): string | null {
   return edits.length > 0 ? applyEdits(md.text, edits) : null
 }
 
-function applyModelOp(doc: Document.Parsed, op: DocOp): void {
+/**
+ * Итог операции режима модели. Находка ревью задачи 6: `deleteIn` тихо
+ * возвращает `false` на отсутствующем ключе, а `move`/`insert` с чужим типом
+ * узла раньше просто выходили без действия — и в обоих случаях вызывающий
+ * всё равно перепечатывал документ целиком (`toString`) РАДИ НУЛЕВОГО
+ * изменения: форматирование могло сдвинуться без единой содержательной
+ * правки, а `refused` остался бы пуст, соврав об успехе. Теперь у операции
+ * есть явный третий исход — «не изменилось», и вызывающий не перепечатывает
+ * документ на нём вовсе.
+ */
+type ModelOpOutcome = { ok: true } | { ok: false; reason: string }
+
+const OK: ModelOpOutcome = { ok: true }
+
+function applyModelOp(doc: Document.Parsed, op: DocOp): ModelOpOutcome {
   switch (op.op) {
     case 'set':
       doc.setIn(op.path, op.value)
-      return
+      return OK
     case 'remove':
-      doc.deleteIn(op.path)
-      return
+      // Тихий `false` — ключа по этому пути не было; исключение (путь через
+      // скаляр) долетает до `applyMihomoOps` само и ловится там try/catch'ем.
+      return doc.deleteIn(op.path)
+        ? OK
+        : { ok: false, reason: 'операция не изменила документ: по этому пути ничего нет' }
     case 'insert': {
+      // Различаем ОТСУТСТВУЮЩИЙ путь (там можно завести список — это и есть
+      // «режим модели заводит ключи») и путь, где уже лежит СВОЁ значение
+      // другого вида: `hasIn` идёт по коллекциям с самого начала пути и
+      // возвращает false и там, где промежуточный узел — не коллекция,
+      // и там, где последний узел отсутствует, — ровно то отличие, которое
+      // нужно от «есть значение, но это не список» (замена его пустым
+      // списком стёрла бы то, что там было записано).
+      const exists = doc.hasIn(op.path)
       let seq = doc.getIn(op.path, true)
-      if (!isSeq(seq)) {
+      if (!exists) {
         seq = doc.createNode([])
         doc.setIn(op.path, seq)
+      } else if (!isSeq(seq)) {
+        return { ok: false, reason: 'по этому пути не список — вставка заменила бы значение пустым списком' }
       }
       const list = seq as { items: unknown[] }
       list.items.splice(clamp(op.index, list.items.length), 0, doc.createNode(op.value))
-      return
+      return OK
     }
     case 'move': {
       const seq = doc.getIn(op.path, true)
-      if (!isSeq(seq)) return
+      if (!isSeq(seq)) return { ok: false, reason: 'по этому пути нет списка — перестановка невозможна' }
       const items = seq.items as unknown[]
-      if (op.from < 0 || op.from >= items.length || op.to < 0 || op.to >= items.length) return
+      if (op.from < 0 || op.from >= items.length || op.to < 0 || op.to >= items.length) {
+        return { ok: false, reason: 'индекс перестановки вне списка' }
+      }
       const [moved] = items.splice(op.from, 1)
       items.splice(op.to, 0, moved)
-      return
+      return OK
     }
     default: {
       const _exhaustive: never = op
@@ -163,10 +192,15 @@ export function applyMihomoOps(md: MihomoDoc, ops: DocOp[]): MihomoWriteResult {
       continue
     }
     const doc = freshDoc(current)
+    let outcome: ModelOpOutcome
     try {
-      applyModelOp(doc, op)
+      outcome = applyModelOp(doc, op)
     } catch (e) {
       refused.push({ op, reason: `документ не принял правку: ${(e as Error).message}` })
+      continue
+    }
+    if (!outcome.ok) {
+      refused.push({ op, reason: outcome.reason })
       continue
     }
     current = print(current, doc)
@@ -189,8 +223,23 @@ export function materializeAt(md: MihomoDoc, path: SchemaPath): MihomoDoc {
     const parent = doc.getIn(path.slice(0, -1), true)
     if (typeof key !== 'string' || !isMap(parent)) return md
     const source = dealias(md, mergedNode(md, parent, key))
-    if (source === undefined) return md
-    doc.setIn(path, doc.createNode((source as { toJSON: () => unknown }).toJSON()))
+    // `source` — узел ИЗ `md.doc` (`mergedNode`/`dealias` разрешают алиасы
+    // относительно него, не относительно свежего `doc`): `.toJS(md.doc, ...)`
+    // резолвит его вложенные ссылки/слияния относительно ТОГО документа,
+    // где они и объявлены.
+    //
+    // Находка ревью задачи 6: `.toJSON()` без контекста (`ToJSOptions`) —
+    // не то же самое, что `.toJS()`. У `Alias` без контекста `toJSON`
+    // возвращает служебный `{ source: <имя якоря> }` вместо значения, на
+    // которое ссылается алиас (см. `Alias.toJSON` в исходниках `yaml`), а у
+    // отображения со СВОИМ `<<:` внутри `toJSON` без контекста падает
+    // (`Merge sources must be maps or map aliases` — `addMergeToJSMap` не
+    // может разрешить алиас цели слияния без `ctx.doc`). `mergedNode`
+    // разворачивает цепочки ссылок и слияний НАМЕРЕННО глубоко — скопированное
+    // значение обязано быть развёрнуто так же глубоко, а не только на первом
+    // уровне, иначе материализация тихо портит документ или падает.
+    if (!isNode(source)) return md
+    doc.setIn(path, doc.createNode(source.toJS(md.doc, { maxAliasCount: -1 })))
     return print(md, doc)
   }
   // alias: первый сегмент пути, чьё собственное значение — ссылка
@@ -201,7 +250,11 @@ export function materializeAt(md: MihomoDoc, path: SchemaPath): MihomoDoc {
     const child: unknown = typeof step === 'number' ? (isSeq(node) ? node.items[step] : undefined) : pair?.value
     if (isAlias(child)) {
       const resolved = child.resolve(doc)
-      const copy = doc.createNode((resolved as { toJSON: () => unknown } | undefined)?.toJSON())
+      // Тот же приём, что у merged-ветки выше, но относительно СВЕЖЕГО `doc`:
+      // здесь и алиас, и цель его разрешения принадлежат `doc` (обход начат от
+      // `doc.contents`), поэтому контекст для `toJS` — сам `doc`.
+      if (!isNode(resolved)) return md
+      const copy = doc.createNode(resolved.toJS(doc, { maxAliasCount: -1 }))
       if (pair !== undefined) pair.value = copy
       else if (isSeq(node) && typeof step === 'number') node.items[step] = copy
       return print(md, doc)
