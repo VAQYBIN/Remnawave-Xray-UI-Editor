@@ -1,35 +1,61 @@
-// Инспектор выбранного узла шаблона Mihomo — зеркало NodeInspector у Xray:
-// разводка по префиксу id узла и та же оболочка .wb-inspector. Вкладки «JSON
-// узла» здесь нет и быть не может: узел — это место в ТЕКСТЕ документа, а не
-// самостоятельный объект, и печать его обратно уничтожила бы якоря с маркерами.
+// Инспектор выбранного узла шаблона Mihomo — третья сборка того же приёма, что
+// у Xray (`NodeInspector`) и sing-box (`SingboxInspector`): разводка по
+// префиксу id узла и та же оболочка `.wb-inspector`. Вкладки «JSON узла» здесь
+// нет и быть не может: узел — это место в ТЕКСТЕ документа, а не самостоятельный
+// объект, и печать его обратно уничтожила бы якоря с маркерами.
+//
+// Формы получают writer = draft.writer БЕЗ обёртки инспектора: и правка поля,
+// и перестановка, и удаление уходят операциями DocOp прямо в applyMihomoOps
+// (задача 10), который сам решает режим (сплайс/модель) и сам отказывает на
+// пути через алиас/слияние. Имя записи пишется не операцией set, а
+// переименованием (`draft.rename`) — оно одно переносит ссылки и держит выбор
+// за узлом, когда имя меняется.
 
+import { useMemo } from 'react'
 import {
-  fieldsOf,
   groupsOf,
   groupTakesHosts,
-  locateMihomo,
   panelInjectsHosts,
   providersOf,
+  proxiesOf,
+  ruleEntriesOf,
   rulesOf,
+  subRuleEntries,
   type MihomoDoc,
   type MihomoGroup,
 } from '../../entities/mihomo'
 import { mihomoRefs } from '../../entities/mihomo/schema'
+import { valueAt, type DocOp, type SchemaPath } from '../../shared/schema'
 import { Button } from '../../shared/ui'
-import { MihomoFieldsForm } from '../inspector/MihomoFieldsForm'
+import { MihomoDocPanel } from './MihomoDocPanel'
+import { MihomoGroupForm } from '../inspector/MihomoGroupForm'
+import { MihomoProviderForm } from '../inspector/MihomoProviderForm'
+import { MihomoProxyForm } from '../inspector/MihomoProxyForm'
 import { MihomoRuleForm } from '../inspector/MihomoRuleForm'
+import { MihomoSubRuleForm } from '../inspector/MihomoSubRuleForm'
 import type { MihomoDraft } from '../editor/useMihomoDraft'
 
-type Kind = 'group' | 'rule' | 'provider' | 'hosts' | 'subrule' | 'builtin' | 'other'
+type Kind = 'group' | 'rule' | 'proxy' | 'provider' | 'hosts' | 'subrule' | 'builtin' | 'settings' | 'other'
 
 const KIND_LABEL: Record<Kind, string> = {
   group: 'группа',
   rule: 'правило',
+  proxy: 'сервер',
   provider: 'провайдер',
   hosts: 'подстановка',
   subrule: 'подсписок',
   builtin: 'встроенная цель',
+  settings: 'документ',
   other: 'узел',
+}
+
+/** Подпись кнопки удаления. У видов без записи в документе (hosts, builtin, settings, other) её нет вовсе */
+const REMOVE_LABEL: Partial<Record<Kind, string>> = {
+  group: 'Удалить группу',
+  rule: 'Удалить правило',
+  proxy: 'Удалить сервер',
+  provider: 'Удалить провайдера',
+  subrule: 'Удалить подсписок',
 }
 
 /** Что делает встроенная цель ядра. Карточка справочная: править тут нечего. */
@@ -41,10 +67,22 @@ const BUILTIN_DOC: Record<string, string> = {
   COMPATIBLE: 'Служебная заглушка ядра: подставляется там, где группа осталась пустой.',
 }
 
+/**
+ * Псевдоузлы: id, которого в графе нет вовсе. `doc:settings` открывает панель
+ * «Документ» — единственный вход к разделам без узлов на холсте (`dns`, `tun`,
+ * наборы правил, провайдеры и т.д., см. SETTINGS_KEYS в entities/graph/mihomo/locate.ts).
+ */
+const PSEUDO_NODES: Record<string, Kind> = {
+  'doc:settings': 'settings',
+}
+
 function kindOf(nodeId: string): Kind {
+  const pseudo = PSEUDO_NODES[nodeId]
+  if (pseudo !== undefined) return pseudo
   const prefix = nodeId.slice(0, nodeId.indexOf(':'))
   return prefix === 'group' ||
     prefix === 'rule' ||
+    prefix === 'proxy' ||
     prefix === 'provider' ||
     prefix === 'hosts' ||
     prefix === 'subrule' ||
@@ -53,30 +91,32 @@ function kindOf(nodeId: string): Kind {
     : 'other'
 }
 
-function GroupCard({ md, name, draft }: { md: MihomoDoc; name: string; draft: MihomoDraft }) {
-  const group = groupsOf(md).find((g) => g.name === name)
-  if (group === undefined) return <p className="muted">Группы «{name}» в документе больше нет.</p>
-  return (
-    <MihomoFieldsForm
-      md={md}
-      parts={['proxy-groups', group.index]}
-      fields={fieldsOf('proxy-group')}
-      draft={draft}
-    />
-  )
+/** Где в документе лежит запись выбранного узла — для порядка и удаления. Провайдер и подсписок сюда не входят: у отображений порядка нет, YAML его не обещает */
+function recordSlot(md: MihomoDoc, kind: Kind, name: string): { list: SchemaPath; index: number; length: number } | null {
+  if (kind === 'rule') {
+    const rules = rulesOf(md)
+    const index = Number(name)
+    return rules.some((r) => r.index === index) ? { list: ['rules'], index, length: rules.length } : null
+  }
+  if (kind === 'group') {
+    const groups = groupsOf(md)
+    const g = groups.find((x) => x.name === name)
+    return g ? { list: ['proxy-groups'], index: g.index, length: groups.length } : null
+  }
+  if (kind === 'proxy') {
+    const proxies = proxiesOf(md)
+    const p = proxies.find((x) => x.name === name)
+    return p ? { list: ['proxies'], index: p.index, length: proxies.length } : null
+  }
+  return null
 }
 
-function ProviderCard({ md, name, draft }: { md: MihomoDoc; name: string; draft: MihomoDraft }) {
-  const provider = providersOf(md).find((p) => p.name === name)
-  if (provider === undefined) return <p className="muted">Провайдера «{name}» в документе больше нет.</p>
-  return (
-    <MihomoFieldsForm
-      md={md}
-      parts={['proxy-providers', name]}
-      fields={fieldsOf('proxy-provider')}
-      draft={draft}
-    />
-  )
+/** Путь удаляемой записи. Провайдер и подсписок — отображения по имени, порядка у них нет, только адрес */
+function removePath(md: MihomoDoc, kind: Kind, name: string, slot: ReturnType<typeof recordSlot>): SchemaPath | null {
+  if (slot !== null) return [...slot.list, slot.index]
+  if (kind === 'provider') return providersOf(md).some((p) => p.name === name) ? ['proxy-providers', name] : null
+  if (kind === 'subrule') return subRuleEntries(md).some((s) => s.name === name) ? ['sub-rules', name] : null
+  return null
 }
 
 /**
@@ -150,46 +190,6 @@ function HostsCard({ md, owner }: { md: MihomoDoc; owner: string }) {
   )
 }
 
-/**
- * Подсписок правил — только для чтения. Формы инспектора спека перечисляет
- * поимённо, подсписков среди них нет: правки принимают путь до жёсткого `rules`,
- * и вторая их семья ради секции из одного эталонного шаблона не окупается.
- * Свобода правки не теряется — текст владеет файлом.
- */
-function SubRuleCard({ md, name, draft }: { md: MihomoDoc; name: string; draft: MihomoDraft }) {
-  const range = locateMihomo(md, ['sub-rules', name])
-  // Текст подсписка показываем срезом исходника, строка в строку: пересобирать
-  // его из модели незачем — читателю нужен именно тот текст, который он потом
-  // увидит на вкладке YAML.
-  const lines =
-    range === null
-      ? []
-      : md.text
-          .slice(range.from, range.to)
-          .split('\n')
-          .map((line) => line.trim())
-          .filter((line) => line !== '')
-  return (
-    <>
-      <p className="muted">
-        Подсписок правится на вкладке YAML: правки формы адресуют только основной список rules.
-      </p>
-      {range === null ? (
-        <p className="muted">Подсписка «{name}» в документе больше нет.</p>
-      ) : (
-        lines.map((line, i) => (
-          <div key={`${i}:${line}`} className="mono">
-            {line}
-          </div>
-        ))
-      )}
-      {/* Переход и прокрутка — одно действие черновика: порознь они не
-          собираются, см. revealAt в useDocumentDraft */}
-      <Button onClick={() => draft.revealAt(['sub-rules', name])}>Открыть в YAML</Button>
-    </>
-  )
-}
-
 interface Props {
   draft: MihomoDraft
   md: MihomoDoc
@@ -200,16 +200,32 @@ interface Props {
 }
 
 export function MihomoInspector({ draft, md, nodeId, onClose }: Props) {
-  // Источник ОДИН — выбранный в черновике узел. Кнопки «Выше»/«Ниже»/«Удалить»
-  // действуют на выбор (`moveSelected`/`removeSelected` адресуют его, а не
-  // переданный проп), и разойдись эти два источника, кнопка удалила бы не то,
-  // что на экране. Проп остаётся входом «покажи вот этот узел» и работает,
-  // пока выбора нет вовсе, — на этом и стоят прямые рендеры в тестах.
+  // Источник ОДИН — выбранный в черновике узел. Проп остаётся входом «покажи
+  // вот этот узел» и работает, пока выбора нет вовсе, — на этом стоят прямые
+  // рендеры в тестах.
   const shownId = draft.selectedNode ?? nodeId
   const kind = kindOf(shownId)
   const name = shownId.slice(shownId.indexOf(':') + 1)
-  const ruleIndex = kind === 'rule' ? Number(name) : -1
-  const ruleCount = rulesOf(md).length
+  const refs = useMemo(() => mihomoRefs(md), [md])
+  const slot = recordSlot(md, kind, name)
+  const removal = removePath(md, kind, name, slot)
+
+  function move(dir: -1 | 1) {
+    if (slot === null) return
+    const ops: DocOp[] = [{ op: 'move', path: slot.list, from: slot.index, to: slot.index + dir }]
+    // Только у правила порядок и есть его адрес (id узла кодирует индекс) —
+    // переставленное ведёт выбор за собой. Группа и сервер адресуются именем,
+    // и перестановка индекса на выбор не влияет.
+    if (kind === 'rule') draft.applyOps(ops, `rule:${slot.index + dir}`)
+    else draft.applyOps(ops)
+  }
+
+  function remove() {
+    if (removal === null) return
+    draft.applyOps([{ op: 'remove', path: removal }], null)
+  }
+
+  const removeLabel = REMOVE_LABEL[kind]
 
   return (
     <aside className="wb-inspector">
@@ -227,25 +243,20 @@ export function MihomoInspector({ draft, md, nodeId, onClose }: Props) {
         </div>
         <span className="mono">{shownId}</span>
 
-        {kind === 'rule' && (
+        {slot !== null && (
           <div className="row">
             <span className="muted">
-              порядок: {ruleIndex + 1} из {ruleCount}
+              порядок: {slot.index + 1} из {slot.length}
             </span>
             <span className="spacer" />
-            <Button
-              variant="ghost"
-              disabled={ruleIndex <= 0}
-              aria-label="Переместить правило выше"
-              onClick={() => draft.moveSelected(-1)}
-            >
+            <Button variant="ghost" disabled={slot.index <= 0} aria-label="Переместить выше" onClick={() => move(-1)}>
               Выше
             </Button>
             <Button
               variant="ghost"
-              disabled={ruleIndex >= ruleCount - 1}
-              aria-label="Переместить правило ниже"
-              onClick={() => draft.moveSelected(1)}
+              disabled={slot.index >= slot.length - 1}
+              aria-label="Переместить ниже"
+              onClick={() => move(1)}
             >
               Ниже
             </Button>
@@ -255,29 +266,85 @@ export function MihomoInspector({ draft, md, nodeId, onClose }: Props) {
 
       <div className="wb-inspector-body">
         <div className="inspector-form">
-          {kind === 'group' && <GroupCard md={md} name={name} draft={draft} />}
-          {kind === 'provider' && <ProviderCard md={md} name={name} draft={draft} />}
-          {kind === 'rule' && (
-            <MihomoRuleForm
-              raw={rulesOf(md).find((r) => r.index === ruleIndex)?.raw ?? ''}
-              path={['rules', ruleIndex]}
-              writer={draft.writer}
-              refs={mihomoRefs(md)}
-            />
-          )}
+          {kind === 'group' &&
+            (slot === null ? (
+              <p className="muted">Группы «{name}» в документе больше нет.</p>
+            ) : (
+              <MihomoGroupForm
+                value={(valueAt(md.json, [...slot.list, slot.index]) as Record<string, unknown> | undefined) ?? {}}
+                path={[...slot.list, slot.index]}
+                writer={draft.writer}
+                refs={refs}
+                name={name}
+                onRename={(to) => draft.rename('group', name, to)}
+              />
+            ))}
+          {kind === 'proxy' &&
+            (slot === null ? (
+              <p className="muted">Сервера «{name}» в документе больше нет.</p>
+            ) : (
+              <MihomoProxyForm
+                value={(valueAt(md.json, [...slot.list, slot.index]) as Record<string, unknown> | undefined) ?? {}}
+                path={[...slot.list, slot.index]}
+                writer={draft.writer}
+                refs={refs}
+                name={name}
+                onRename={(to) => draft.rename('proxy', name, to)}
+              />
+            ))}
+          {kind === 'provider' &&
+            (!providersOf(md).some((p) => p.name === name) ? (
+              <p className="muted">Провайдера «{name}» в документе больше нет.</p>
+            ) : (
+              <MihomoProviderForm
+                value={(valueAt(md.json, ['proxy-providers', name]) as Record<string, unknown> | undefined) ?? {}}
+                path={['proxy-providers', name]}
+                writer={draft.writer}
+                refs={refs}
+                name={name}
+                onRename={(to) => draft.rename('provider', name, to)}
+              />
+            ))}
+          {kind === 'rule' &&
+            (slot === null ? (
+              <p className="muted">Правила #{Number(name) + 1} в документе больше нет.</p>
+            ) : (
+              <MihomoRuleForm
+                raw={rulesOf(md).find((r) => r.index === slot.index)?.raw ?? ''}
+                path={[...slot.list, slot.index]}
+                writer={draft.writer}
+                refs={refs}
+              />
+            ))}
+          {kind === 'subrule' &&
+            (() => {
+              const entry = subRuleEntries(md).find((s) => s.name === name)
+              if (entry === undefined) return <p className="muted">Подсписка «{name}» в документе больше нет.</p>
+              const rules = ruleEntriesOf(md, entry.node).map((e) => valueAt(md.json, ['sub-rules', name, e.index]) as string)
+              return (
+                <MihomoSubRuleForm
+                  rules={rules}
+                  path={['sub-rules', name]}
+                  writer={draft.writer}
+                  refs={refs}
+                  name={name}
+                  onRename={(to) => draft.rename('sub-rule', name, to)}
+                />
+              )
+            })()}
           {kind === 'hosts' && <HostsCard md={md} owner={name} />}
-          {kind === 'subrule' && <SubRuleCard md={md} name={name} draft={draft} />}
           {kind === 'builtin' && (
             <p>{BUILTIN_DOC[name] ?? 'Встроенная цель ядра: в документе она не объявляется.'}</p>
           )}
+          {kind === 'settings' && <MihomoDocPanel draft={draft} md={md} />}
           {kind === 'other' && <p className="muted">Для этого узла формы нет.</p>}
         </div>
       </div>
 
-      {(kind === 'group' || kind === 'rule') && (
+      {removeLabel !== undefined && removal !== null && (
         <div className="wb-inspector-foot">
-          <Button variant="danger" onClick={() => draft.removeSelected()}>
-            {kind === 'group' ? 'Удалить группу' : 'Удалить правило'}
+          <Button variant="danger" onClick={remove}>
+            {removeLabel}
           </Button>
           <span className="spacer" />
         </div>
