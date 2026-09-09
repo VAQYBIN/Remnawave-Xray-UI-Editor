@@ -3,10 +3,12 @@
 // записи, раздел-список для входов. draftStub — тот же минимум, что у
 // mihomo-inspector.test.tsx: панель читает только draft.writer и draft.rename.
 
+import { useState } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { parseMihomo } from '../src/entities/mihomo'
+import { applyMihomoOps } from '../src/entities/mihomo/write'
 import { MihomoDocPanel } from '../src/features/topology/MihomoDocPanel'
 import type { MihomoDraft } from '../src/features/editor/useMihomoDraft'
 
@@ -56,5 +58,55 @@ describe('панель «Документ» Mihomo', () => {
     expect(within(screen.getByRole('region', { name: 'Входы' })).getByLabelText('Имя')).toHaveValue('l')
     await userEvent.click(screen.getByRole('button', { name: 'Подсписки' }))
     expect(within(screen.getByRole('region', { name: 'Подсписки' })).getByRole('button', { name: '+ Правило' })).toBeInTheDocument()
+  })
+})
+
+/**
+ * Черновик с НАСТОЯЩИМ писателем: `apply` прогоняет операции через
+ * `applyMihomoOps` и держит результат в состоянии — то, что `draftStub` (голый
+ * `vi.fn()`) не может показать: `md` там никогда не меняется, а значит и
+ * компонент `MihomoDocPanel` никогда не перерендеривается, и вопрос
+ * «переживает ли открытая форма перерендер» не встаёт вовсе.
+ */
+function RealDraftHarness({ initial }: { initial: string }) {
+  const [md, setMd] = useState(() => parseMihomo(initial))
+  const draft = {
+    writer: {
+      apply: (ops: Parameters<typeof applyMihomoOps>[1]) => {
+        const { md: next } = applyMihomoOps(md, ops)
+        setMd(next)
+      },
+      lockAt: () => null,
+    },
+    rename: () => null,
+  } as unknown as MihomoDraft
+  return <MihomoDocPanel draft={draft} md={md} />
+}
+
+describe('панель «Документ» Mihomo — стабильность форм при перерендере', () => {
+  // DocPanel рендерит spec.Form КАК ТИП КОМПОНЕНТА: другая функция на каждый
+  // рендер — для React другой компонент, и он размонтирует поддерево карточки
+  // целиком. Схема пишет операцию на каждое нажатие клавиши, значит `md`
+  // (а с ним и весь MihomoDocPanel) меняется на каждый символ — без
+  // мемоизации таблиц lists/maps открытое поле слетало бы с фокуса на первом
+  // же символе. draftStub с vi.fn() этого не поймал бы: md там не меняется.
+  it('ввод в поле записи не размонтирует форму: фокус переживает правку', async () => {
+    render(<RealDraftHarness initial={'listeners:\n  - {name: l, type: mixed, port: 1}\n'} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Входы' }))
+    const input = within(screen.getByRole('region', { name: 'Входы' })).getByLabelText('Имя')
+    input.focus()
+    await userEvent.type(input, 'x')
+    expect(document.activeElement).toBe(input)
+    expect(input).toHaveValue('lx')
+  })
+
+  it('ввод в поле провайдера не размонтирует форму: фокус переживает правку', async () => {
+    render(<RealDraftHarness initial={'proxy-providers:\n  P: {type: http, url: u}\n'} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Провайдеры' }))
+    const input = within(screen.getByRole('region', { name: 'Провайдеры' })).getByLabelText('url')
+    input.focus()
+    await userEvent.type(input, '1')
+    expect(document.activeElement).toBe(input)
+    expect(input).toHaveValue('u1')
   })
 })
