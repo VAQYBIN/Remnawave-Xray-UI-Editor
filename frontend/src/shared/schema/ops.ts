@@ -26,10 +26,12 @@ export interface DocWriter {
  * Контейнер по пути. `create` заводит недостающие звенья: ключ → объект,
  * индекс → список. Так `set` по несуществующему пути и заводит секцию
  * панели «Документ» — отдельной операции «создать раздел» не нужно.
+ * `depth` — сколько шагов в полном пути пройти (не слой путь, а читай nextStep
+ * из полного пути — так set с численным финальным сегментом создаст массив).
  */
-function containerAt(root: unknown, path: SchemaPath, create: boolean): unknown {
+function containerAt(root: unknown, path: SchemaPath, depth: number, create: boolean): unknown {
   let cur: unknown = root
-  for (let i = 0; i < path.length; i += 1) {
+  for (let i = 0; i < depth; i += 1) {
     const step = path[i]
     const nextStep = path[i + 1]
     if (typeof step === 'number') {
@@ -60,7 +62,7 @@ export function applyOps<T>(model: T, ops: DocOp[]): T {
   const next = structuredClone(model) as unknown
   for (const op of ops) {
     if (op.op === 'set') {
-      const parent = containerAt(next, op.path.slice(0, -1), true)
+      const parent = containerAt(next, op.path, op.path.length - 1, true)
       const last = op.path[op.path.length - 1]
       if (last === undefined) continue
       if (typeof last === 'number') {
@@ -71,7 +73,7 @@ export function applyOps<T>(model: T, ops: DocOp[]): T {
       continue
     }
     if (op.op === 'remove') {
-      const parent = containerAt(next, op.path.slice(0, -1), false)
+      const parent = containerAt(next, op.path, op.path.length - 1, false)
       const last = op.path[op.path.length - 1]
       if (typeof last === 'number') {
         if (Array.isArray(parent) && last < parent.length) parent.splice(last, 1)
@@ -81,7 +83,7 @@ export function applyOps<T>(model: T, ops: DocOp[]): T {
       continue
     }
     if (op.op === 'insert') {
-      const parent = containerAt(next, op.path.slice(0, -1), true)
+      const parent = containerAt(next, op.path, op.path.length - 1, true)
       const last = op.path[op.path.length - 1]
       if (typeof last !== 'string' || !isRecord(parent)) continue
       if (parent[last] === undefined) parent[last] = []
@@ -90,11 +92,17 @@ export function applyOps<T>(model: T, ops: DocOp[]): T {
       list.splice(clamp(op.index, list.length), 0, op.value)
       continue
     }
-    const list = containerAt(next, op.path, false)
-    if (!Array.isArray(list)) continue
-    if (op.from < 0 || op.from >= list.length || op.to < 0 || op.to >= list.length) continue
-    const [moved] = list.splice(op.from, 1)
-    list.splice(op.to, 0, moved)
+    if (op.op === 'move') {
+      const list = containerAt(next, op.path, op.path.length, false)
+      if (!Array.isArray(list)) continue
+      if (op.from < 0 || op.from >= list.length || op.to < 0 || op.to >= list.length) continue
+      const [moved] = list.splice(op.from, 1)
+      list.splice(op.to, 0, moved)
+      continue
+    }
+    // Исчерпывающая проверка: если типы операций расширены, тайпчек падёт здесь
+    const _exhaustive: never = op
+    return _exhaustive
   }
   return next as T
 }

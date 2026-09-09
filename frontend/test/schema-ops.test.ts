@@ -49,4 +49,21 @@ describe('applyOps', () => {
     ]
     expect(applyOps(DOC, ops).outbounds[0]).toEqual({ tag: 'n', type: 'vless' })
   })
+
+  it('set с численным финальным сегментом создаёт массив, не объект', () => {
+    const result = applyOps({}, [{ op: 'set', path: ['outbounds', 2], value: { tag: 'x' } }]) as unknown as Record<string, unknown>
+    expect(Array.isArray(result.outbounds)).toBe(true)
+    expect((result.outbounds as unknown[])[2]).toEqual({ tag: 'x' })
+  })
+
+  it('set создаёт цепь объектов → массив → объект по пути', () => {
+    const result = applyOps({}, [{ op: 'set', path: ['route', 'rules', 0, 'outbound'], value: 'out1' }])
+    expect(result).toEqual({
+      route: {
+        rules: [
+          { outbound: 'out1' },
+        ],
+      },
+    })
+  })
 })
