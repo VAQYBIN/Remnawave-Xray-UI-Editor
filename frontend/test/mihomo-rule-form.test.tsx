@@ -1,132 +1,114 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { MihomoRuleForm } from '../src/features/inspector/MihomoRuleForm'
-import { parseMihomo } from '../src/entities/mihomo'
-import type { MihomoDraft } from '../src/features/editor/useMihomoDraft'
+import type { DocRefs } from '../src/features/inspector/schema/DocPanel'
+import type { SchemaPath } from '../src/shared/schema'
+import { makeWriter } from './schemaHelpers'
 import { selectOption, optionLabels } from './helpers'
 
-const DOC = [
-  'proxy-groups:',
-  '  - name: A',
-  'sub-rules:',
-  '  block:',
-  '    - MATCH,REJECT',
-  'rules:',
-  '  - DOMAIN-SUFFIX,a.com,A,no-resolve',
-  '  - SUB-RULE,(NETWORK,udp),block',
-  '',
-].join('\n')
+const REFS: DocRefs = { 'proxy-target': ['A', 'DIRECT'], 'sub-rule': ['block'] }
 
-function renderRule(index: number) {
-  const md = parseMihomo(DOC)
-  const draft = { setField: vi.fn(), addRuleText: vi.fn(), replaceRule: vi.fn() } as unknown as MihomoDraft
-  render(<MihomoRuleForm md={md} index={index} draft={draft} />)
-  return draft
+function renderRule(raw: string, path: SchemaPath = ['rules', 0], refs: DocRefs = REFS) {
+  const { ops, writer } = makeWriter()
+  render(<MihomoRuleForm raw={raw} path={path} writer={writer} refs={refs} />)
+  return { ops, writer }
 }
 
 describe('форма правила Mihomo', () => {
   it('раскладывает строку на поля', () => {
-    renderRule(0)
+    renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     expect(screen.getByLabelText('Значение')).toHaveValue('a.com')
     expect(screen.getByLabelText('Цель')).toHaveValue('A')
     expect(screen.getByLabelText('no-resolve')).toBeChecked()
   })
 
   it('MATCH не показывает поле значения', () => {
-    const md = parseMihomo('rules:\n  - MATCH,A\n')
-    render(<MihomoRuleForm md={md} index={0} draft={{ replaceRule: vi.fn() } as unknown as MihomoDraft} />)
+    renderRule('MATCH,A')
     expect(screen.queryByLabelText('Значение')).not.toBeInTheDocument()
   })
 
   it('у SUB-RULE цель выбирается из подсписков, а не из групп', async () => {
-    renderRule(1)
+    renderRule('SUB-RULE,(NETWORK,udp),block', ['rules', 1])
     expect(await optionLabels('Цель')).toEqual(['block'])
   })
 
   it('смена типа переписывает строку целиком', async () => {
-    const draft = renderRule(0)
+    const { ops } = renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     await selectOption('Тип', 'DOMAIN-KEYWORD')
-    expect(draft.replaceRule).toHaveBeenCalledWith(0, 'DOMAIN-KEYWORD,a.com,A,no-resolve')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['rules', 0], value: 'DOMAIN-KEYWORD,a.com,A,no-resolve' })
   })
 
   // Имя хоста, подставленного панелью, редактор не знает и знать не может,
   // поэтому цель по умолчанию — свободный ввод; список известных имён прячется
   // за снятой галочкой, а не наоборот.
   it('снятая галочка «своё имя» даёт список известных целей', async () => {
-    renderRule(0)
+    renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     await userEvent.click(screen.getByLabelText('своё имя'))
     expect(await optionLabels('Цель')).toContain('A')
     expect(await optionLabels('Цель')).toContain('DIRECT')
   })
 
   it('свободный ввод цели переписывает строку', async () => {
-    const draft = renderRule(0)
+    const { ops } = renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     await userEvent.type(screen.getByLabelText('Цель'), 'B')
-    expect(draft.replaceRule).toHaveBeenCalledWith(0, 'DOMAIN-SUFFIX,a.com,AB,no-resolve')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['rules', 0], value: 'DOMAIN-SUFFIX,a.com,AB,no-resolve' })
   })
 
   // У SUB-RULE свободного ввода нет: имя подсписка обязано существовать в
   // документе, панель их не подставляет.
   it('у SUB-RULE свободного ввода цели нет', () => {
-    renderRule(1)
+    renderRule('SUB-RULE,(NETWORK,udp),block', ['rules', 1])
     expect(screen.queryByLabelText('своё имя')).not.toBeInTheDocument()
   })
 
   it('снятие модификатора убирает его из строки', async () => {
-    const draft = renderRule(0)
+    const { ops } = renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     await userEvent.click(screen.getByLabelText('no-resolve'))
-    expect(draft.replaceRule).toHaveBeenCalledWith(0, 'DOMAIN-SUFFIX,a.com,A')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['rules', 0], value: 'DOMAIN-SUFFIX,a.com,A' })
   })
 
   // Запятая разделяет поля правила, и выразить её внутри поля нечем: строка
   // «DOMAIN-SUFFIX,a.com,b,A,no-resolve» перечиталась бы со значением «a.com» и
-  // целью «b». Пишем на каждое нажатие, поэтому искажение осталось бы в
-  // документе, а не в поле — отказ вместо порчи.
+  // целью «b». Отказ вместо порчи — правка не уходит писателю вовсе.
   it('запятая в значении не пишется и объясняется', async () => {
-    const draft = renderRule(0)
+    const { ops } = renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     await userEvent.type(screen.getByLabelText('Значение'), ',b')
-    expect(draft.replaceRule).not.toHaveBeenCalled()
+    expect(ops).toHaveLength(0)
     expect(screen.getByText(/не собирается/)).toBeInTheDocument()
   })
 
   it('запятая в цели не пишется', async () => {
-    const draft = renderRule(0)
+    const { ops } = renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     await userEvent.type(screen.getByLabelText('Цель'), ',B')
-    expect(draft.replaceRule).not.toHaveBeenCalled()
+    expect(ops).toHaveLength(0)
   })
 
   // Проверка обратимости, а не запрет запятой: у логических типов запятая
   // ВНУТРИ скобок законна, и правка такого правила обязана проходить.
   it('запятая внутри скобок у SUB-RULE не мешает правке', async () => {
-    const draft = renderRule(1)
+    const { ops } = renderRule('SUB-RULE,(NETWORK,udp),block', ['rules', 1])
     await userEvent.type(screen.getByLabelText('Значение'), 'x')
-    expect(draft.replaceRule).toHaveBeenCalledWith(1, 'SUB-RULE,(NETWORK,udp)x,block')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['rules', 1], value: 'SUB-RULE,(NETWORK,udp)x,block' })
   })
 
   // Имя, которого в документе нет (например, подставленный панелью хост), обязано
   // остаться в списке: иначе выбор молча заменил бы его первым вариантом.
   it('незнакомая цель остаётся в списке известных', async () => {
-    const md = parseMihomo('proxy-groups:\n  - name: A\nrules:\n  - MATCH,ru-1\n')
-    render(<MihomoRuleForm md={md} index={0} draft={{ replaceRule: vi.fn() } as unknown as MihomoDraft} />)
+    renderRule('MATCH,ru-1', ['rules', 0], { 'proxy-target': ['A'] })
     await userEvent.click(screen.getByLabelText('своё имя'))
     expect(await optionLabels('Цель')).toContain('ru-1')
   })
 
   // Любая правка может сорваться на необратимости, не только ввод в поле:
   // у правила «MATCH,b)c,d» лишняя скобка увела уровень вложенности в минус, и
-  // добавленный модификатор при перечитывании прилипнет к цели. Раньше такие
-  // пути передавали в commit пустое поле и отказывали МОЛЧА.
+  // добавленный модификатор при перечитывании прилипнет к цели.
   // «Рядом с ним» — не фигура речи, а то, ради чего заведён `RuleField`:
-  // объяснение обязано стоять В БЛОКЕ своего поля. Проверка одного лишь наличия
-  // текста на форме этого не стерегла бы — она зеленела бы и на версии, где все
-  // объяснения съехали под «Тип».
+  // объяснение обязано стоять В БЛОКЕ своего поля.
   it('отказ на переключателе модификатора объясняется рядом с ним', async () => {
-    const md = parseMihomo('rules:\n  - MATCH,b)c,d\n')
-    const draft = { replaceRule: vi.fn() } as unknown as MihomoDraft
-    render(<MihomoRuleForm md={md} index={0} draft={draft} />)
+    const { ops } = renderRule('MATCH,b)c,d')
     await userEvent.click(screen.getByLabelText('src'))
-    expect(draft.replaceRule).not.toHaveBeenCalled()
+    expect(ops).toHaveLength(0)
     const block = screen.getByLabelText('src').closest('.field')
     expect(block).not.toBeNull()
     expect(within(block as HTMLElement).getByText(/не собирается обратно/)).toBeInTheDocument()
@@ -137,9 +119,9 @@ describe('форма правила Mihomo', () => {
   // Текст отказа обязан обещать ровно то, что проверка делает: перевод строки
   // внутри поля `parseRule` переживает обратимо, и ловлей его хвастаться нельзя.
   it('текст отказа не обещает того, чего проверка не делает', async () => {
-    const draft = renderRule(0)
+    const { ops } = renderRule('DOMAIN-SUFFIX,a.com,A,no-resolve')
     await userEvent.type(screen.getByLabelText('Значение'), ',b')
-    expect(draft.replaceRule).not.toHaveBeenCalled()
+    expect(ops).toHaveLength(0)
     expect(screen.getByText(/не собирается обратно/).textContent).not.toMatch(/перевод строки/)
   })
 
@@ -147,10 +129,24 @@ describe('форма правила Mihomo', () => {
   // из двух полей («DOMAIN,A»), разбор вернул бы null, и правка молча не
   // применилась бы.
   it('переход с MATCH заводит пустое значение', async () => {
-    const md = parseMihomo('rules:\n  - MATCH,A\n')
-    const draft = { replaceRule: vi.fn() } as unknown as MihomoDraft
-    render(<MihomoRuleForm md={md} index={0} draft={draft} />)
+    const { ops } = renderRule('MATCH,A')
     await selectOption('Тип', 'DOMAIN')
-    expect(draft.replaceRule).toHaveBeenCalledWith(0, 'DOMAIN,,A')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['rules', 0], value: 'DOMAIN,,A' })
+  })
+
+  // Форма не имеет права записать то, чего сама не разбирает: собранная из
+  // полей строка затёрла бы непонятую и потеряла бы её содержимое.
+  it('неразбираемую строку правит вкладка YAML', () => {
+    renderRule('совсем не правило')
+    expect(screen.getByText(/правьте её на вкладке YAML/)).toBeInTheDocument()
+  })
+
+  // Путь строки правила может вести и в подсписок (`['sub-rules', 'имя', i]`) —
+  // форма ничего не знает про то, где живёт список, и передаёт путь писателю
+  // как есть.
+  it('путь подсписка уходит в операцию как есть', async () => {
+    const { ops } = renderRule('DOMAIN,a.com,DIRECT', ['sub-rules', 's', 1], { 'proxy-target': ['DIRECT'] })
+    await userEvent.type(screen.getByLabelText('Цель'), 'X')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['sub-rules', 's', 1], value: 'DOMAIN,a.com,DIRECTX' })
   })
 })

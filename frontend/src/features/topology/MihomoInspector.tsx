@@ -14,6 +14,7 @@ import {
   type MihomoDoc,
   type MihomoGroup,
 } from '../../entities/mihomo'
+import { mihomoRefs } from '../../entities/mihomo/schema'
 import { Button } from '../../shared/ui'
 import { MihomoFieldsForm } from '../inspector/MihomoFieldsForm'
 import { MihomoRuleForm } from '../inspector/MihomoRuleForm'
@@ -256,7 +257,14 @@ export function MihomoInspector({ draft, md, nodeId, onClose }: Props) {
         <div className="inspector-form">
           {kind === 'group' && <GroupCard md={md} name={name} draft={draft} />}
           {kind === 'provider' && <ProviderCard md={md} name={name} draft={draft} />}
-          {kind === 'rule' && <MihomoRuleForm md={md} index={ruleIndex} draft={draft} />}
+          {kind === 'rule' && (
+            <MihomoRuleForm
+              raw={rulesOf(md).find((r) => r.index === ruleIndex)?.raw ?? ''}
+              path={['rules', ruleIndex]}
+              writer={draft.writer}
+              refs={mihomoRefs(md)}
+            />
+          )}
           {kind === 'hosts' && <HostsCard md={md} owner={name} />}
           {kind === 'subrule' && <SubRuleCard md={md} name={name} draft={draft} />}
           {kind === 'builtin' && (
