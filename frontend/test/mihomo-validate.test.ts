@@ -205,4 +205,56 @@ describe('диагностики', () => {
     const text = 'rules:\n  - DOMAIN,a.com,DIRECT,no-resolve\n'
     expect(messages(text).some((m) => m.includes('модифи'))).toBe(false)
   })
+
+  it('устаревшие ключи и значения — предупреждение с заменой по пути', () => {
+    const md = parseMihomo('enable-process: true\nproxy-groups:\n  - name: G\n    type: relay\ntun:\n  inet4-route-address: [0.0.0.0/1]\n')
+    const issues = validateMihomo(md).filter((i) => i.message.startsWith('Устарело'))
+    expect(issues.map((i) => i.path)).toEqual(expect.arrayContaining(['enable-process', 'proxy-groups.0.type', 'tun.inet4-route-address']))
+    expect(issues.every((i) => i.level === 'warning')).toBe(true)
+  })
+
+  it('ссылки в пустоту — по всем местам ссылок: dialer-proxy, nameserver-policy, listeners[].rule, tunnels[].proxy', () => {
+    const md = parseMihomo(
+      'dns:\n  nameserver-policy:\n    "rule-set:nope": 1.1.1.1\nproxies:\n  - name: s\n    type: direct\n    dialer-proxy: ghost\nlisteners:\n  - {name: l, type: mixed, port: 1, rule: nosub}\ntunnels:\n  - {network: [tcp], address: a, target: b, proxy: ghost}\n',
+    )
+    const paths = validateMihomo(md).filter((i) => i.level === 'warning').map((i) => i.path)
+    expect(paths).toEqual(
+      expect.arrayContaining(['dns.nameserver-policy.rule-set:nope', 'proxies.0.dialer-proxy', 'listeners.0.rule', 'tunnels.0.proxy']),
+    )
+  })
+
+  it('ссылка на статический сервер — не предупреждение', () => {
+    const md = parseMihomo('proxies:\n  - name: s\n    type: direct\nrules:\n  - MATCH,s\n')
+    expect(validateMihomo(md).filter((i) => i.path === 'rules.0')).toEqual([])
+  })
+
+  /**
+   * Единый обход `referenceSites` заменил разбросанные проверки ссылок —
+   * фиксируем, что на настоящих шаблонах он не завёл НОВЫХ предупреждений
+   * сверх устаревшего `enable-process` (bundle, simple содержат его в корне;
+   * default и roscomvpn — нет). Число предупреждений сравнено с тем, что
+   * давали прежние точечные проверки (RULE-SET/SUB-RULE/resolveTarget в
+   * checkRuleList и в цикле групп) — на этих четырёх шаблонах оно было 0.
+   */
+  it('на эталонных шаблонах число предупреждений не выросло, кроме устаревшего enable-process', () => {
+    const withoutDeprecation = (name: 'default' | 'simple' | 'bundle' | 'roscomvpn') =>
+      validateMihomo(parseMihomo(mihomoFixture(name))).filter(
+        (i) => i.level === 'warning' && !i.message.startsWith('Устарело'),
+      )
+    for (const name of ['default', 'simple', 'bundle', 'roscomvpn'] as const) {
+      expect(withoutDeprecation(name), name).toEqual([])
+    }
+    for (const name of ['simple', 'bundle'] as const) {
+      const deprecated = validateMihomo(parseMihomo(mihomoFixture(name))).filter((i) =>
+        i.message.startsWith('Устарело'),
+      )
+      expect(deprecated.map((i) => i.path), name).toEqual(['enable-process'])
+    }
+    for (const name of ['default', 'roscomvpn'] as const) {
+      const deprecated = validateMihomo(parseMihomo(mihomoFixture(name))).filter((i) =>
+        i.message.startsWith('Устарело'),
+      )
+      expect(deprecated, name).toEqual([])
+    }
+  })
 })

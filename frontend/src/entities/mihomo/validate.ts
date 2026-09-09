@@ -3,19 +3,15 @@
 // ошибка. Строгая проверка дала бы ложную тревогу на каждом корректном шаблоне.
 
 import { isSeq } from 'yaml'
+import { deprecatedAt, walkSchema } from '../../shared/schema'
 import type { ValidationIssue, PathParts } from '../xray/config'
 import { conflictingKeys, groupGetsHosts } from './inject'
-import {
-  groupsOf,
-  providersOf,
-  ruleProvidersOf,
-  subRuleEntries,
-  subRuleNames,
-  type MihomoGroup,
-} from './groups'
+import { groupsOf, providersOf, subRuleEntries, type MihomoGroup } from './groups'
 import type { MihomoDoc } from './parse'
-import { resolveTarget } from './resolve'
+import { namesOf, referenceSites, type NamedKind } from './refs'
+import { BUILTIN_TARGETS } from './resolve'
 import { RULE_MODIFIERS, RULE_TYPES, ruleEntriesOf, rulesOf, type RuleEntry } from './rules'
+import { MIHOMO_SCHEMA } from './schema'
 
 function issue(parts: PathParts, message: string, level: 'error' | 'warning'): ValidationIssue {
   return { parts, path: parts.join('.'), message, level }
@@ -78,12 +74,23 @@ function findCycle(groups: MihomoGroup[]): string[] | null {
   return null
 }
 
+/**
+ * Текст предупреждения о ссылке в пустоту — по виду цели. Группа и сервер
+ * делят одно сообщение: обе делят и пространство имён (`resolveTarget`), и
+ * причину неизвестности — имя хоста от панели редактору не видно ни там, ни там.
+ */
+const UNKNOWN_TEXT: Record<NamedKind, (name: string) => string> = {
+  group: (n) => `«${n}» не найдено среди групп и серверов — если это не имя хоста от панели, ссылка не разрешится`,
+  proxy: (n) => `«${n}» не найдено среди групп и серверов — если это не имя хоста от панели, ссылка не разрешится`,
+  provider: (n) => `Провайдер «${n}» не объявлен в proxy-providers`,
+  'rule-provider': (n) => `Набор правил «${n}» не объявлен в rule-providers`,
+  'sub-rule': (n) => `Ссылка на подсписок правил «${n}», которого нет в sub-rules`,
+}
+
 export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
   const issues: ValidationIssue[] = [...md.issues]
   const groups = groupsOf(md)
   const providers = firstPerName(providersOf(md))
-  const ruleProviders = new Set(ruleProvidersOf(md).map((p) => p.name))
-  const subRules = new Set(subRuleNames(md))
 
   const seen = new Set<string>()
   groups.forEach((group) => {
@@ -124,18 +131,6 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
         ),
       )
     }
-
-    group.proxies.forEach((name, i) => {
-      if (resolveTarget(md, name) === 'unknown') {
-        issues.push(
-          issue(
-            [...at, 'proxies', i],
-            `«${name}» не найдено среди групп и провайдеров — если это не имя хоста от панели, ссылка не разрешится`,
-            'warning',
-          ),
-        )
-      }
-    })
   })
 
   providers.forEach((provider) => {
@@ -193,7 +188,10 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
         issues.push(issue(at, `«${entry.raw}» не похоже на правило: нужны тип, значение и цель`, 'error'))
         return
       }
-      const { type, target, payload, modifiers } = entry.rule
+      // Ссылки цели (RULE-SET, SUB-RULE, группа/сервер) здесь больше не
+      // проверяются: их даёт единый обход `referenceSites` ниже — вторая
+      // копия разошлась бы с ним на первом же новом месте ссылки в правиле.
+      const { type, modifiers } = entry.rule
       if (!(RULE_TYPES as readonly string[]).includes(type)) {
         issues.push(issue(at, `Неизвестный тип правила «${type}»`, 'warning'))
       }
@@ -207,26 +205,6 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
       if (type === 'MATCH' && matchAt === -1) matchAt = entry.index
       else if (matchAt !== -1) {
         issues.push(issue(at, `Правило никогда не сработает: выше стоит MATCH`, 'warning'))
-      }
-      if (type === 'RULE-SET' && payload !== undefined && !ruleProviders.has(payload)) {
-        issues.push(issue(at, `Набор правил «${payload}» не объявлен в rule-providers`, 'warning'))
-      }
-      // У SUB-RULE третье поле — имя подсписка, а не группы: гонять его через
-      // resolveTarget значит ругаться на каждый корректный шаблон с подправилами
-      if (type === 'SUB-RULE') {
-        if (!subRules.has(target)) {
-          issues.push(issue(at, `Ссылка на подсписок правил «${target}», которого нет в sub-rules`, 'warning'))
-        }
-        return
-      }
-      if (resolveTarget(md, target) === 'unknown') {
-        issues.push(
-          issue(
-            at,
-            `Цель «${target}» не найдена среди групп и провайдеров — если это не имя хоста от панели, правило не разрешится`,
-            'warning',
-          ),
-        )
       }
     })
     return { matchAt, hasAliasRule }
@@ -254,6 +232,43 @@ export function validateMihomo(md: MihomoDoc): ValidationIssue[] {
     issues.push(
       issue(['rules'], 'В конце списка нет MATCH — трафик, не подошедший ни под одно правило, пойдёт напрямую', 'warning'),
     )
+  }
+
+  // Устаревшее — обходом дерева по схеме, а не отдельным списком путей: второй
+  // список отставал бы от схемы на первом же новом устаревшем ключе (тот же
+  // приём, что у sing-box, см. entities/singbox/validate.ts).
+  walkSchema(MIHOMO_SCHEMA, md.json, (path, fields, value) => {
+    for (const d of deprecatedAt(fields, value)) {
+      const at: PathParts = [...path, d.key]
+      const what = d.value === undefined ? `Ключ «${d.key}»` : `Значение «${d.value}» у ${d.key}`
+      issues.push(issue(at, `Устарело с ${d.deprecation.since}: ${what} — ${d.deprecation.replacement}`, 'warning'))
+    }
+  })
+
+  // Ссылки в пустоту — по единому перечню мест ссылок (`referenceSites`), а не
+  // по разбросанным проверкам внутри правил и групп: те выше удалены — вторая
+  // копия перечня мест ссылок разошлась бы с этим на первом же новом месте.
+  const declared: Record<NamedKind, Set<string>> = {
+    group: new Set(namesOf(md, 'group')),
+    proxy: new Set(namesOf(md, 'proxy')),
+    provider: new Set(namesOf(md, 'provider')),
+    'rule-provider': new Set(namesOf(md, 'rule-provider')),
+    'sub-rule': new Set(namesOf(md, 'sub-rule')),
+  }
+  const seenSite = new Set<string>()
+  for (const site of referenceSites(md)) {
+    // Дедуп по МЕСТУ ссылки, не по имени: два разных места, называющих одно
+    // и то же неизвестное имя, — два разных предупреждения, оба ведут в
+    // разные узлы графа/точки текста.
+    const key = `${site.path.join('.')}|${site.kind}|${site.name}`
+    if (seenSite.has(key)) continue
+    seenSite.add(key)
+    const known =
+      site.kind === 'group' || site.kind === 'proxy'
+        ? declared.group.has(site.name) || declared.proxy.has(site.name) || (BUILTIN_TARGETS as readonly string[]).includes(site.name)
+        : declared[site.kind].has(site.name)
+    if (known) continue
+    issues.push(issue(site.path, UNKNOWN_TEXT[site.kind](site.name), 'warning'))
   }
 
   return issues
