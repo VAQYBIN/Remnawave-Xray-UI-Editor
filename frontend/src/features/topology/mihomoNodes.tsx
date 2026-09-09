@@ -4,7 +4,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type {
   MihomoBuiltinNodeData, MihomoGroupNodeData, MihomoHostsNodeData,
-  MihomoProviderNodeData, MihomoRuleNodeData, MihomoSubRuleNodeData,
+  MihomoProviderNodeData, MihomoProxyNodeData, MihomoRuleNodeData, MihomoSubRuleNodeData,
 } from '../../entities/graph/mihomo/types'
 import type { IssueCount } from '../../entities/graph/types'
 
@@ -15,6 +15,7 @@ function frame(kind: string, selected: boolean | undefined): string {
     kind === 'provider' ? 'fnode-out' : '',
     kind === 'hosts' ? 'fnode-inj' : '',
     kind === 'builtin' ? 'fnode-out' : '',
+    kind === 'proxy' ? 'fnode-out' : '',
     selected ? 'fnode-selected' : '',
   ]
     .filter(Boolean)
@@ -24,7 +25,7 @@ function frame(kind: string, selected: boolean | undefined): string {
 // Узлы появляются волной слева направо — как у графа Xray, в порядке движения
 // сигнала: правило → группа → выход
 const ENTER_DELAY: Record<string, number> = {
-  rule: 0, subrule: 0, group: 90, provider: 180, hosts: 180, builtin: 180,
+  rule: 0, subrule: 0, group: 90, provider: 180, hosts: 180, builtin: 180, proxy: 180,
 }
 function enter(kind: string): React.CSSProperties {
   return { '--enter-delay': `${ENTER_DELAY[kind] ?? 0}ms` } as React.CSSProperties
@@ -165,7 +166,8 @@ function MihomoHostsNode({ data, selected }: { data: MihomoHostsNodeData; select
   return (
     <div className={frame('hosts', selected)} style={enter('hosts')}>
       {/* Оба гнезда закрыты: содержимое узла создаёт панель, кабелем его не
-          задают — ребро сюда рисует граф по факту маркера подстановки */}
+          задают — ребро сюда рисует граф по правилу groupTakesHosts (маркер
+          `# LEAVE THIS LINE!` декоративен, панель решает по ключам документа) */}
       <Handle type="target" position={Position.Left} isConnectable={false} />
       <div className="fnode-head">
         <span className="fnode-kind">подстановка</span>
@@ -177,6 +179,25 @@ function MihomoHostsNode({ data, selected }: { data: MihomoHostsNodeData; select
         <Metric accent>{pick}</Metric>
       </div>
       <Handle type="source" position={Position.Right} isConnectable={false} />
+    </div>
+  )
+}
+
+function MihomoProxyNode({ data, selected }: { data: MihomoProxyNodeData; selected?: boolean }) {
+  return (
+    <div className={frame('proxy', selected)} style={enter('proxy')}>
+      <Handle type="target" position={Position.Left} />
+      <div className="fnode-head">
+        <span className="fnode-kind">{data.type ?? 'сервер'}</span>
+        <IssueBadge count={data.issueCount} />
+      </div>
+      <div className="fnode-title">{data.name}</div>
+      {data.server && (
+        <div className="metrics">
+          <Metric>{data.server}</Metric>
+        </div>
+      )}
+      {/* Гнезда-источника нет: сервер — конец маршрута */}
     </div>
   )
 }
@@ -199,6 +220,7 @@ export const mihomoNodeTypes = {
   mihomoSubRule: MihomoSubRuleNode,
   mihomoGroup: MihomoGroupNode,
   mihomoProvider: MihomoProviderNode,
+  mihomoProxy: MihomoProxyNode,
   mihomoHosts: MihomoHostsNode,
   mihomoBuiltin: MihomoBuiltinNode,
 } as unknown as Record<string, React.ComponentType<NodeProps>>

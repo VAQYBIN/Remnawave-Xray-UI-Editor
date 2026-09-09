@@ -22,17 +22,15 @@ import userEvent from '@testing-library/user-event'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  addFromMenu,
   MihomoTopology,
   mihomoColumns,
   MIHOMO_TARGET_KINDS,
-  nextGroupName,
-  nextRulePlacement,
 } from '../src/features/topology/MihomoTopology'
 import { refusalText } from '../src/entities/graph/mihomo/mutations'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
 import { buildMihomoGraph, layoutMihomo } from '../src/entities/graph/mihomo/buildGraph'
 import { parseMihomo } from '../src/entities/mihomo'
-import { mihomoFixture } from './helpers'
 
 const DOC = [
   'proxy-groups:',
@@ -55,8 +53,7 @@ function draftStub(over: Record<string, unknown> = {}) {
     focus: null,
     connect: vi.fn(),
     disconnect: vi.fn(),
-    addRuleText: vi.fn(),
-    addGroupNamed: vi.fn(),
+    applyOps: vi.fn(),
     refusal: null,
     dismissRefusal: vi.fn(),
     ...over,
@@ -118,14 +115,61 @@ describe('граф Mihomo', () => {
     expect(mihomoColumns(nodes)[0]?.title).toBe('правила')
   })
 
-  it('док заводит правило и группу', async () => {
-    const addRuleText = vi.fn()
-    const addGroupNamed = vi.fn()
-    renderTopology({ addRuleText, addGroupNamed })
+  it('меню «+ Добавить»: группа и сервер выбираются на холсте, набор и подсписок открывают панель «Документ»', () => {
+    const md = parseMihomo('proxy-groups:\n  - name: Группа\n    type: select\n')
+    const draft = { applyOps: vi.fn(), setSelectedNode: vi.fn() }
+    addFromMenu(draft, md, 'group')
+    expect(draft.applyOps).toHaveBeenLastCalledWith(
+      [{ op: 'insert', path: ['proxy-groups'], index: 1, value: { name: 'Группа-2', type: 'select' } }],
+      'group:Группа-2',
+    )
+    addFromMenu(draft, md, 'proxy')
+    expect(draft.applyOps).toHaveBeenLastCalledWith(
+      [{ op: 'insert', path: ['proxies'], index: 0, value: { name: 'Сервер', type: 'direct', udp: true } }],
+      'proxy:Сервер',
+    )
+    addFromMenu(draft, md, 'provider')
+    expect(draft.applyOps).toHaveBeenLastCalledWith(
+      [{ op: 'set', path: ['proxy-providers', 'provider'], value: { type: 'http', url: '', interval: 86400 } }],
+      'provider:provider',
+    )
+    addFromMenu(draft, md, 'rule-provider')
+    expect(draft.applyOps).toHaveBeenLastCalledWith(
+      [{ op: 'set', path: ['rule-providers', 'ruleset'], value: expect.objectContaining({ behavior: 'domain' }) }],
+      'doc:settings',
+    )
+    addFromMenu(draft, md, 'sub-rule')
+    expect(draft.applyOps).toHaveBeenLastCalledWith(
+      [{ op: 'set', path: ['sub-rules', 'sub-rule'], value: [] }],
+      'subrule:sub-rule',
+    )
+    addFromMenu(draft, md, 'listener')
+    expect(draft.applyOps).toHaveBeenLastCalledWith(
+      [{ op: 'insert', path: ['listeners'], index: 0, value: expect.objectContaining({ type: 'mixed' }) }],
+      'doc:settings',
+    )
+  })
+
+  it('«+ Правило» вставляет перед выбранным, а на пустом документе заводит rules', async () => {
+    const md = parseMihomo('rules:\n  - DOMAIN,a.com,DIRECT\n  - MATCH,DIRECT\n')
+    const applyOps = vi.fn()
+    render(
+      <ReactFlowProvider>
+        <MihomoTopology draft={draftStub({ selectedNode: 'rule:1', applyOps })} md={md} />
+      </ReactFlowProvider>,
+    )
     await userEvent.click(screen.getByRole('button', { name: '+ Правило' }))
-    expect(addRuleText).toHaveBeenCalledOnce()
-    await userEvent.click(screen.getByRole('button', { name: '+ Группа' }))
-    expect(addGroupNamed).toHaveBeenCalledOnce()
+    expect(applyOps).toHaveBeenLastCalledWith(
+      [{ op: 'insert', path: ['rules'], index: 1, value: 'DOMAIN-SUFFIX,example.com,DIRECT' }],
+      'rule:1',
+    )
+  })
+
+  it('кнопка «Документ» выбирает doc:settings', async () => {
+    const setSelectedNode = vi.fn()
+    renderTopology({ setSelectedNode })
+    await userEvent.click(screen.getByRole('button', { name: 'Документ' }))
+    expect(setSelectedNode).toHaveBeenCalledWith('doc:settings')
   })
 
   it('подсписок правил рисуется узлом, и правило SUB-RULE ведёт в него', () => {
@@ -208,6 +252,22 @@ describe('граф Mihomo', () => {
     expect(positive.textContent).toMatch(/^если панель/)
     // Обратная ветка следует из ключей документа и условной быть не обязана
     expect(screen.getByText('хостов от панели не будет')).toBeInTheDocument()
+  })
+
+  it('карточка сервера показывает тип, имя и адрес; гнездо только на вход', () => {
+    const md = parseMihomo('proxies:\n  - name: VPN1\n    type: ss\n    server: example.com\n    port: 443\n')
+    const { container } = render(
+      <ReactFlowProvider>
+        <MihomoTopology draft={draftStub()} md={md} />
+      </ReactFlowProvider>,
+    )
+    expect(screen.getByText('ss')).toBeInTheDocument()
+    expect(screen.getByText('VPN1')).toBeInTheDocument()
+    expect(screen.getByText('example.com')).toBeInTheDocument()
+    const node = container.querySelector('.react-flow__node[data-id="proxy:VPN1"]')!
+    // Сервер — конец маршрута: гнездо-цель есть, гнезда-источника нет
+    expect(node.querySelectorAll('.react-flow__handle-left')).toHaveLength(1)
+    expect(node.querySelectorAll('.react-flow__handle-right')).toHaveLength(0)
   })
 
   function hintOn(doc: string): string {
@@ -315,58 +375,10 @@ describe('подсветка целей кабеля', () => {
   })
 })
 
-describe('дефект 3в: место и текст нового правила', () => {
-  it('последнее правило — MATCH: заготовка встаёт ПЕРЕД ним и сама не MATCH', () => {
-    const md = parseMihomo('rules:\n  - DOMAIN,a.com,DIRECT\n  - MATCH,DIRECT\n')
-    expect(nextRulePlacement(md)).toEqual({ raw: 'DOMAIN-SUFFIX,example.com,DIRECT', at: 1 })
-  })
-
-  it('MATCH в конце нет: MATCH,DIRECT дописывается в конец', () => {
-    const md = parseMihomo('rules:\n  - DOMAIN,a.com,DIRECT\n')
-    expect(nextRulePlacement(md)).toEqual({ raw: 'MATCH,DIRECT' })
-  })
-
-  it('правил ещё нет: MATCH,DIRECT — первое правило документа', () => {
-    expect(nextRulePlacement(parseMihomo('mode: rule\n'))).toEqual({ raw: 'MATCH,DIRECT' })
-  })
-
-  it('док вставляет правило перед финальным MATCH шаблона панели', async () => {
-    const addRuleText = vi.fn()
-    // Хвост default.yaml: `- MATCH,→ Remnawave`. Новое MATCH после него было бы
-    // мёртвым — в Mihomo выигрывает первое совпавшее правило
-    const md = parseMihomo(mihomoFixture('default'))
-    render(
-      <ReactFlowProvider>
-        <MihomoTopology draft={draftStub({ addRuleText })} md={md} />
-      </ReactFlowProvider>,
-    )
-    await userEvent.click(screen.getByRole('button', { name: '+ Правило' }))
-    expect(addRuleText).toHaveBeenCalledWith('DOMAIN-SUFFIX,example.com,DIRECT', 2)
-  })
-})
-
-describe('имя новой группы', () => {
-  it('первое свободное: Группа, Группа 2, Группа 3', () => {
-    // Совпадение имён — диагностируемая ошибка документа, кнопкой её не заводим
-    expect(nextGroupName(parseMihomo('rules:\n  - MATCH,DIRECT\n'))).toBe('Группа')
-    expect(nextGroupName(parseMihomo('proxy-groups:\n  - name: Группа\n'))).toBe('Группа 2')
-    expect(
-      nextGroupName(parseMihomo('proxy-groups:\n  - name: Группа\n  - name: Группа 2\n')),
-    ).toBe('Группа 3')
-  })
-
-  it('док заводит группу именем, которого в документе ещё нет', async () => {
-    const addGroupNamed = vi.fn()
-    const md = parseMihomo('proxy-groups:\n  - name: Группа\n')
-    render(
-      <ReactFlowProvider>
-        <MihomoTopology draft={draftStub({ addGroupNamed })} md={md} />
-      </ReactFlowProvider>,
-    )
-    await userEvent.click(screen.getByRole('button', { name: '+ Группа' }))
-    expect(addGroupNamed).toHaveBeenCalledWith('Группа 2')
-  })
-})
+// Место и текст нового правила (`nextRulePlacement`) и имя новой группы
+// (`startGroup`/`uniqueName`) — чистые функции заготовок, переехали в
+// `entities/mihomo/starters.ts` вместе со своими тестами
+// (`test/mihomo-starters.test.ts`); здесь их дублировать незачем.
 
 describe('позиции узлов', () => {
   it('перетащенная позиция побеждает раскладку по колонкам', () => {

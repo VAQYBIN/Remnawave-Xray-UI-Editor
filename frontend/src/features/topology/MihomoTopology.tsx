@@ -2,15 +2,27 @@
 // отказов. Всё, что не зависит от вида документа (позиции, фокус, патчбей,
 // док, подписи колонок), живёт в GraphCanvas.
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, type ReactNode } from 'react'
 import type { Connection, Edge } from '@xyflow/react'
 import { buildMihomoGraph, layoutMihomo } from '../../entities/graph/mihomo/buildGraph'
 import { isValidMihomoConnection } from '../../entities/graph/mihomo/mutations'
 import type { FlowNode } from '../../entities/graph/types'
-import { groupsOf, rulesOf, type MihomoDoc } from '../../entities/mihomo'
+import {
+  nextRulePlacement,
+  providerName,
+  ruleProviderName,
+  startGroup,
+  startListener,
+  startProvider,
+  startProxy,
+  startRuleProvider,
+  startSubRule,
+  subRuleName,
+  type MihomoDoc,
+} from '../../entities/mihomo'
 import type { MihomoTraceResult } from '../../entities/mihomo/trace'
 import type { MihomoDraft } from '../editor/useMihomoDraft'
-import { Button, Dialog } from '../../shared/ui'
+import { Button, Dialog, MenuButton, type MenuItem } from '../../shared/ui'
 import { edgeTypes } from './edges'
 import { GraphCanvas } from './GraphCanvas'
 import { mihomoNodeTypes } from './mihomoNodes'
@@ -75,45 +87,83 @@ export function canConnect(
  * tokens.css, иначе `data-accepts` проставится, а цель не подсветится — кабель
  * тянется вслепую.
  */
-export const MIHOMO_TARGET_KINDS = ['group', 'provider', 'builtin'] as const
+export const MIHOMO_TARGET_KINDS = ['group', 'provider', 'proxy', 'builtin'] as const
+
+/** Пункты меню «+ Добавить». Порядок — от самого частого действия к самому редкому. */
+export const ADD_ITEMS: MenuItem[] = [
+  { id: 'group', label: 'Группа' },
+  { id: 'proxy', label: 'Сервер' },
+  { id: 'provider', label: 'Провайдер' },
+  { id: 'rule-provider', label: 'Набор правил' },
+  { id: 'sub-rule', label: 'Подсписок' },
+  { id: 'listener', label: 'Вход' },
+]
 
 /**
- * Имя новой группы: `Группа`, `Группа 2`, `Группа 3`… — первое, которого нет в
- * документе. Совпадение имён — диагностируемая ошибка документа, и заводить её
- * кнопкой нельзя.
+ * Заводит запись со стартером и переносит выбор: у записи с узлом — на узел,
+ * у записи без узла (набор, вход) — на панель «Документ», где она и правится.
+ * Чистая функция рядом с `nextRulePlacement` (`entities/mihomo/starters.ts`) и
+ * по той же причине: внутри компонента её не проверить.
  */
-export function nextGroupName(md: MihomoDoc): string {
-  const taken = new Set(groupsOf(md).map((g) => g.name))
-  if (!taken.has('Группа')) return 'Группа'
-  for (let n = 2; ; n += 1) {
-    const name = `Группа ${n}`
-    if (!taken.has(name)) return name
+export function addFromMenu(
+  draft: Pick<MihomoDraft, 'applyOps' | 'setSelectedNode'>,
+  md: MihomoDoc,
+  id: string,
+): void {
+  const root = md.json as Record<string, unknown>
+  const len = (key: string) => (Array.isArray(root[key]) ? (root[key] as unknown[]).length : 0)
+  switch (id) {
+    case 'group': {
+      const v = startGroup(md)
+      draft.applyOps(
+        [{ op: 'insert', path: ['proxy-groups'], index: len('proxy-groups'), value: v }],
+        `group:${v.name as string}`,
+      )
+      return
+    }
+    case 'proxy': {
+      const v = startProxy(md)
+      draft.applyOps(
+        [{ op: 'insert', path: ['proxies'], index: len('proxies'), value: v }],
+        `proxy:${v.name as string}`,
+      )
+      return
+    }
+    case 'provider': {
+      const name = providerName(md)
+      draft.applyOps(
+        [{ op: 'set', path: ['proxy-providers', name], value: startProvider(md, name) }],
+        `provider:${name}`,
+      )
+      return
+    }
+    case 'rule-provider': {
+      const name = ruleProviderName(md)
+      draft.applyOps(
+        [{ op: 'set', path: ['rule-providers', name], value: startRuleProvider(md, name) }],
+        'doc:settings',
+      )
+      return
+    }
+    case 'sub-rule': {
+      const name = subRuleName(md)
+      draft.applyOps([{ op: 'set', path: ['sub-rules', name], value: startSubRule() }], `subrule:${name}`)
+      return
+    }
+    case 'listener':
+      draft.applyOps(
+        [{ op: 'insert', path: ['listeners'], index: len('listeners'), value: startListener(md) }],
+        'doc:settings',
+      )
+      return
+    default:
+      return
   }
 }
 
-/**
- * Куда и чем кнопка «+ Правило» заводит новое правило. Раньше она всегда слала
- * `MATCH,DIRECT` в конец списка — а в живом шаблоне последним правилом стоит
- * `MATCH`, и в Mihomo выигрывает ПЕРВОЕ совпавшее: новое правило рождалось
- * мёртвым, до него проход не доходил никогда.
- *
- * Поэтому при финальном `MATCH` заготовка встаёт ПЕРЕД ним, и она не `MATCH`:
- * второй `MATCH` перед финальным сделал бы мёртвым уже финальный — редактор
- * молча поменял бы маршрут по умолчанию. `DOMAIN-SUFFIX,example.com,DIRECT` —
- * безобидная заготовка: она видна на холсте, её сразу правят в форме, и до
- * правки она не меняет судьбу ни одного реального адреса.
- *
- * `MATCH` в конце нет (правил нет вовсе, или список кончается обычным правилом)
- * — прежнее поведение: `MATCH,DIRECT` в конец, где он как раз уместен.
- *
- * Чистая функция рядом с `nextGroupName` и по той же причине: внутри компонента
- * её не проверить, а решение о ТЕКСТЕ и МЕСТЕ — про кнопку, а не про черновик.
- */
-export function nextRulePlacement(md: MihomoDoc): { raw: string; at?: number } {
-  const rules = rulesOf(md)
-  const last = rules[rules.length - 1]
-  if (last?.rule?.type !== 'MATCH') return { raw: 'MATCH,DIRECT' }
-  return { raw: 'DOMAIN-SUFFIX,example.com,DIRECT', at: last.index }
+/** Индекс правила выбранного узла; null — выбран не узел правила (или ничего) */
+function selectedRuleIndex(id: string | null): number | null {
+  return id?.startsWith('rule:') ? Number(id.slice(5)) : null
 }
 
 /**
@@ -207,27 +257,14 @@ export function MihomoTopology({
     [draft],
   )
 
-  // Попытка разорвать несколько рёбер разом: отказываем целиком и объясняем
-  const [multiCut, setMultiCut] = useState(false)
-
+  // Разрыв нескольких рёбер разом уходит одним вызовом: черновик
+  // (`useMihomoDraft.disconnect`) сам накладывает разрывы по очереди на
+  // ТЕКУЩИЙ на тот момент документ и пишет результат в историю одним снимком
+  // — топологии больше незачем отказывать целиком и спрашивать подтверждение.
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
       if (deleted.length === 0) return
-      // Одно ребро за раз: у Mihomo нет позиционных id, которые смещались бы
-      // друг относительно друга, но каждая правка считает отступы по ТЕКУЩЕМУ
-      // тексту, а текст меняется только после перерисовки — вторая правка
-      // поверх первой без пересчёта попала бы не туда.
-      //
-      // Отсюда следует ОТКАЗ, а не «сделать одну и промолчать»: молчаливое
-      // частичное выполнение — это порча, писатель видит исчезнувшие рёбра и не
-      // знает, что применилось. Накладывать по одной с перепарсингом между
-      // правками тоже можно, но пачечная операция должна жить в черновике
-      // (`useMihomoDraft`), где есть текст, — не в топологии.
-      if (deleted.length > 1) {
-        setMultiCut(true)
-        return
-      }
-      draft.disconnect([deleted[0]!.id])
+      draft.disconnect(deleted.map((e) => e.id))
     },
     [draft],
   )
@@ -255,9 +292,18 @@ export function MihomoTopology({
           // пропускает её), диагностики на неё сейчас нет, и холст соврал бы,
           // отрицая то, что писатель видит в тексте. Верно и всегда — «редактор
           // не нашёл»: это утверждение о разборе, а не о содержимом файла.
+          //
+          // Условие ЗДЕСЬ — число узлов графа, не «нет групп/серверов/правил/
+          // провайдеров» по документу: `hosts:root` рисуется у ЛЮБОГО документа-
+          // отображения независимо от того, есть ли в нём хоть одна группа, сервер,
+          // правило или провайдер (см. тесты ниже про документ с одними `port`/
+          // `mode`), и его карточка на холсте — уже достаточный сигнал «редактор
+          // разобрал документ», подсказка о неудачном разборе тогда лишняя. Условие
+          // «нет групп/серверов/правил/провайдеров» дало бы её и там, где холст
+          // явно не пуст — заменять его не стоит.
           <>
-            Редактор не нашёл в документе ни одной группы, правила или провайдера. Заведите группу
-            и правило кнопками ниже или впишите их на вкладке YAML.
+            Редактор не нашёл в документе ни одной группы, правила, сервера или провайдера.
+            Заведите их кнопками ниже или впишите на вкладке YAML.
           </>
         ) : undefined
       }
@@ -265,13 +311,17 @@ export function MihomoTopology({
         <>
           <Button
             onClick={() => {
-              const { raw, at } = nextRulePlacement(md)
-              draft.addRuleText(raw, at)
+              const { raw, at } = nextRulePlacement(md, selectedRuleIndex(draft.selectedNode))
+              draft.applyOps([{ op: 'insert', path: ['rules'], index: at, value: raw }], `rule:${at}`)
             }}
           >
             + Правило
           </Button>
-          <Button onClick={() => draft.addGroupNamed(nextGroupName(md))}>+ Группа</Button>
+          <MenuButton label="+ Добавить" items={ADD_ITEMS} onPick={(id) => addFromMenu(draft, md, id)} />
+          {/* Секции без узлов на холсте (наборы правил, входы) живут в панели «Документ» */}
+          <Button variant="ghost" onClick={() => draft.setSelectedNode('doc:settings')}>
+            Документ
+          </Button>
         </>
       }
       dockExtra={dockExtra}
@@ -286,25 +336,6 @@ export function MihomoTopology({
         <div className="row">
           <span className="spacer" />
           <Button variant="ghost" onClick={draft.dismissRefusal}>
-            Понятно
-          </Button>
-        </div>
-      </Dialog>
-
-      <Dialog
-        open={multiCut}
-        title="За раз разрывается одна связь"
-        onClose={() => setMultiCut(false)}
-      >
-        <p>
-          Выделено несколько кабелей. Каждая правка считает отступы по текущему тексту документа,
-          поэтому вторую нельзя наложить поверх первой, не пересчитав его заново — а частично
-          выполненный разрыв хуже невыполненного: непонятно, что применилось.
-        </p>
-        <p className="muted">Снимите выделение, выберите один кабель и повторите.</p>
-        <div className="row">
-          <span className="spacer" />
-          <Button variant="ghost" onClick={() => setMultiCut(false)}>
             Понятно
           </Button>
         </div>

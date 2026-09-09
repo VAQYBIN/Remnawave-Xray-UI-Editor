@@ -6,7 +6,7 @@
 // настоящие карточки узлов.
 
 import type { ReactNode } from 'react'
-import { render, screen } from '@testing-library/react'
+import { render } from '@testing-library/react'
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -41,16 +41,11 @@ function draftStub(over: Record<string, unknown> = {}) {
     focus: null,
     connect: vi.fn(),
     disconnect: vi.fn(),
-    addRuleText: vi.fn(),
-    addGroupNamed: vi.fn(),
+    applyOps: vi.fn(),
     refusal: null,
     dismissRefusal: vi.fn(),
     ...over,
   } as never
-}
-
-function cutDialog(): HTMLDialogElement | null {
-  return document.querySelector('dialog[aria-label="За раз разрывается одна связь"]')
 }
 
 function edgesDelete(deleted: { id: string }[]) {
@@ -61,34 +56,33 @@ beforeEach(() => {
   captured = {}
 })
 
-// Раньше применялся ПЕРВЫЙ разрыв, остальные молча выбрасывались: писатель
-// видел исчезнувшие кабели и не знал, что применилось. Молчаливое частичное
-// выполнение — та же порча, от которой уходит вся ветка, поэтому отказ целиком.
-describe('разрыв нескольких кабелей за раз', () => {
-  it('одиночный разрыв выполняется, диалог не открывается', () => {
+// Разрыв нескольких рёбер разом больше не отказывает целиком: у Mihomo нет
+// позиционных id, которые смещались бы друг относительно друга при пачечной
+// правке (в отличие от индексов `outbounds` у sing-box), и черновик умеет
+// применить весь список одним вызовом `disconnect(edgeIds)` — см.
+// `useMihomoDraft.ts`. Здесь проверяем только передачу: что дошло из
+// `onEdgesDelete`, ушло в `disconnect` целиком и одним вызовом.
+describe('разрыв рёбер', () => {
+  it('одиночный разрыв передаётся списком из одного id', () => {
     const disconnect = vi.fn()
     render(<MihomoTopology draft={draftStub({ disconnect })} md={parseMihomo(DOC)} />)
-    // Диалог в разметке есть всегда — значение имеет только атрибут open
-    expect(cutDialog()?.hasAttribute('open')).toBe(false)
-
     edgesDelete([{ id: 'e:group:Основная->builtin:DIRECT' }])
     expect(disconnect).toHaveBeenCalledTimes(1)
-    expect(disconnect).toHaveBeenCalledWith('e:group:Основная->builtin:DIRECT')
-    expect(cutDialog()?.hasAttribute('open')).toBe(false)
+    expect(disconnect).toHaveBeenCalledWith(['e:group:Основная->builtin:DIRECT'])
   })
 
-  it('разрыв двух и более отказывает целиком и объясняет причину', () => {
+  it('разрыв нескольких рёбер уходит одним вызовом со всеми id', () => {
     const disconnect = vi.fn()
     render(<MihomoTopology draft={draftStub({ disconnect })} md={parseMihomo(DOC)} />)
-
     edgesDelete([
       { id: 'e:group:Основная->builtin:DIRECT' },
       { id: 'e:rule:0->group:Основная' },
     ])
-    // Ни одной правки: частично выполненный разрыв хуже невыполненного
-    expect(disconnect).not.toHaveBeenCalled()
-    expect(cutDialog()?.hasAttribute('open')).toBe(true)
-    expect(screen.getByText(/частично выполненный разрыв хуже невыполненного/)).toBeInTheDocument()
+    expect(disconnect).toHaveBeenCalledTimes(1)
+    expect(disconnect).toHaveBeenCalledWith([
+      'e:group:Основная->builtin:DIRECT',
+      'e:rule:0->group:Основная',
+    ])
   })
 
   it('пустой список ничего не делает и молчит', () => {
@@ -96,7 +90,16 @@ describe('разрыв нескольких кабелей за раз', () => {
     render(<MihomoTopology draft={draftStub({ disconnect })} md={parseMihomo(DOC)} />)
     edgesDelete([])
     expect(disconnect).not.toHaveBeenCalled()
-    expect(cutDialog()?.hasAttribute('open')).toBe(false)
+  })
+})
+
+// `targetKinds` уходит в GraphCanvas как есть — подсветка гнёзд коммутации
+// зависит от того, что здесь перечислено (см. tokens.css). Сервер — такая же
+// адресуемая тегом цель, как группа, провайдер и встроенное имя.
+describe('targetKinds', () => {
+  it('содержит proxy', () => {
+    render(<MihomoTopology draft={draftStub()} md={parseMihomo(DOC)} />)
+    expect(captured.targetKinds).toContain('proxy')
   })
 })
 
