@@ -17,6 +17,7 @@
 // Путь относительный: корень vitest — каталог frontend.
 // @ts-expect-error нет @types/node — модуль есть только в рантайме vitest
 import { readFileSync } from 'node:fs'
+import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReactFlowProvider } from '@xyflow/react'
@@ -30,7 +31,8 @@ import {
 import { refusalText } from '../src/entities/graph/mihomo/mutations'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
 import { buildMihomoGraph, layoutMihomo } from '../src/entities/graph/mihomo/buildGraph'
-import { parseMihomo } from '../src/entities/mihomo'
+import { applyMihomoOps, parseMihomo } from '../src/entities/mihomo'
+import type { DocOp } from '../src/shared/schema'
 
 const DOC = [
   'proxy-groups:',
@@ -170,6 +172,42 @@ describe('граф Mihomo', () => {
     renderTopology({ setSelectedNode })
     await userEvent.click(screen.getByRole('button', { name: 'Документ' }))
     expect(setSelectedNode).toHaveBeenCalledWith('doc:settings')
+  })
+
+  // `draft.refusal` — общий канал отказа писателя: applyOpsNow (useMihomoDraft)
+  // ставит его на отказ ЛЮБОЙ операции, не только connect/disconnect. Заголовок
+  // диалога обязан быть нейтральным («Правка не применена»), а не «Так
+  // соединить нельзя» — иначе отказ пункта меню читался бы как отказ кабеля,
+  // которого не было. Гарнитура здесь настоящая: `addFromMenu` вызывает
+  // РЕАЛЬНЫЙ писатель (`applyMihomoOps`), а не мок, — на документе, где
+  // `proxies` задан ссылкой на якорь, вставка сервера отказывает по-настоящему.
+  it('отказ писателя на пункте меню «+ Добавить» показывается тем же диалогом под нейтральным заголовком', async () => {
+    const md = parseMihomo('x: &shared\n  - name: X\n    type: direct\nproxies: *shared\n')
+
+    function Harness() {
+      const [refusal, setRefusal] = useState<string | null>(null)
+      const applyOps = (ops: DocOp[]) => {
+        const { refused } = applyMihomoOps(md, ops)
+        setRefusal(refused.length > 0 ? refused[0]!.reason : null)
+      }
+      return (
+        <ReactFlowProvider>
+          <MihomoTopology
+            draft={draftStub({ applyOps, refusal, dismissRefusal: () => setRefusal(null) })}
+            md={md}
+          />
+        </ReactFlowProvider>
+      )
+    }
+
+    render(<Harness />)
+    await userEvent.click(screen.getByRole('button', { name: '+ Добавить' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Сервер' }))
+    // Заголовок — новый, нейтральный
+    expect(screen.getByRole('heading', { name: 'Правка не применена' })).toBeInTheDocument()
+    expect(screen.queryByText('Так соединить нельзя')).not.toBeInTheDocument()
+    // Тело — причина от ПИСАТЕЛЯ (замок alias), не кабельный текст
+    expect(screen.getByText(/ссылку на якорь/)).toBeInTheDocument()
   })
 
   it('подсписок правил рисуется узлом, и правило SUB-RULE ведёт в него', () => {
