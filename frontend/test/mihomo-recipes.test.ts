@@ -155,6 +155,22 @@ describe('рецепт private', () => {
     expect(rulesOf(plan.model)[0]?.raw).toBe('RULE-SET,geoip-private,DIRECT,no-resolve')
   })
 
+  // Payload дословно и в том же порядке, что у панельного шаблона по умолчанию
+  // (test/fixtures/mihomo/default.yaml, rule-providers.geoip-private.payload) —
+  // включая IPv6-диапазоны, без которых локальные адреса IPv6 ушли бы в прокси
+  it('payload набора — все 18 подсетей панельного шаблона, включая IPv6-диапазоны', () => {
+    const plan = planPrivate(EMPTY(), {})
+    const providers = (plan.model.json as Record<string, unknown>)['rule-providers'] as Record<string, unknown>
+    const geoipPrivate = providers['geoip-private'] as Record<string, unknown>
+    expect(geoipPrivate.payload).toEqual([
+      '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
+      '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24', '192.88.99.0/24', '192.168.0.0/16',
+      '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/3',
+      '::/127', 'fc00::/7', 'fe80::/10', 'ff00::/8',
+    ])
+    expect((geoipPrivate.payload as string[]).includes('fe80::/10')).toBe(true)
+  })
+
   it('на стартере панели всё уже заведено — exists, документ не меняется', () => {
     const before = DEFAULT()
     const plan = planPrivate(before, {})
