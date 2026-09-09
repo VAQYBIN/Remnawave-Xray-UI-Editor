@@ -77,4 +77,10 @@ describe('разбор шаблона Mihomo', () => {
     const md = parseMihomo('rules:\n  - MATCH,DIRECT\nproxy-groups:\n  - name: "a\n')
     expect(sectionNode(md, 'rules')).toBeDefined()
   })
+
+  it('json — снимок значений с развёрнутыми алиасами и слияниями; у пустого текста — {}', () => {
+    const md = parseMihomo('x:\n  b: &b\n    k: 1\ny:\n  <<: *b\n  z: *b\n')
+    expect(md.json).toEqual({ x: { b: { k: 1 } }, y: { k: 1, z: { k: 1 } } })
+    expect(parseMihomo('').json).toEqual({})
+  })
 })

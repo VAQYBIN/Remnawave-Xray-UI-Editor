@@ -15,6 +15,30 @@ export interface MihomoDoc {
   doc: Document.Parsed
   /** Только ошибки разбора YAML; смысловые проверки живут в validate.ts */
   issues: ValidationIssue[]
+  /**
+   * Снимок ЗНАЧЕНИЙ документа (toJS с развёрнутыми алиасами и слияниями) —
+   * модель для форм, спуска по схеме и валидации устаревшего. Узлы дерева и
+   * диапазоны — по-прежнему в `doc`: писать надо туда, читать значения — отсюда.
+   * У пустого и у неразбираемого документа — `{}`: форма на нём рисует «Ещё
+   * поля», а не падает на toJS с нерешённым алиасом.
+   */
+  json: unknown
+}
+
+/**
+ * Снимок значений документа. `maxAliasCount: -1` отключает защиту от
+ * «billion laughs» (документ шаблона — доверенный ввод пользователя, а не
+ * произвольный чужой YAML), иначе `toJS` бросает на документе с несколькими
+ * использованиями одного якоря раньше третьего дубля. Любое исключение (в
+ * том числе неразрешимый алиас) — `{}`, а не падение формы.
+ */
+function snapshot(doc: Document.Parsed): unknown {
+  try {
+    const js: unknown = doc.toJS({ maxAliasCount: -1 })
+    return typeof js === 'object' && js !== null && !Array.isArray(js) ? js : {}
+  } catch {
+    return {}
+  }
 }
 
 /**
@@ -28,7 +52,13 @@ export interface MihomoDoc {
 export const YAML_SYNTAX_PREFIX = 'Синтаксис YAML'
 
 export function parseMihomo(text: string): MihomoDoc {
-  const doc = parseDocument(text, { keepSourceTokens: true })
+  // `merge: true` разворачивает `<<` в собственную пару документа (с тегом
+  // `!!merge`, а не голым ключом) — снимку это и нужно: без опции `toJS` не
+  // видит слияние вовсе. `mergedNode`/`mergedHas` (merge.ts) продолжают сами
+  // обходить `<<` по `items` — с `merge: true` он там и остаётся, только
+  // значение ключа становится `Symbol('<<')`, а не строкой (`merge.ts`
+  // ищет пару по обоим случаям — см. `mergePairOf`).
+  const doc = parseDocument(text, { keepSourceTokens: true, merge: true })
   const issues: ValidationIssue[] = doc.errors.map((e) => ({
     parts: [],
     path: '',
@@ -40,7 +70,7 @@ export function parseMihomo(text: string): MihomoDoc {
     // «i-я диагностика ↔ i-я ошибка документа» держалось бы на порядке
     at: clampRange(e.pos, text.length),
   }))
-  return { text, doc, issues }
+  return { text, doc, issues, json: snapshot(doc) }
 }
 
 /**

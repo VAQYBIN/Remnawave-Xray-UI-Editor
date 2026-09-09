@@ -18,6 +18,25 @@ function ownPair(map: unknown, key: string) {
 }
 
 /**
+ * Пара слияния `<<` в отображении. `parseMihomo` разбирает документ с опцией
+ * `{ merge: true }` (нужна снимку `json` — задача 6): с ней библиотека сама
+ * резолвит текст ключа `<<` через тег `tag:yaml.org,2002:merge` в
+ * `Symbol('<<')`, а не оставляет его строкой — `ownPair(map, '<<')` после
+ * этого перестаёт находить пару вовсе (строка `'<<'` не равна символу).
+ * Ключ при этом физически остаётся в `items` (только с другим значением
+ * `.value`), поэтому ищем и по строке, и по описанию символа — оба случая
+ * относятся к ОДНОМУ И ТОМУ ЖЕ месту в документе, а какой из них даст парсер,
+ * зависит только от опции `merge`, которая нашему коду не подчиняется.
+ */
+function mergePairOf(map: unknown) {
+  if (!isMap(map)) return undefined
+  return map.items.find((p) => {
+    const value = (p.key as { value?: unknown } | null)?.value
+    return value === '<<' || (typeof value === 'symbol' && value.description === '<<')
+  })
+}
+
+/**
  * Узел значения ключа `key` в отображении `map` с учётом YAML-слияния `<<`:
  * на живых шаблонах Mihomo `behavior` набора правил, `type` провайдера и поля
  * группы сплошь и рядом заданы не собственным ключом, а якорем (`<<: *base`).
@@ -34,7 +53,7 @@ export function mergedNode(md: MihomoDoc, map: unknown, key: string, seen: Set<u
   seen.add(map)
   const own = ownPair(map, key)
   if (own) return own.value
-  const mergePair = ownPair(map, '<<')
+  const mergePair = mergePairOf(map)
   if (!mergePair) return undefined
   const targets = isSeq(mergePair.value) ? mergePair.value.items : [mergePair.value]
   for (const target of targets) {
@@ -59,7 +78,7 @@ export function dealias(md: MihomoDoc, node: unknown): unknown {
 export function mergedHas(md: MihomoDoc, map: unknown, key: string, seen: Set<unknown> = new Set()): boolean {
   if (!isMap(map) || seen.has(map)) return false
   seen.add(map)
-  const mergePair = ownPair(map, '<<')
+  const mergePair = mergePairOf(map)
   if (mergePair === undefined) return false
   const targets = isSeq(mergePair.value) ? mergePair.value.items : [mergePair.value]
   return targets.some((target) => {
