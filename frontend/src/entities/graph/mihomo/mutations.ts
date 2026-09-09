@@ -181,10 +181,18 @@ export function disconnectMihomo(md: MihomoDoc, edge: string): MihomoEditResult 
   if (lock?.kind === 'merged') return { ops: [], refusal: 'merged-list' }
   if (lock?.kind === 'alias') return { ops: [], refusal: 'alias-list' }
 
-  // `group.proxies` уже развёрнут дealias/merge — но раз мы дошли сюда, замка
-  // нет, и список лежит собственным ключом, так что индекс в нём совпадает с
-  // индексом элемента в документе.
-  const k = group.proxies.indexOf(name)
+  // Индекс ищем в СЫРОМ узле seq, а не в `group.proxies`: `strings()` в
+  // `groups.ts` строит тот список через `toJSON`, отбрасывая элементы, что не
+  // разобрались строкой (число без кавычек, вложенное отображение и т.п.) —
+  // `proxies: [123, DIRECT]` даёт `group.proxies === ['DIRECT']`, и
+  // `indexOf('DIRECT')` вернул бы 0, хотя в документе DIRECT стоит на индексе
+  // 1. `remove` по такому «удобному» индексу стёр бы `123`, а не DIRECT —
+  // тихая порча ровно того рода, для которого этот файл называет отказ, а не
+  // молчит.
+  const pair = proxiesPair(md, group.index)
+  const list = pair?.value
+  if (!isSeq(list)) return { ops: [], refusal: 'not-found' }
+  const k = list.items.findIndex((item) => isScalar(item) && item.value === name)
   if (k === -1) return { ops: [], refusal: 'not-found' }
   return { ops: [{ op: 'remove', path: ['proxy-groups', group.index, 'proxies', k] }] }
 }

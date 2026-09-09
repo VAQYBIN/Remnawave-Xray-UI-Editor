@@ -173,6 +173,23 @@ describe('разрыв', () => {
     )
     expect(disconnectMihomo(md, 'e:group:A->builtin:REJECT').refusal).toBe('not-found')
   })
+
+  // Ревью находка: `group.proxies` (из `groups.ts`) строится через `toJSON` и
+  // отбрасывает элементы, которые не разобрались строкой (число без кавычек и
+  // т.п.) — индекс в этом урезанном списке смещён относительно документа.
+  // `proxies: [123, DIRECT]` даёт `group.proxies === ['DIRECT']`, и наивный
+  // `indexOf('DIRECT')` вернул бы 0, а не настоящий индекс 1 — `remove` стёр
+  // бы число, а не DIRECT.
+  it('число без кавычек перед участником не сбивает индекс удаления', () => {
+    const text = ['proxy-groups:', '  - name: A', '    proxies: [123, DIRECT]', ''].join('\n')
+    const md = parseMihomo(text)
+    const res = disconnectMihomo(md, 'e:group:A->builtin:DIRECT')
+    expect(res.refusal).toBeUndefined()
+    expect(res.ops).toEqual([{ op: 'remove', path: ['proxy-groups', 0, 'proxies', 1] }])
+    const { md: next } = applyMihomoOps(md, res.ops)
+    expect(next.text).not.toContain('DIRECT')
+    expect(next.text).toContain('123')
+  })
 })
 
 // Комбинированный тест из брифа задачи: алиас, слияние, «не список», SUB-RULE
