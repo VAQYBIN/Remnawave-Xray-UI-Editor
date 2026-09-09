@@ -16,10 +16,16 @@ import { SectionSwitch } from '../nav/SectionSwitch'
 import { usePositionsStore } from '../topology/positionsStore'
 import { CreateTemplateDialog } from './CreateTemplateDialog'
 
-// Редактор умеет два типа; остальные четыре (CLASH, STASH, SINGBOX,
-// XRAY_BASE64) держат содержимое в полях, которых он не разбирает, и правятся
-// в панели. Набор, а не одно значение: типов здесь уже больше одного.
-const EDITABLE: ReadonlySet<TemplateType> = new Set(['XRAY_JSON', 'MIHOMO'])
+// Редактор умеет три типа; остальные три (CLASH, STASH, XRAY_BASE64) держат
+// содержимое в полях, которых он не разбирает, и правятся в панели. Набор, а не
+// одно значение: типов здесь уже больше одного. Экспортируется ради теста:
+// набор и разводка типов в TemplateEditorPage обязаны сходиться, иначе список
+// уведёт ссылкой в тупик «откройте в панели».
+export const EDITABLE: ReadonlySet<TemplateType> = new Set([
+  'XRAY_JSON',
+  'MIHOMO',
+  'SINGBOX',
+])
 
 function TemplateCard({
   template,

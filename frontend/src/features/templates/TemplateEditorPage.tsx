@@ -20,6 +20,7 @@ import type { GraphContext } from '../../entities/graph/types'
 import { Button, Dialog } from '../../shared/ui'
 import { ImportTemplateDialog } from './ImportTemplateDialog'
 import { MihomoEditorPage } from './MihomoEditorPage'
+import { SingboxEditorPage } from './SingboxEditorPage'
 import { SaveDialog } from '../editor/SaveDialog'
 import { Workbench } from '../editor/Workbench'
 import { useConfigDraft } from '../editor/useConfigDraft'
@@ -259,13 +260,16 @@ export function TemplateEditorPage() {
   if (isTemplateOfType(template, 'XRAY_JSON')) {
     return <TemplateEditor key={template.uuid} template={template} hash={hash} />
   }
+  if (isTemplateOfType(template, 'SINGBOX')) {
+    return <SingboxEditorPage key={template.uuid} template={template} hash={hash} />
+  }
   // Остальные YAML-типы держат содержимое в encodedTemplateYaml, а разбирать
-  // его редактор умеет только по правилам Mihomo; XRAY_BASE64 и SINGBOX — свои
-  // форматы. Открыть их нельзя, и молчать об этом — худшее из решений
+  // его редактор умеет только по правилам Mihomo; XRAY_BASE64 — свой формат.
+  // Открыть их нельзя, и молчать об этом — худшее из решений
   return (
     <main style={{ padding: 24 }}>
       <p>
-        Редактор умеет шаблоны XRAY_JSON и MIHOMO, а «{template.name}» —{' '}
+        Редактор умеет шаблоны XRAY_JSON, MIHOMO и SINGBOX; «{template.name}» —{' '}
         {template.templateType}. Откройте его в панели Remnawave.
       </p>
       {back}

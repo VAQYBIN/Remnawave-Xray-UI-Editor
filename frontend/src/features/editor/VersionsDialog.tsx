@@ -14,6 +14,7 @@ import {
   downloadYaml,
   exportFileName,
   parseImported,
+  parseImportedJson,
   parseImportedYaml,
 } from './configFile'
 
@@ -26,8 +27,10 @@ interface Props {
    * Формат СОДЕРЖИМОГО документа, а не подпись вкладки. От него зависит, из
    * какого поля бэкапа берётся текст, чем и под каким именем он выгружается и
    * что принимает загрузка. Умолчание `json` — вид, с которого редактор начался.
+   * `singbox-json` — диалект JSON: от `json` он отличается ровно разбором
+   * загруженного файла, всё остальное у него общее с ним.
    */
-  format?: 'json' | 'yaml'
+  format?: 'json' | 'yaml' | 'singbox-json'
   /** Текущий текст черновика: он же уходит в файл и стоит справа в сравнении */
   currentText: string
   onRestore: (configText: string) => void
@@ -95,8 +98,15 @@ export function VersionsDialog({
     // Сбрасываем значение сразу: иначе повторный выбор того же файла не даст change
     event.target.value = ''
     if (!file) return
+    // Оба JSON-формата — объект с inbounds/outbounds в корне, и по корню они
+    // неразличимы: без этой ветки конфиг Xray, загруженный в редактор sing-box,
+    // молча стал бы черновиком
     const result =
-      format === 'yaml' ? parseImportedYaml(await file.text()) : parseImported(await file.text())
+      format === 'yaml'
+        ? parseImportedYaml(await file.text())
+        : format === 'singbox-json'
+          ? parseImportedJson(await file.text(), 'singbox')
+          : parseImported(await file.text())
     if ('error' in result) {
       setError(result.error)
       return

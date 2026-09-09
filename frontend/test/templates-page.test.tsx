@@ -188,12 +188,16 @@ function mockCreate() {
 describe('создание шаблона', () => {
   // Тип панель менять после создания не даёт, и каркас пустого шаблона зависит
   // от него — выбор обязан быть здесь, до нажатия «Создать»
-  it('предлагает оба типа, которые умеет редактор, и начинает с XRAY_JSON', async () => {
+  it('предлагает все типы, которые умеет редактор, и начинает с XRAY_JSON', async () => {
     mockCreate()
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: 'Создать шаблон' }))
     expect(selectedValue('Тип шаблона')).toBe('XRAY_JSON')
-    expect(await optionLabels('Тип шаблона')).toEqual(['Xray (JSON)', 'Mihomo (YAML)'])
+    expect(await optionLabels('Тип шаблона')).toEqual([
+      'Xray (JSON)',
+      'Mihomo (YAML)',
+      'Sing-box (JSON)',
+    ])
   })
 
   it('выбранный тип уходит в панель вместе с именем', async () => {

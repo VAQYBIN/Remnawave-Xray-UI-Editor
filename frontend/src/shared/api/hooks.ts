@@ -189,9 +189,9 @@ export function useCreateTemplate() {
   const qc = useQueryClient()
   return useMutation({
     // Тип уходит в панель вместе с именем: каркас пустого шаблона зависит от
-    // него (роут подставляет свой для XRAY_JSON и свой для MIHOMO), и выбрать
-    // его позже нельзя — тип шаблона панель менять не даёт
-    mutationFn: (input: { name: string; templateType: 'XRAY_JSON' | 'MIHOMO' }) =>
+    // него (роут подставляет свой для XRAY_JSON, свой для MIHOMO и свой для
+    // SINGBOX), и выбрать его позже нельзя — тип шаблона панель менять не даёт
+    mutationFn: (input: { name: string; templateType: 'XRAY_JSON' | 'MIHOMO' | 'SINGBOX' }) =>
       apiFetch<{ template: SubscriptionTemplate }>('/api/templates', {
         method: 'POST',
         body: JSON.stringify(input),

@@ -5,22 +5,34 @@ import { Button, Dialog, TextInput } from '../../shared/ui'
 import { SelectField, type Option } from '../inspector/fields'
 import { NAME_RE } from '../../shared/lib/nameRules'
 
+/** Типы, которые редактор умеет открывать: только их и можно завести отсюда */
+type CreatableType = 'XRAY_JSON' | 'MIHOMO' | 'SINGBOX'
+
 /**
- * Типы, которые умеет редактор. Остальные четыре панель тоже заводит, но
+ * Типы, которые умеет редактор. Остальные три панель тоже заводит, но
  * править их здесь нечем — предлагать их в диалоге значило бы создавать
  * шаблон, который тут же отправит пользователя в панель.
  */
 const TYPES: Option[] = [
   { value: 'XRAY_JSON', label: 'Xray (JSON)' },
   { value: 'MIHOMO', label: 'Mihomo (YAML)' },
+  { value: 'SINGBOX', label: 'Sing-box (JSON)' },
 ]
+
+/**
+ * Сужение выбранного значения к типу. Прежде здесь стоял тернарник, сводивший
+ * всё, что не MIHOMO, к XRAY_JSON: с двумя типами он был верен, а с третьим
+ * молча создавал бы не то, что нажали. Список один — TYPES, и второй перечень
+ * значений разошёлся бы с ним при следующем добавленном типе.
+ */
+const isCreatable = (v: string): v is CreatableType => TYPES.some((t) => t.value === v)
 
 export function CreateTemplateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')
   // Тип менять после создания панель не даёт, поэтому выбор делается здесь.
   // Умолчание — XRAY_JSON: с него редактор начинался, и большинство шаблонов
   // панели именно такие
-  const [templateType, setTemplateType] = useState<'XRAY_JSON' | 'MIHOMO'>('XRAY_JSON')
+  const [templateType, setTemplateType] = useState<CreatableType>('XRAY_JSON')
   const create = useCreateTemplate()
   const navigate = useNavigate()
   const valid = NAME_RE.test(name)
@@ -50,7 +62,9 @@ export function CreateTemplateDialog({ open, onClose }: { open: boolean; onClose
         hint="Тип задаётся при создании: панель менять его не даёт."
         value={templateType}
         options={TYPES}
-        onChange={(v) => setTemplateType(v === 'MIHOMO' ? 'MIHOMO' : 'XRAY_JSON')}
+        onChange={(v) => {
+          if (isCreatable(v)) setTemplateType(v)
+        }}
       />
       <div className="row">
         <span className="spacer" />

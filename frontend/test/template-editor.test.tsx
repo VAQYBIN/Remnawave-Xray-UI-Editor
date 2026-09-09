@@ -222,7 +222,7 @@ describe('редактор шаблона', () => {
   it('YAML-шаблон не открывается, а объясняет почему и даёт вернуться', async () => {
     mockPanel('CLASH')
     renderEditor()
-    expect(await screen.findByText(/умеет шаблоны XRAY_JSON и MIHOMO/)).toBeInTheDocument()
+    expect(await screen.findByText(/умеет шаблоны XRAY_JSON, MIHOMO и SINGBOX/)).toBeInTheDocument()
     // Тупик без выхода: сюда попадают по прямой ссылке, «назад» браузера увёл бы
     // из приложения — кнопка обязана быть и вести в список
     expect(screen.getByRole('button', { name: '← Шаблоны' })).toBeInTheDocument()
