@@ -1,9 +1,9 @@
-// Панель «Документ»: разделы корня, у которых узлов на холсте нет. Раздел-объект
-// рисуется формой по схеме, раздел-список — карточками с формой на элемент.
-// Панель не знает, откуда пришёл писатель: ей всё равно, черновик это или
-// ловушка теста.
+// Панель «Документ» sing-box — тонкая обёртка над общей `DocPanel`: своё здесь
+// только описание списков (`LISTS`) и подпись элемента по тегу (`tagOr`).
+// Разметка карточек и разделов — общая, чтобы у Mihomo не завелась вторая
+// копия той же вёрстки.
 
-import type { ReactNode } from 'react'
+import { DocPanel, type DocListSpec, type DocRefs } from '../inspector/schema/DocPanel'
 import {
   SINGBOX_DOC_SECTIONS,
   singboxFieldAt,
@@ -15,23 +15,13 @@ import {
   type SingboxRule,
   type SingboxRuleSet,
 } from '../../entities/singbox'
-import { isRecord, valueAt, type DocSection, type DocWriter, type RefKind, type SchemaPath } from '../../shared/schema'
-import { Button, CollapsibleSection } from '../../shared/ui'
-import { SchemaForm } from '../inspector/schema/SchemaForm'
+import { valueAt, type DocWriter } from '../../shared/schema'
 import { SingboxDnsRuleForm } from '../inspector/SingboxDnsRuleForm'
 import { SingboxDnsServerForm } from '../inspector/SingboxDnsServerForm'
 import { SingboxRuleSetForm } from '../inspector/SingboxRuleSetForm'
 
-type Refs = Partial<Record<RefKind, string[]>>
-
 /** Списки панели: кнопка добавления, подпись удаления, стартер и форма элемента */
-const LISTS: Record<string, {
-  addLabel: string
-  removeLabel: (i: number) => string
-  titleOf: (item: unknown, i: number) => string
-  starter: (doc: SingboxDoc) => unknown
-  Form: (props: { value: Record<string, unknown>; path: SchemaPath; writer: DocWriter; refs: Refs }) => ReactNode
-}> = {
+const LISTS: Record<string, DocListSpec<SingboxDoc>> = {
   'dns.servers': {
     addLabel: '+ Сервер',
     removeLabel: (i) => `Удалить сервер #${i + 1}`,
@@ -60,58 +50,17 @@ function tagOr(item: unknown, fallback: string): string {
   return typeof tag === 'string' && tag !== '' ? tag : fallback
 }
 
-function ListSection({ section, doc, writer, refs }: { section: DocSection; doc: SingboxDoc; writer: DocWriter; refs: Refs }) {
-  const spec = LISTS[section.path.join('.')]!
-  const raw = valueAt(doc, section.path)
-  const items = Array.isArray(raw) ? raw : []
+export function SingboxDocPanel({ doc, writer, refs }: { doc: SingboxDoc; writer: DocWriter; refs: DocRefs }) {
   return (
-    <div className="list-editor">
-      {items.length === 0 && <p className="muted">Записей пока нет — кнопка ниже заведёт первую.</p>}
-      {items.map((item, i) => (
-        // Ключ — позиция: она и есть адрес записи, а тега у неё может не быть
-        <div key={i} className="list-editor-card">
-          <div className="list-editor-body">
-            <span className="eyebrow">{spec.titleOf(item, i)}</span>
-            <spec.Form value={isRecord(item) ? item : {}} path={[...section.path, i]} writer={writer} refs={refs} />
-          </div>
-          <div className="list-editor-order">
-            <button type="button" className="chip-order" aria-label={`Переместить элемент ${i + 1} выше`} disabled={i === 0} onClick={() => writer.apply([{ op: 'move', path: section.path, from: i, to: i - 1 }])}>↑</button>
-            <button type="button" className="chip-order" aria-label={`Переместить элемент ${i + 1} ниже`} disabled={i === items.length - 1} onClick={() => writer.apply([{ op: 'move', path: section.path, from: i, to: i + 1 }])}>↓</button>
-          </div>
-          <button type="button" className="chip-x" aria-label={spec.removeLabel(i)} onClick={() => writer.apply([{ op: 'remove', path: [...section.path, i] }])}>✕</button>
-        </div>
-      ))}
-      <Button onClick={() => writer.apply([{ op: 'insert', path: section.path, index: items.length, value: spec.starter(doc) }])}>{spec.addLabel}</Button>
-    </div>
-  )
-}
-
-function ObjectSection({ section, doc, writer, refs }: { section: DocSection; doc: SingboxDoc; writer: DocWriter; refs: Refs }) {
-  const value = valueAt(doc, section.path)
-  const field = singboxFieldAt(section.path, doc)
-  if (!isRecord(value)) {
-    return (
-      <>
-        <p className="muted">{field?.doc ?? ''} Раздела в документе нет.</p>
-        <Button onClick={() => writer.apply([{ op: 'set', path: section.path, value: field?.starter?.() ?? {} }])}>Завести раздел</Button>
-      </>
-    )
-  }
-  return <SchemaForm fields={singboxFieldsAt(section.path, doc) ?? []} value={value} path={section.path} writer={writer} refs={refs} skip={section.skip} />
-}
-
-export function SingboxDocPanel({ doc, writer, refs }: { doc: SingboxDoc; writer: DocWriter; refs: Refs }) {
-  return (
-    <>
-      {SINGBOX_DOC_SECTIONS.map((section) => (
-        <CollapsibleSection key={section.path.join('.')} title={section.title} region>
-          {section.kind === 'list' ? (
-            <ListSection section={section} doc={doc} writer={writer} refs={refs} />
-          ) : (
-            <ObjectSection section={section} doc={doc} writer={writer} refs={refs} />
-          )}
-        </CollapsibleSection>
-      ))}
-    </>
+    <DocPanel
+      sections={SINGBOX_DOC_SECTIONS}
+      doc={doc}
+      writer={writer}
+      refs={refs}
+      fieldsAt={singboxFieldsAt}
+      fieldAt={singboxFieldAt}
+      valueOf={valueAt}
+      lists={LISTS}
+    />
   )
 }
