@@ -45,6 +45,8 @@ export function MihomoNameField({ value, hint, onRename }: { value: string; hint
             e.preventDefault()
             commit()
           } else if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
             setText(value)
             setError(null)
           }

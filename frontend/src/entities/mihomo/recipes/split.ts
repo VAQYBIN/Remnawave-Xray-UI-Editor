@@ -7,7 +7,7 @@
 
 import type { RecipeChange, RecipeNote, RecipePlan } from '../../../shared/recipes/types'
 import type { MihomoDoc } from '../parse'
-import { ensureListEntry, ensureMapEntry } from './apply'
+import { ensureListEntry, ensureMapEntry, statusText } from './apply'
 import { sourceById } from './catalog'
 
 export interface SplitParams {
@@ -45,7 +45,7 @@ export function planSplit(md: MihomoDoc, p: SplitParams): RecipePlan<MihomoDoc> 
     notes.push(...provider.notes)
     changes.push({
       status: provider.status,
-      text: provider.status === 'add' ? `набор ${source.name}` : `набор ${source.name} — уже есть`,
+      text: statusText(provider.status, { add: `набор ${source.name}`, exists: `набор ${source.name} — уже есть` }),
     })
 
     // no-resolve нужен только у behavior: ipcidr — правило смотрит IP назначения,
@@ -57,7 +57,7 @@ export function planSplit(md: MihomoDoc, p: SplitParams): RecipePlan<MihomoDoc> 
     notes.push(...rule.notes)
     changes.push({
       status: rule.status,
-      text: rule.status === 'add' ? `правило: ${source.name} → ${p.target}` : `правило ${source.name} → ${p.target} — уже есть`,
+      text: statusText(rule.status, { add: `правило: ${source.name} → ${p.target}`, exists: `правило ${source.name} → ${p.target} — уже есть` }),
     })
   }
 

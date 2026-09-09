@@ -5,7 +5,7 @@
 
 import type { RecipeChange, RecipePlan } from '../../../shared/recipes/types'
 import type { MihomoDoc } from '../parse'
-import { ensureListEntry, ensureMapEntry } from './apply'
+import { ensureListEntry, ensureMapEntry, statusText } from './apply'
 
 // 18 подсетей — дословно и в том же порядке, что у панельного шаблона по
 // умолчанию (test/fixtures/mihomo/default.yaml, rule-providers.geoip-private.payload).
@@ -36,13 +36,13 @@ export function planPrivate(md: MihomoDoc, _p: PrivateParams): RecipePlan<Mihomo
     payload: PRIVATE_SUBNETS,
   })
   const changes: RecipeChange[] = [
-    { status: provider.status, text: provider.status === 'add' ? 'набор geoip-private' : 'набор geoip-private — уже есть' },
+    { status: provider.status, text: statusText(provider.status, { add: 'набор geoip-private', exists: 'набор geoip-private — уже есть' }) },
   ]
 
   const rule = ensureListEntry(provider.md, ['rules'], 'RULE-SET,geoip-private,DIRECT,no-resolve', 'start')
   changes.push({
     status: rule.status,
-    text: rule.status === 'add' ? 'правило: локальные сети → DIRECT' : 'правило локальных сетей уже есть',
+    text: statusText(rule.status, { add: 'правило: локальные сети → DIRECT', exists: 'правило локальных сетей уже есть' }),
   })
 
   return { model: rule.md, changes, notes: [...provider.notes, ...rule.notes] }

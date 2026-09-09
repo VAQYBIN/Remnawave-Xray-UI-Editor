@@ -43,9 +43,6 @@ export function MihomoDocPanel({ draft, md }: { draft: MihomoDraft; md: MihomoDo
   // Находка ревью I2: без мемоизации `mihomoRefs(md)` пересчитывался на КАЖДЫЙ
   // рендер панели, включая те, что не меняют `md` вовсе (перерисовка родителя
   // по несвязанной причине) — тот же приём, что у `MihomoInspector`.
-  // Находка ревью I2: без мемоизации `mihomoRefs(md)` пересчитывался на КАЖДЫЙ
-  // рендер панели, включая те, что не меняют `md` вовсе (перерисовка родителя
-  // по несвязанной причине) — тот же приём, что у `MihomoInspector`.
   const refs = useMemo(() => mihomoRefs(md), [md])
 
   const lists = useMemo<Record<string, DocListSpec<MihomoDoc>>>(

@@ -19,6 +19,18 @@ export interface EnsureResult {
   notes: RecipeNote[]
 }
 
+/**
+ * Текст строки плана по статусу `ensure*`-примитива: `add`/`exists` даёт
+ * вызывающий рецепт, `refused` — общий текст здесь. Без этого каждый рецепт
+ * решал бы тернаром `'add' ? … : …`, и отказ читался бы как «уже есть», хотя
+ * документ не изменился, а запись не встала вовсе (находка финального
+ * ревью — см. заметку выше про `applyOrNote`).
+ */
+export function statusText(status: EnsureResult['status'], texts: { add: string; exists: string }): string {
+  if (status === 'refused') return `${texts.add} — не применено`
+  return status === 'add' ? texts.add : texts.exists
+}
+
 /** Применить операции; отказ писателя — заметка плана, а не молчание */
 export function applyOrNote(md: MihomoDoc, ops: DocOp[]): { md: MihomoDoc; notes: RecipeNote[] } {
   const res = applyMihomoOps(md, ops)

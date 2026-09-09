@@ -6,7 +6,7 @@
 import { WARP_PEER } from '../../xray/recipes/warp'
 import type { RecipeChange, RecipeNote, RecipePlan } from '../../../shared/recipes/types'
 import type { MihomoDoc } from '../parse'
-import { ensureListEntry } from './apply'
+import { ensureListEntry, statusText } from './apply'
 
 export interface WarpParams {
   name: string
@@ -61,7 +61,7 @@ export function planWarp(md: MihomoDoc, p: WarpParams): RecipePlan<MihomoDoc> {
 
   const proxy = ensureListEntry(md, ['proxies'], entry, 'start')
   const changes: RecipeChange[] = [
-    { status: proxy.status, text: proxy.status === 'add' ? `сервер ${p.name} (wireguard)` : `сервер ${p.name} — уже есть` },
+    { status: proxy.status, text: statusText(proxy.status, { add: `сервер ${p.name} (wireguard)`, exists: `сервер ${p.name} — уже есть` }) },
   ]
   const notes: RecipeNote[] = [...proxy.notes]
   let next = proxy.md
@@ -70,7 +70,7 @@ export function planWarp(md: MihomoDoc, p: WarpParams): RecipePlan<MihomoDoc> {
     const group = ensureListEntry(next, ['proxy-groups'], { name: 'WARP', type: 'select', proxies: [p.name] }, 'end')
     next = group.md
     notes.push(...group.notes)
-    changes.push({ status: group.status, text: group.status === 'add' ? 'группа WARP (select)' : 'группа WARP — уже есть' })
+    changes.push({ status: group.status, text: statusText(group.status, { add: 'группа WARP (select)', exists: 'группа WARP — уже есть' }) })
   }
 
   return { model: next, changes, notes }

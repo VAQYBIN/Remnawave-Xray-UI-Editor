@@ -6,7 +6,7 @@
 
 import type { RecipeChange, RecipePlan } from '../../../shared/recipes/types'
 import type { MihomoDoc } from '../parse'
-import { ensureListEntry, ensureMapEntry } from './apply'
+import { ensureListEntry, ensureMapEntry, statusText } from './apply'
 import { sourceById } from './catalog'
 
 const SOURCE_ID = 'geosite-category-ads-all'
@@ -32,13 +32,13 @@ export function planAds(md: MihomoDoc, _p: AdsParams): RecipePlan<MihomoDoc> {
     interval: 86400,
   })
   const changes: RecipeChange[] = [
-    { status: provider.status, text: provider.status === 'add' ? `набор ${source.name}` : `набор ${source.name} — уже есть` },
+    { status: provider.status, text: statusText(provider.status, { add: `набор ${source.name}`, exists: `набор ${source.name} — уже есть` }) },
   ]
 
   const rule = ensureListEntry(provider.md, ['rules'], `RULE-SET,${source.name},REJECT`, 'start')
   changes.push({
     status: rule.status,
-    text: rule.status === 'add' ? 'правило: реклама → REJECT' : 'правило блокировки рекламы уже есть',
+    text: statusText(rule.status, { add: 'правило: реклама → REJECT', exists: 'правило блокировки рекламы уже есть' }),
   })
 
   return {

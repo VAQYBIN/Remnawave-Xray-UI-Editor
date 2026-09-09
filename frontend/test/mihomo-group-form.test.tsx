@@ -75,4 +75,21 @@ describe('MihomoGroupForm', () => {
     expect(field).toHaveValue('G')
     expect(onRename).not.toHaveBeenCalled()
   })
+
+  it('Escape в поле имени не всплывает наружу (не закрывает инспектор глобальным хоткеем)', async () => {
+    const onRename = vi.fn(() => null)
+    const { writer } = makeWriter()
+    const onKeyDown = vi.fn()
+    render(
+      <div onKeyDown={onKeyDown}>
+        <MihomoGroupForm value={value} path={['proxy-groups', 0]} writer={writer} refs={mihomoRefs(md)} name="G" onRename={onRename} />
+      </div>,
+    )
+    const field = screen.getByLabelText('Имя')
+    await userEvent.type(field, '2')
+    onKeyDown.mockClear()
+    await userEvent.keyboard('{Escape}')
+    expect(field).toHaveValue('G')
+    expect(onKeyDown).not.toHaveBeenCalled()
+  })
 })
