@@ -1,67 +1,31 @@
-// Форма входа клиента sing-box. Правка идёт по модели: копия, мутация копии,
-// `onChange(next)` — как у `RuleForm` в редакторе Xray.
+// Форма входа клиента sing-box: тег и тип руками, остальное — по типу из схемы
+// (у tun свои поля, у прокси-входов listen-поля и пользователи).
 
-import { fieldFor, type SingboxInbound } from '../../entities/singbox'
-import { type SelectOption } from '../../shared/ui'
-import { NumberField, SelectField, TextField } from './fields'
-import { SingboxExtraFields } from './SingboxExtraFields'
+import { INBOUND_FIELDS, INBOUND_TYPE_VALUES, type SingboxInbound } from '../../entities/singbox'
+import type { DocWriter, RefKind, SchemaPath } from '../../shared/schema'
+import { SelectField, TextField } from './fields'
+import { SchemaForm } from './schema/SchemaForm'
+import { typeHint, typeOptions } from './schema/typeSelect'
 
-// skip — ровно то, что нарисовано ниже руками (см. SingboxOutboundForm)
-const SHOWN = ['tag', 'type', 'listen', 'listen_port']
+const SHOWN = ['tag', 'type']
 
-/** Варианты словаря плюс текущий тип, если словарь его не знает: выбор в форме
- *  не имеет права молча заменить тип чужого шаблона первым из списка */
-function typeOptions(current: string): SelectOption[] {
-  const options = (fieldFor('inbound', 'type')?.enum ?? []).map((e) => ({ value: e.value, label: e.value }))
-  if (current !== '' && !options.some((o) => o.value === current)) {
-    return [{ value: current, label: current }, ...options]
-  }
-  return options
-}
-
-export function SingboxInboundForm({
-  value,
-  onChange,
-}: {
+export function SingboxInboundForm({ value, path, writer, refs }: {
   value: SingboxInbound
-  onChange: (next: SingboxInbound) => void
+  path: SchemaPath
+  writer: DocWriter
+  refs: Partial<Record<RefKind, string[]>>
 }) {
-  function patch(mut: (draft: SingboxInbound) => void) {
-    const next = structuredClone(value)
-    mut(next)
-    onChange(next)
-  }
-
+  const set = (key: string, next: unknown) => writer.apply([{ op: 'set', path: [...path, key], value: next }])
   return (
     <>
       <TextField
         label="Тег"
         hint="Имя входа: на него ссылается условие inbound в правилах."
         value={value.tag}
-        onChange={(v) => patch((n) => { if (v === undefined) delete n.tag; else n.tag = v })}
+        onChange={(v) => set('tag', v ?? '')}
       />
-      <SelectField
-        label="Тип"
-        value={value.type}
-        options={typeOptions(value.type)}
-        onChange={(v) => patch((n) => { n.type = v })}
-      />
-      <TextField
-        label="Адрес прослушивания"
-        value={typeof value.listen === 'string' ? value.listen : undefined}
-        onChange={(v) => patch((n) => { if (v === undefined) delete n.listen; else n.listen = v })}
-      />
-      <NumberField
-        label="Порт прослушивания"
-        value={typeof value.listen_port === 'number' ? value.listen_port : undefined}
-        onChange={(v) => patch((n) => { if (v === undefined) delete n.listen_port; else n.listen_port = v })}
-      />
-      <SingboxExtraFields
-        section="inbound"
-        value={value}
-        skip={SHOWN}
-        onChange={(next) => onChange(next as SingboxInbound)}
-      />
+      <SelectField label="Тип" hint={typeHint(INBOUND_TYPE_VALUES, value.type)} value={value.type} options={typeOptions(INBOUND_TYPE_VALUES, value.type)} onChange={(v) => set('type', v)} />
+      <SchemaForm fields={INBOUND_FIELDS} value={value as Record<string, unknown>} path={path} writer={writer} refs={refs} skip={SHOWN} />
     </>
   )
 }

@@ -2,12 +2,32 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { SingboxExtraFields } from '../src/features/inspector/SingboxExtraFields'
+import { SingboxDnsServerForm } from '../src/features/inspector/SingboxDnsServerForm'
+import { SingboxInboundForm } from '../src/features/inspector/SingboxInboundForm'
 import { SingboxOutboundForm } from '../src/features/inspector/SingboxOutboundForm'
 import { SingboxRuleForm } from '../src/features/inspector/SingboxRuleForm'
+import { SingboxRuleSetForm } from '../src/features/inspector/SingboxRuleSetForm'
+import { applyOps, valueAt, type DocOp, type SchemaPath } from '../src/shared/schema'
 import { optionLabels, selectOption, selectedValue } from './helpers'
 import { makeWriter } from './schemaHelpers'
 
 const REFS = { outbound: ['direct', 'proxy'], inbound: [], 'dns-server': ['dns-local'], 'rule-set': [] }
+
+/**
+ * Прогоняет операции писателя так, как это делает приложение: не поверх
+ * самого значения (пути в `ops` абсолютные, от корня документа), а поверх
+ * документа, в котором это значение лежит по `path`, — и возвращает срез
+ * обратно. Тест воспроизводит цикл «writer → документ → перерисовка формы
+ * новым value», а не подделывает его локальным состоянием компонента.
+ */
+function applyAt<T>(value: T, path: SchemaPath, ops: DocOp[]): T {
+  let doc: unknown = value
+  for (let i = path.length - 1; i >= 0; i -= 1) {
+    doc = typeof path[i] === 'number' ? [doc] : { [path[i]]: doc }
+  }
+  const next = applyOps(doc, ops)
+  return valueAt(next, path) as T
+}
 
 describe('форма выхода sing-box', () => {
   it('у группы список участников показан на чтение, пока его заполняет панель', () => {
@@ -88,37 +108,104 @@ describe('форма выхода sing-box', () => {
 })
 
 describe('форма правила sing-box', () => {
-  it('правит условие и не теряет незнакомые ключи', () => {
-    const onChange = vi.fn()
-    render(
-      <SingboxRuleForm
-        value={{ domain_suffix: ['a.com'], outbound: 'direct', brand_new: 1 }}
-        outboundTags={['direct', 'proxy']}
-        ruleSetTags={[]}
-        onChange={onChange}
-      />,
-    )
-    screen.getByLabelText('Суффикс домена')
-    // Схема сквозная: ключ, которого форма не знает, обязан пережить правку
-    expect(onChange).not.toHaveBeenCalled()
+  const RULE_REFS = { outbound: ['direct', 'proxy'], inbound: ['tun-in'], 'dns-server': ['dns-local'], 'rule-set': ['ads'] }
+
+  it('действие route показывает выход и пишет его одной операцией', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxRuleForm value={{ domain: ['a.com'], outbound: 'direct' }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
+    expect(selectedValue('Действие')).toBe('route')
+    await selectOption('Выход', 'proxy')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['route', 'rules', 0, 'outbound'], value: 'proxy' })
   })
 
-  it('смена действия на reject убирает поле выхода', async () => {
-    const onChange = vi.fn()
-    render(
-      <SingboxRuleForm
-        value={{ domain: ['a.com'], outbound: 'direct' }}
-        outboundTags={['direct']}
-        ruleSetTags={[]}
-        onChange={onChange}
-      />,
-    )
-    await selectOption('Действие', 'reject')
-    const next = onChange.mock.calls.at(-1)![0]
-    expect(next.action).toBe('reject')
-    // Ядро при action: reject поле outbound игнорирует, и держать его в
-    // документе значит показывать связь, которой нет
-    expect(next.outbound).toBeUndefined()
+  it('смена действия на нетерминальное снимает выход', async () => {
+    const { ops, writer } = makeWriter()
+    const path: SchemaPath = ['route', 'rules', 0]
+    const initial = { outbound: 'direct' }
+    const { rerender } = render(<SingboxRuleForm value={initial} path={path} writer={writer} refs={RULE_REFS} />)
+    await selectOption('Действие', 'sniff')
+    expect(ops).toEqual([
+      { op: 'set', path: ['route', 'rules', 0, 'action'], value: 'sniff' },
+      { op: 'remove', path: ['route', 'rules', 0, 'outbound'] },
+    ])
+    // Форма — чистая функция value: поле не имеет права исчезнуть само по
+    // себе сразу после клика (value ещё не изменился); проверяем результат
+    // после того, как приложение прогонит те же операции через документ и
+    // перерисует форму новым срезом — как это происходит на самом деле
+    rerender(<SingboxRuleForm value={applyAt(initial, path, ops)} path={path} writer={writer} refs={RULE_REFS} />)
+    expect(screen.queryByLabelText('Выход')).toBeNull()
+    // И обратно: документ снова маршрутный — поле возвращается
+    rerender(<SingboxRuleForm value={{ action: 'route', outbound: 'direct' }} path={path} writer={writer} refs={RULE_REFS} />)
+    expect(screen.getByLabelText('Выход')).toBeInTheDocument()
+  })
+
+  it('поля действия приходят из схемы: у sniff — sniffer, у reject — method', async () => {
+    const { writer } = makeWriter()
+    const { rerender } = render(<SingboxRuleForm value={{ action: 'sniff' }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
+    // Незаполненные поля схемы лежат под «Ещё поля» (правило 1 SchemaForm) — открываем крышку, как это делает тест формы выхода
+    await userEvent.click(screen.getByRole('button', { name: /Ещё поля/ }))
+    expect(screen.getByText('sniffer')).toBeInTheDocument()
+    rerender(<SingboxRuleForm value={{ action: 'reject' }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
+    expect(screen.getByText('method')).toBeInTheDocument()
+  })
+
+  it('порт назначения пишется числами, пустой список снимает ключ', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxRuleForm value={{ port: [443] }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
+    await userEvent.type(screen.getByLabelText('Порт назначения'), '\n80')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['route', 'rules', 0, 'port'], value: [443, 80] })
+    await userEvent.clear(screen.getByLabelText('Порт назначения'))
+    expect(ops.at(-1)).toEqual({ op: 'remove', path: ['route', 'rules', 0, 'port'] })
+  })
+
+  it('наборы правил — чипы из документа плюс битая ссылка', async () => {
+    const { writer } = makeWriter()
+    render(<SingboxRuleForm value={{ rule_set: ['gone'] }} path={['route', 'rules', 0]} writer={writer} refs={RULE_REFS} />)
+    expect(screen.getByText('gone')).toBeInTheDocument()
+    expect(screen.getByText('ads')).toBeInTheDocument()
+  })
+})
+
+describe('форма входа sing-box', () => {
+  it('тег и тип руками, остальное по типу из схемы', async () => {
+    const { ops, writer } = makeWriter()
+    render(<SingboxInboundForm value={{ type: 'tun', tag: 'tun-in', auto_route: true }} path={['inbounds', 0]} writer={writer} refs={REFS} />)
+    expect(screen.getByLabelText('Тег')).toHaveValue('tun-in')
+    expect(screen.queryByText('listen_port')).toBeNull()
+    expect(screen.getByRole('button', { name: 'нет' })).toBeInTheDocument()
+    await selectOption('Тип', 'mixed')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['inbounds', 0, 'type'], value: 'mixed' })
+  })
+})
+
+describe('форма набора правил sing-box', () => {
+  it('удалённый набор: ссылка и выход загрузки; встроенный — правила списком', async () => {
+    const { ops, writer } = makeWriter()
+    const { rerender } = render(<SingboxRuleSetForm value={{ type: 'remote', tag: 'ads', format: 'binary', url: 'u' }} path={['route', 'rule_set', 0]} writer={writer} refs={REFS} />)
+    expect(screen.getByLabelText('Ссылка')).toHaveValue('u')
+    await selectOption('Скачивать через выход', 'proxy')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['route', 'rule_set', 0, 'download_detour'], value: 'proxy' })
+    rerender(<SingboxRuleSetForm value={{ type: 'inline', tag: 'mine', rules: [{ domain: ['a'] }] }} path={['route', 'rule_set', 0]} writer={writer} refs={REFS} />)
+    expect(screen.queryByLabelText('Ссылка')).toBeNull()
+    // Внутри самого правила набора у логического правила своя вложенная rules —
+    // тот же aria-label встречается дважды, интересует внешний список набора
+    expect(screen.getAllByRole('group', { name: 'rules' })[0]).toBeInTheDocument()
+    expect(screen.getByText('правило #1')).toBeInTheDocument()
+  })
+})
+
+describe('форма DNS-сервера sing-box', () => {
+  it('tls-сервер: адрес, выход и объект tls из схемы; legacy address виден с пометкой', async () => {
+    const { ops, writer } = makeWriter()
+    const { rerender } = render(<SingboxDnsServerForm value={{ type: 'tls', tag: 'r', server: '1.1.1.1' }} path={['dns', 'servers', 0]} writer={writer} refs={REFS} />)
+    expect(screen.getByLabelText('Адрес')).toHaveValue('1.1.1.1')
+    await selectOption('Через выход', 'proxy')
+    expect(ops.at(-1)).toEqual({ op: 'set', path: ['dns', 'servers', 0, 'detour'], value: 'proxy' })
+    rerender(<SingboxDnsServerForm value={{ tag: 'old', address: 'tls://1.1.1.1' }} path={['dns', 'servers', 0]} writer={writer} refs={REFS} />)
+    expect(screen.getByLabelText('address')).toHaveValue('tls://1.1.1.1')
+    expect(screen.getByText(/1\.12\.0/)).toBeInTheDocument()
+    // Легаси-документ (без type) не знает про NET_SERVERS — ручное поле «Адрес» не рисуется само по себе
+    expect(screen.queryByLabelText('Адрес')).toBeNull()
   })
 })
 

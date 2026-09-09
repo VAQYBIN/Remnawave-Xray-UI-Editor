@@ -1,68 +1,38 @@
-// Форма DNS-сервера sing-box. Правка идёт по модели: копия, мутация копии,
-// `onChange(next)` — как у `RuleForm` в редакторе Xray.
+// Форма DNS-сервера sing-box: тег, транспорт, адрес и выход руками; всё по
+// типу — из схемы. Старый формат (address без type) не скрывается: схема
+// показывает его поля с пометкой устаревшего.
 
-import { fieldFor } from '../../entities/singbox'
-import { type SelectOption } from '../../shared/ui'
+import { DNS_SERVER_FIELDS, DNS_SERVER_TYPE_VALUES } from '../../entities/singbox'
+import { visibleFields, type DocWriter, type RefKind, type SchemaPath } from '../../shared/schema'
 import { SelectField, TextField } from './fields'
-import { SingboxExtraFields } from './SingboxExtraFields'
+import { SchemaForm } from './schema/SchemaForm'
+import { typeHint, typeOptions } from './schema/typeSelect'
 
-// skip — ровно то, что нарисовано ниже руками (см. SingboxOutboundForm)
 const SHOWN = ['tag', 'type', 'server', 'detour']
 
-/** Варианты словаря плюс текущий тип, если словарь его не знает: выбор в форме
- *  не имеет права молча заменить тип чужого шаблона первым из списка */
-function typeOptions(current: string): SelectOption[] {
-  const options = (fieldFor('dns-server', 'type')?.enum ?? []).map((e) => ({ value: e.value, label: e.value }))
-  const known = options.some((o) => o.value === current)
-  return [
-    { value: '', label: '(не задано)' },
-    ...(current !== '' && !known ? [{ value: current, label: current }] : []),
-    ...options,
-  ]
-}
-
-export function SingboxDnsServerForm({
-  value,
-  onChange,
-}: {
-  /** Сервер DNS — свободный объект: у каждого транспорта свои ключи */
+export function SingboxDnsServerForm({ value, path, writer, refs }: {
   value: Record<string, unknown>
-  onChange: (next: Record<string, unknown>) => void
+  path: SchemaPath
+  writer: DocWriter
+  refs: Partial<Record<RefKind, string[]>>
 }) {
   const type = typeof value.type === 'string' ? value.type : ''
-
-  function patch(mut: (draft: Record<string, unknown>) => void) {
-    const next = structuredClone(value)
-    mut(next)
-    onChange(next)
-  }
+  const detour = typeof value.detour === 'string' ? value.detour : ''
+  const visible = new Set(visibleFields(DNS_SERVER_FIELDS, value).map((f) => f.key))
+  const setOrRemove = (key: string, next: unknown) =>
+    writer.apply([next === undefined || next === '' ? { op: 'remove', path: [...path, key] } : { op: 'set', path: [...path, key], value: next }])
 
   return (
     <>
-      <TextField
-        label="Тег"
-        hint="Имя сервера: по нему на него ссылаются правила DNS."
-        value={typeof value.tag === 'string' ? value.tag : undefined}
-        onChange={(v) => patch((n) => { if (v === undefined) delete n.tag; else n.tag = v })}
-      />
-      <SelectField
-        label="Транспорт"
-        value={type}
-        options={typeOptions(type)}
-        onChange={(v) => patch((n) => { if (v === '') delete n.type; else n.type = v })}
-      />
-      <TextField
-        label="Адрес"
-        value={typeof value.server === 'string' ? value.server : undefined}
-        onChange={(v) => patch((n) => { if (v === undefined) delete n.server; else n.server = v })}
-      />
-      <TextField
-        label="Через выход"
-        hint="Тег выхода, через который уйдут запросы этого сервера."
-        value={typeof value.detour === 'string' ? value.detour : undefined}
-        onChange={(v) => patch((n) => { if (v === undefined) delete n.detour; else n.detour = v })}
-      />
-      <SingboxExtraFields section="dns-server" value={value} skip={SHOWN} onChange={onChange} />
+      <TextField label="Тег" hint="Имя сервера: по нему на него ссылаются правила DNS." value={typeof value.tag === 'string' ? value.tag : undefined} onChange={(v) => writer.apply([{ op: 'set', path: [...path, 'tag'], value: v ?? '' }])} />
+      <SelectField label="Транспорт" hint={typeHint(DNS_SERVER_TYPE_VALUES, type)} value={type} options={typeOptions(DNS_SERVER_TYPE_VALUES, type, true)} onChange={(v) => setOrRemove('type', v)} />
+      {visible.has('server') && (
+        <TextField label="Адрес" value={typeof value.server === 'string' ? value.server : undefined} onChange={(v) => setOrRemove('server', v)} />
+      )}
+      {visible.has('detour') && (
+        <SelectField label="Через выход" hint="Тег выхода, через который уйдут запросы этого сервера." value={detour} options={typeOptions((refs.outbound ?? []).map((value) => ({ value })), detour, true)} onChange={(v) => setOrRemove('detour', v)} />
+      )}
+      <SchemaForm fields={DNS_SERVER_FIELDS} value={value} path={path} writer={writer} refs={refs} skip={SHOWN} />
     </>
   )
 }
