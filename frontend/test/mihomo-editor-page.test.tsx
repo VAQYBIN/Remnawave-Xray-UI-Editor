@@ -164,41 +164,66 @@ describe('страница редактора Mihomo', () => {
     await screen.findByRole('heading', { name: 'Мой Mihomo' })
     expect(screen.getByRole('button', { name: 'Проверить ядром' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Импорт' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Секции документа' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Geo-базы' })).toBeEnabled()
   })
 
-  /**
-   * Кнопка «Секции документа» и её диалог связаны ТОЛЬКО этой проверкой.
-   * Собственный тест диалога подаёт ему `open` напрямую и разрыв проводки не
-   * ловит: мутация, при которой кнопка открывает диалог geo-баз, а
-   * `MihomoSectionsDialog` становится недостижим, проходила весь набор. А это
-   * единственный путь к правке dns/tun/sniffer/profile/rule-providers.
-   */
-  it('«Секции документа» открывает форму секций, а не другой диалог', async () => {
+  // Панель «Документ» (задачи 13-14) заменила диалог секций — вход к ней теперь
+  // только через псевдоузел `doc:settings` и кнопку «Документ» в доке графа, а не
+  // через топбар, поэтому в топбаре кнопки «Секции документа» больше нет
+  it('в топбаре нет кнопки «Секции документа»', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    expect(screen.queryByRole('button', { name: 'Секции документа' })).not.toBeInTheDocument()
+  })
+
+  // Кнопка «Рецепты» открывает обобщённый диалог рецептов (RecipesDialog)
+  // поверх модели документа, а не другой диалог — так же, как проверяется
+  // проводка «Секции документа» → MihomoSectionsDialog была устроена прежде
+  it('«Рецепты» открывает диалог рецептов', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    const dialog = () => document.querySelector('dialog[aria-label="Рецепты"]') as HTMLDialogElement | null
+    expect(dialog()?.open).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: 'Рецепты' }))
+    await waitFor(() => expect(dialog()?.open).toBe(true))
+    expect(within(dialog()!).getByRole('button', { name: /Разделить трафик по наборам правил/ })).toBeInTheDocument()
+  })
+
+  // Применение рецепта — правка ЧЕРНОВИКА с записью в историю (как импорт),
+  // а не запись в панель: результат обязан появиться в тексте и быть отменяем
+  it('применение рецепта пишет черновик с историей и его можно отменить', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Mihomo' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Отменить' })).toBeDisabled())
+    await userEvent.click(screen.getByRole('button', { name: 'Рецепты' }))
+    await userEvent.click(screen.getByRole('button', { name: /Блокировка рекламы/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts['template:u-1']?.text).toContain(
+        'RULE-SET,geosite-category-ads-all,REJECT',
+      ),
+    )
+    expect(screen.getByRole('button', { name: 'Отменить' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Отменить' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts['template:u-1']?.text ?? YAML).not.toContain('REJECT'),
+    )
+  })
+
+  // Пустой шаблон панели (encodedTemplateYaml: null) — законная точка старта
+  // «с нуля»: холст обязан рисоваться с кнопкой «+ Добавить», а не гаснуть
+  // пустым состоянием — адаптер отдаёт модель всегда, даже у пустого документа
+  it('пустой шаблон панели рисует холст с «+ Добавить», а не пустое состояние', async () => {
     mockApi({
       'GET /api/templates/u-1': {
         status: 200,
-        body: {
-          template: template({ encodedTemplateYaml: encodeYaml(`port: 7890\n${YAML}`) }),
-          hash: HASH,
-        },
+        body: { template: template({ encodedTemplateYaml: null }), hash: HASH },
       },
     })
     renderPage()
     await screen.findByRole('heading', { name: 'Мой Mihomo' })
-    // Диалоги смонтированы вместе со страницей и в разметке лежат всегда —
-    // спрашиваем не про присутствие, а про открытость ИМЕННО этого <dialog>
-    const sections = () =>
-      document.querySelector('dialog[aria-label="Секции документа"]') as HTMLDialogElement | null
-    expect(sections()?.open).toBe(false)
-
-    await userEvent.click(screen.getByRole('button', { name: 'Секции документа' }))
-    await waitFor(() => expect(sections()?.open).toBe(true))
-    // Поле корневой секции — то, ради чего диалог и открывают
-    expect(within(sections()!).getByLabelText('port')).toHaveValue('7890')
-    // И это именно секции: у диалога geo-баз таких разделов нет
-    expect(within(sections()!).getByRole('button', { name: 'DNS' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ Добавить' })).toBeInTheDocument()
+    expect(screen.queryByText('Документ пуст')).not.toBeInTheDocument()
   })
 
   // Ядру уходит ТЕКСТ черновика: печатать документ модели обратно нельзя, а

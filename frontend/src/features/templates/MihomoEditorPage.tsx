@@ -18,11 +18,10 @@ import {
   type SubscriptionTemplate,
   type TemplateOfType,
 } from '../../shared/api'
-import { YAML_SYNTAX_PREFIX } from '../../entities/mihomo'
+import { parseMihomo, YAML_SYNTAX_PREFIX } from '../../entities/mihomo'
 import { decodeYamlOrNull, encodeYaml } from '../../shared/lib/base64'
-import { Button, Dialog, EmptyState } from '../../shared/ui'
+import { Button, Dialog } from '../../shared/ui'
 import { EditorShell } from '../editor/EditorShell'
-import { MihomoSectionsDialog } from '../editor/MihomoSectionsDialog'
 import { SaveDialog } from '../editor/SaveDialog'
 import { useMihomoDraft } from '../editor/useMihomoDraft'
 import { YamlView } from '../editor/YamlView'
@@ -31,6 +30,8 @@ import { MihomoCheckDialog } from '../diagnostics/MihomoCheckDialog'
 import { MihomoTracePanel } from '../diagnostics/MihomoTracePanel'
 import { RuleSetsDialog } from '../diagnostics/RuleSetsDialog'
 import { TraceBar } from '../diagnostics/TraceBar'
+import { RecipesDialog } from '../recipes/RecipesDialog'
+import { MIHOMO_RECIPE_ENTRIES } from '../recipes/mihomoRecipes'
 import { ImportTemplateDialog } from './ImportTemplateDialog'
 import { MihomoInspector } from '../topology/MihomoInspector'
 import { MihomoTopology } from '../topology/MihomoTopology'
@@ -89,7 +90,11 @@ function MihomoEditor({
   const save = useSaveTemplate(template.uuid)
   const [saveOpen, setSaveOpen] = useState(false)
   const [conflict, setConflict] = useState<ConflictState | null>(null)
-  const md = draft.md
+  // Адаптер (mihomoAdapter.parse) отдаёт модель ВСЕГДА, включая пустой документ —
+  // это законная точка старта «с нуля». `DocumentDraft.model` при этом типизирован
+  // `T | undefined` для ядер, где документ может не разобраться вовсе; здесь
+  // такого не бывает, и запасное значение — только чтобы типы сошлись
+  const md = draft.md ?? parseMihomo('')
 
   function doSave(expectedHash: string) {
     save.mutate(
@@ -142,53 +147,48 @@ function MihomoEditor({
     (i) => i.level === 'error' && i.message.startsWith(YAML_SYNTAX_PREFIX),
   )
 
-  const canvas =
-    md === undefined ? (
-      <div className="wb-canvas wb-canvas-empty">
-        <EmptyState
-          title="Документ пуст"
-          hint="Впишите секции на вкладке YAML или загрузите готовый шаблон — топология строится по разобранному документу."
+  // Модель есть всегда (см. md выше), включая пустой документ — законную
+  // отправную точку «с нуля»: холст рисуется и на ней, с кнопкой «+ Добавить»
+  // в доке, а не гаснет пустым состоянием
+  const canvas = (
+    <>
+      <div className="wb-canvas">
+        <MihomoTopology
+          draft={draft}
+          md={md}
+          dockExtra={
+            <Button aria-pressed={draft.traceOpen} onClick={draft.toggleTrace}>
+              Куда пойдёт трафик
+            </Button>
+          }
+          dockRow={
+            draft.traceOpen ? (
+              // Строка ввода общая с Xray: она работает с TraceTarget и о виде
+              // документа ничего не знает. Поле процесса включаем здесь —
+              // правила `PROCESS-*` есть только у Mihomo
+              <TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} showProcess />
+            ) : undefined
+          }
         />
       </div>
-    ) : (
-      <>
-        <div className="wb-canvas">
-          <MihomoTopology
-            draft={draft}
-            md={md}
-            dockExtra={
-              <Button aria-pressed={draft.traceOpen} onClick={draft.toggleTrace}>
-                Куда пойдёт трафик
-              </Button>
-            }
-            dockRow={
-              draft.traceOpen ? (
-                // Строка ввода общая с Xray: она работает с TraceTarget и о виде
-                // документа ничего не знает. Поле процесса включаем здесь —
-                // правила `PROCESS-*` есть только у Mihomo
-                <TraceBar value={draft.traceTarget} onChange={draft.setTraceTarget} showProcess />
-              ) : undefined
-            }
-          />
-        </div>
-        {draft.trace && (
-          <MihomoTracePanel
-            result={draft.trace}
-            onClose={() => draft.setTraceTarget(null)}
-            onSelectRule={(index) => draft.setSelectedNode(`rule:${index}`)}
-            onOpenGeo={() => draft.setGeoOpen(true)}
-          />
-        )}
-        {draft.selectedNode && (
-          <MihomoInspector
-            key={draft.selectedNode}
-            draft={draft}
-            md={md}
-            nodeId={draft.selectedNode}
-          />
-        )}
-      </>
-    )
+      {draft.trace && (
+        <MihomoTracePanel
+          result={draft.trace}
+          onClose={() => draft.setTraceTarget(null)}
+          onSelectRule={(index) => draft.setSelectedNode(`rule:${index}`)}
+          onOpenGeo={() => draft.setGeoOpen(true)}
+        />
+      )}
+      {draft.selectedNode && (
+        <MihomoInspector
+          key={draft.selectedNode}
+          draft={draft}
+          md={md}
+          nodeId={draft.selectedNode}
+        />
+      )}
+    </>
+  )
 
   return (
     <EditorShell
@@ -206,18 +206,14 @@ function MihomoEditor({
       validLabel="Документ разбирается, замечаний нет"
       actions={
         <>
-          <Button
-            variant="ghost"
-            disabled={md === undefined}
-            onClick={() => draft.setSectionsOpen(true)}
-          >
-            Секции документа
-          </Button>
           <Button variant="ghost" onClick={() => draft.setCheckOpen(true)}>
             Проверить ядром
           </Button>
           <Button variant="ghost" onClick={() => draft.setImportOpen(true)}>
             Импорт
+          </Button>
+          <Button variant="ghost" onClick={() => draft.setRecipesOpen(true)}>
+            Рецепты
           </Button>
           <Button variant="ghost" onClick={() => draft.setGeoOpen(true)}>
             Geo-базы
@@ -291,14 +287,20 @@ function MihomoEditor({
         </div>
       </Dialog>
 
-      {md !== undefined && (
-        <MihomoSectionsDialog
-          open={draft.sectionsOpen}
-          md={md}
-          draft={draft}
-          onClose={() => draft.setSectionsOpen(false)}
-        />
-      )}
+      {/* Как и импорт, рецепт правит черновик, а не панель напрямую: план
+          считается по разобранной модели, а в текст возвращается через
+          writeDraft с записью в историю (Ctrl+Z отменяет) */}
+      <RecipesDialog
+        open={draft.recipesOpen}
+        model={md}
+        entries={MIHOMO_RECIPE_ENTRIES}
+        print={(m) => m.text}
+        onApply={(next) => {
+          draft.writeDraft(next.text, { history: true })
+          draft.setRecipesOpen(false)
+        }}
+        onClose={() => draft.setRecipesOpen(false)}
+      />
 
       {/* Проверяется ТЕКСТ черновика, а не модель: печатать документ обратно
           нельзя, да и ядру нужен ровно тот документ, что уедет в панель */}
