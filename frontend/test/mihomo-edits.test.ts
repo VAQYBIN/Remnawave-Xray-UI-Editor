@@ -437,20 +437,22 @@ describe('дефект 4: перевод строки во вставках бе
   // diff показывает изменёнными строки, которых никто не касался.
   const LONE_LF = /(^|[^\r])\n/
 
-  it('предпосылка: bundle.yaml и default.yaml однородно CRLF', () => {
-    expect(mihomoFixture('bundle')).not.toMatch(LONE_LF)
-    expect(mihomoFixture('default')).not.toMatch(LONE_LF)
-  })
+  // CRLF-документ тест строит САМ. Байты фикстуры в рабочей копии зависят от
+  // `core.autocrlf` машины: на Windows с autocrlf=true файл читается с CRLF,
+  // в индексе git и на Linux-раннере CI он лежит с LF — и предпосылка
+  // «фикстура однородно CRLF» держалась ровно до первого прогона в CI.
+  const crlf = (name: Parameters<typeof mihomoFixture>[0]) =>
+    mihomoFixture(name).replace(/\r?\n/g, '\r\n')
 
   it('setFieldAt с новым ключом не роняет \\r', () => {
-    const text = mihomoFixture('bundle')
+    const text = crlf('bundle')
     const out = applyEdits(text, setGroupField(parseMihomo(text), 2, 'hidden', true))
     expect(out).not.toMatch(LONE_LF)
     expect(groupsOf(parseMihomo(out))[2]!.hidden).toBe(true)
   })
 
   it('addGroup не роняет \\r', () => {
-    const text = mihomoFixture('bundle')
+    const text = crlf('bundle')
     const out = applyEdits(text, addGroup(parseMihomo(text), 'Новая'))
     expect(out).not.toMatch(LONE_LF)
     expect(groupsOf(parseMihomo(out)).some((g) => g.name === 'Новая')).toBe(true)
@@ -458,7 +460,7 @@ describe('дефект 4: перевод строки во вставках бе
 
   it('setListAt не роняет \\r — ни на пустом ключе, ни на замене блока', () => {
     // Пусто: блок дописывается ПОСЛЕ строки ключа
-    const empty = mihomoFixture('default')
+    const empty = crlf('default')
     const filled = applyEdits(
       empty,
       setListAt(parseMihomo(empty), ['proxy-groups', 0], 'proxies', ['DIRECT']),
@@ -467,7 +469,7 @@ describe('дефект 4: перевод строки во вставках бе
     expect(groupsOf(parseMihomo(filled))[0]!.proxies).toEqual(['DIRECT'])
 
     // Есть элементы: строки блока заменяются целиком (группа «♻️ БезVPN»)
-    const block = mihomoFixture('bundle')
+    const block = crlf('bundle')
     const out = applyEdits(
       block,
       setListAt(parseMihomo(block), ['proxy-groups', 3], 'proxies', ['DIRECT', 'REJECT']),
@@ -477,7 +479,7 @@ describe('дефект 4: перевод строки во вставках бе
   })
 
   it('addRule не роняет \\r — ни в список, ни в новую секцию', () => {
-    const text = mihomoFixture('default')
+    const text = crlf('default')
     expect(applyEdits(text, addRule(parseMihomo(text), 'DOMAIN,a.com,DIRECT', 0)))
       .not.toMatch(LONE_LF)
     expect(applyEdits(text, addRule(parseMihomo(text), 'DOMAIN,a.com,DIRECT')))
