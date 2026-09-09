@@ -77,6 +77,15 @@ describe('схема Mihomo: корень и помощники', () => {
     expect(mihomoFieldAt(['sub-rules'], {})?.kind).toBe('map')
   })
 
+  it('fieldAt: промах на неизвестном ключе остаётся вне схемы, а не описанием родителя', () => {
+    const json = { dns: { enable: true }, proxies: [{ name: 'a', type: 'direct' }], 'proxy-providers': { p1: { type: 'http' } } }
+    expect(mihomoFieldAt(['dns', 'xxx'], json)).toBeUndefined()
+    expect(mihomoFieldAt(['proxies', 0, 'xxx'], json)).toBeUndefined()
+    expect(mihomoFieldAt(['proxies', 0], json)?.key).toBe('proxies')
+    expect(mihomoFieldAt(['proxy-providers', 'p1'], json)?.kind).toBe('map')
+    expect(mihomoFieldAt(['proxy-providers', 'p1', 'url'], json)?.key).toBe('url')
+  })
+
   it('у каждого deprecated есть замена, у каждого ref — известный вид', () => {
     const refs = new Set(['outbound', 'inbound', 'dns-server', 'rule-set', 'proxy-target', 'provider', 'sub-rule'])
     const walk = (fields: FieldSchema[]) => {

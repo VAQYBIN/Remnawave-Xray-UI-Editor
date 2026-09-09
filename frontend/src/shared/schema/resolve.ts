@@ -89,20 +89,28 @@ export function fieldsAt(root: FieldSchema[], path: SchemaPath, doc: unknown): F
 }
 
 /**
- * Поле, описывающее значение по пути. Для индекса списка либо имени записи
- * отображения — поле самого контейнера: у элемента отдельного описания нет,
- * оно в `item` (список) либо в `fields` самого поля `map` (отображение).
+ * Поле, описывающее значение по пути. Для индекса списка — поле самого
+ * списка: у элемента отдельного описания нет, оно в `item`. Для имени записи
+ * `map` — поле самого `map`, но ТОЛЬКО когда родительский путь и в самом деле
+ * указывает на такое отображение: иначе промах — неизвестный ключ известного
+ * объекта (`dns.xxx`), и он обязан остаться вне схемы (`undefined`), а не
+ * тихо получить описание объекта-родителя.
  */
 export function fieldAt(root: FieldSchema[], path: SchemaPath, doc: unknown): FieldSchema | undefined {
   if (path.length === 0) return undefined
   const last = path[path.length - 1]
   const parentPath = path.slice(0, -1)
-  if (typeof last === 'string') {
-    const hit = fieldsAt(root, parentPath, doc)?.find((f) => f.key === last)
-    if (hit !== undefined) return hit
+  if (typeof last === 'number') {
+    // Индекс списка: описание у самого поля списка
+    return parentPath.length === 0 ? undefined : fieldAt(root, parentPath, doc)
   }
-  // Индекс списка либо имя записи отображения: описание у самого поля-контейнера
-  return parentPath.length === 0 ? undefined : fieldAt(root, parentPath, doc)
+  const hit = fieldsAt(root, parentPath, doc)?.find((f) => f.key === last)
+  if (hit !== undefined) return hit
+  if (parentPath.length === 0) return undefined
+  // Промах на известном пути: либо неизвестный ключ (вне схемы), либо имя
+  // записи `map` — тогда описание есть у самого поля-контейнера родителя.
+  const parentField = fieldAt(root, parentPath, doc)
+  return parentField?.kind === 'map' && parentField.fields !== undefined ? parentField : undefined
 }
 
 /** Ключи документа, которых нет среди полей (видимых или скрытых условием) */
