@@ -1754,3 +1754,7 @@ p { margin: 0 0 10px; }
 .list-editor-order .chip-x:disabled { opacity: 0.35; cursor: default; }
 /* Тристейт — те же сегменты, что у «Форма / JSON узла», но во всю ширину поля */
 .tristate { align-self: flex-start; }
+
+/* Пункт меню — та же строка, что у опции списка, но это кнопка: ей нужен сброс рамки */
+.menu-item { width: 100%; border: none; background: transparent; text-align: left; font: inherit; color: inherit; }
+.menu-item:disabled { opacity: 0.45; cursor: default; }
