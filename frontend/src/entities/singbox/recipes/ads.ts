@@ -1,11 +1,17 @@
-// Рецепт «Блокировка рекламы»: один готовый набор каталога и правило reject
-// В НАЧАЛО списка — реклама режется раньше, чем до неё доберётся любое другое
-// правило маршрута. DNS-правило опционально: часть рекламных доменов клиент
-// резолвит до того, как соединение попадёт в route.rules.
+// Рецепт «Блокировка рекламы»: один готовый набор каталога и правило reject.
+// Правило встаёт СРАЗУ ЗА ведущей серией sniff/resolve/route-options/hijack-dns
+// (`afterLeadingService`), а не первым: `sniff` в sing-box — такое же правило
+// маршрута, а не свойство inbound'а, как у Xray, и до него у большинства
+// соединений домен ещё не известен. Поставь рецепт reject первым, он резал бы
+// по geosite до того, как sniff вообще определит домен, и правило никогда бы
+// не сработало на голом IP. DNS-правило (`alsoDns`) — про другой список,
+// `dns.rules`, ведущей последовательности там нет, и оно остаётся первым в
+// своём списке.
 
+import { applyOps } from '../../../shared/schema'
 import type { RecipeChange, RecipePlan } from '../../../shared/recipes/types'
 import type { SingboxDoc } from '../types'
-import { ensureAt, ensureCacheFile } from './apply'
+import { afterLeadingService, ensureAt, ensureCacheFile, sameEntry } from './apply'
 import { sourceById } from './catalog'
 
 const SOURCE_ID = 'geosite-category-ads-all'
@@ -33,9 +39,17 @@ export function planAds(doc: SingboxDoc, p: AdsParams): RecipePlan<SingboxDoc> {
   next = set.doc
   changes.push({ status: set.status, text: set.status === 'add' ? `набор ${source.tag}` : `набор ${source.tag} — уже есть` })
 
-  const rule = ensureAt(next, ['route', 'rules'], { rule_set: [source.tag], action: 'reject' }, 'deep', 'start')
-  next = rule.doc
-  changes.push({ status: rule.status, text: rule.status === 'add' ? 'правило: реклама → reject' : 'правило блокировки рекламы уже есть' })
+  // Нет 'start'/'end' у ensureAt — нужна произвольная позиция, поэтому та же
+  // ручная схема идемпотентности, что и у private.ts
+  const ruleEntry = { rule_set: [source.tag], action: 'reject' }
+  const existingRule = (next.route?.rules ?? []).findIndex((r) => sameEntry(r, ruleEntry))
+  if (existingRule === -1) {
+    const index = afterLeadingService(next)
+    next = applyOps(next, [{ op: 'insert', path: ['route', 'rules'], index, value: ruleEntry }])
+    changes.push({ status: 'add', text: 'правило: реклама → reject' })
+  } else {
+    changes.push({ status: 'exists', text: 'правило блокировки рекламы уже есть' })
+  }
 
   if (p.alsoDns) {
     const dnsRule = ensureAt(next, ['dns', 'rules'], { rule_set: [source.tag], action: 'predefined', rcode: 'NXDOMAIN' }, 'deep', 'start')

@@ -2,6 +2,7 @@
 // записей с адресом; глубокое — для правил, у которых адреса нет.
 
 import { applyOps, valueAt, type SchemaPath } from '../../../shared/schema'
+import { NON_TERMINAL_ACTIONS } from '../rules'
 import type { SingboxDoc } from '../types'
 
 function canonical(value: unknown): string {
@@ -40,10 +41,20 @@ export function ensureAt(
   return { doc: applyOps(doc, [{ op: 'insert', path: listPath, index, value: entry }]), status: 'add', index }
 }
 
-/** Позиция сразу за ведущей серией нетерминальных правил (sniff, resolve, route-options, hijack-dns) */
+/**
+ * Позиция сразу за ведущей серией нетерминальных правил (sniff, resolve,
+ * route-options, hijack-dns). Набор действий берём из `entities/singbox/rules.ts`
+ * (`NON_TERMINAL_ACTIONS`), а не переписываем список руками: это ОДНА истина о
+ * нетерминальных действиях в проекте — трассировка (`trace.ts`) и граф читают
+ * её же, и вторая копия списка разошлась бы с ними на первом же новом действии
+ * ядра. `hijack-dns` добавлен сверху: он не входит в NON_TERMINAL_ACTIONS
+ * (там — только действия, ОБЩИЕ для sing-box вообще, а hijack-dns
+ * нетерминален только в контексте ведущей DNS-серии, которую строит рецепт
+ * `dns`), но подбор после него тоже продолжается со следующего правила.
+ */
 export function afterLeadingService(doc: SingboxDoc): number {
   const rules = doc.route?.rules ?? []
-  const service = new Set(['sniff', 'resolve', 'route-options', 'hijack-dns'])
+  const service = new Set([...NON_TERMINAL_ACTIONS, 'hijack-dns'])
   let i = 0
   while (i < rules.length && typeof rules[i]!.action === 'string' && service.has(rules[i]!.action as string)) i += 1
   return i

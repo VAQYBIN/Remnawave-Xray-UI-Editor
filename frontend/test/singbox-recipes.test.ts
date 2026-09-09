@@ -28,10 +28,37 @@ describe('рецепты sing-box', () => {
     expect(validateSingbox(first.model).filter((i) => i.level === 'error')).toEqual([])
   })
 
-  it('ads ставит reject в начало и DNS-правило по запросу', () => {
-    const plan = planAds(BASE, { alsoDns: true })
-    expect(plan.model.route!.rules![0]).toEqual({ rule_set: ['geosite-category-ads-all'], action: 'reject' })
+  // sniff — правило, а не свойство inbound'а (как у Xray): reject первым
+  // сработал бы ДО того, как sniff определит домен, и никогда бы не совпал
+  it('ads ставит reject сразу за ведущей серией sniff/hijack-dns и DNS-правило по запросу', () => {
+    const withLeading = parseSingbox(
+      JSON.stringify({
+        outbounds: [{ type: 'selector', tag: 'sel', outbounds: null }, { type: 'direct', tag: 'direct' }],
+        route: {
+          rules: [{ action: 'sniff' }, { protocol: 'dns', action: 'hijack-dns' }, { domain: 'example.com', outbound: 'direct' }],
+          final: 'sel',
+        },
+      }),
+    ).doc!
+    const plan = planAds(withLeading, { alsoDns: true })
+    expect(plan.model.route!.rules![2]).toEqual({ rule_set: ['geosite-category-ads-all'], action: 'reject' })
+    // Ведущей серии нет — sniff/hijack-dns не сработали как условие для reject
+    expect(plan.model.route!.rules![0]).toEqual({ action: 'sniff' })
     expect(plan.model.dns!.rules![0]).toEqual({ rule_set: ['geosite-category-ads-all'], action: 'predefined', rcode: 'NXDOMAIN' })
+  })
+
+  it('ads без ведущей серии ставит reject первым и без alsoDns не трогает dns.rules', () => {
+    const empty = parseSingbox('{"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[]}}').doc!
+    const plan = planAds(empty, { alsoDns: false })
+    expect(plan.model.route!.rules![0]).toEqual({ rule_set: ['geosite-category-ads-all'], action: 'reject' })
+    expect(plan.model.dns?.rules).toBeUndefined()
+  })
+
+  it('ads идемпотентен при повторном применении', () => {
+    const first = planAds(BASE, { alsoDns: true })
+    const second = planAds(first.model, { alsoDns: true })
+    expect(second.changes.every((c) => c.status === 'exists')).toBe(true)
+    expect(second.model).toEqual(first.model)
   })
 
   it('dns заводит три сервера, правила, final, sniff/hijack первыми и резолвер', () => {
@@ -43,6 +70,34 @@ describe('рецепты sing-box', () => {
     expect(m.route!.default_domain_resolver).toEqual({ server: 'dns-local' })
     expect(m.experimental!.cache_file).toEqual({ enabled: true, store_fakeip: true })
     expect(planDns(m, { remote: '1.1.1.1', detour: 'sel' }).model).toEqual(m)
+  })
+
+  it('dns заводит sniff и hijack-dns с нуля, в этом порядке', () => {
+    const empty = parseSingbox('{"outbounds":[{"type":"direct","tag":"direct"}]}').doc!
+    const plan = planDns(empty, { remote: '1.1.1.1', detour: 'sel' })
+    expect(plan.model.route!.rules!.slice(0, 2)).toEqual([{ action: 'sniff' }, { protocol: 'dns', action: 'hijack-dns' }])
+  })
+
+  it('dns дописывает недостающий hijack-dns сразу за уже существующим sniff', () => {
+    const onlySniff = parseSingbox('{"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[{"action":"sniff"}]}}').doc!
+    const plan = planDns(onlySniff, { remote: '1.1.1.1', detour: 'sel' })
+    expect(plan.model.route!.rules!.slice(0, 2)).toEqual([{ action: 'sniff' }, { protocol: 'dns', action: 'hijack-dns' }])
+  })
+
+  // Оба правила уже стоят в документе, но не первыми двумя: рецепт не
+  // переставляет чужой порядок правил, а честно предупреждает о нём
+  it('dns не двигает sniff/hijack-dns, если они уже стоят не первыми, а предупреждает', () => {
+    const outOfOrder = parseSingbox(
+      JSON.stringify({
+        outbounds: [{ type: 'direct', tag: 'direct' }],
+        route: {
+          rules: [{ domain: 'example.com', outbound: 'direct' }, { action: 'sniff' }, { protocol: 'dns', action: 'hijack-dns' }],
+        },
+      }),
+    ).doc!
+    const plan = planDns(outOfOrder, { remote: '1.1.1.1', detour: 'sel' })
+    expect(plan.model.route!.rules!.slice(0, 3)).toEqual(outOfOrder.route!.rules)
+    expect(plan.notes.some((n) => n.text.includes('не стоят первыми'))).toBe(true)
   })
 
   it('local, private и warp идемпотентны', () => {

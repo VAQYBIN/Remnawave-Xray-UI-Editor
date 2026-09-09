@@ -1,14 +1,22 @@
 // Рецепт «DNS с fake-ip»: удалённый DNS через detour, локальный — для клиента
 // в режиме Direct, и fake-ip — источник адресов для sniff/route по домену.
-// sniff и hijack-dns обязаны стоять ПЕРВЫМИ двумя правилами маршрута и в этом
+// В ИДЕАЛЕ sniff и hijack-dns стоят первыми двумя правилами маршрута и в этом
 // порядке — без sniff ядро не узнает домен назначения, без hijack-dns запрос
 // к самому DNS не попадёт под остальные правила и не даст fake-ip сработать.
-// Поэтому им нужна не простая вставка «в начало» (ensureAt при уже
-// существующем sniff поставила бы hijack-dns ПЕРЕД ним), а вставка сразу
-// ПОСЛЕ фактической позиции sniff.
+// Но рецепт НЕ ДВИГАЕТ то, что уже стоит в документе: порядок правил мог
+// назначить сам автор осознанно (например, поставить перед sniff правило,
+// которое должно сработать раньше него), и переставить чужие правила —
+// значит молча сломать то, что вставлял не рецепт. Контракт поэтому такой:
+//   а) обоих правил нет — вставляются оба в начало, в порядке sniff → hijack-dns;
+//   б) есть только одно — недостающее вставляется вплотную к найденному
+//      (перед hijack-dns либо сразу за sniff), само найденное не двигается;
+//   в) есть оба, но не первыми двумя, — рецепт их не трогает вовсе (status:
+//      'exists' на оба) и добавляет RecipeNote: молчать было бы соврать, что
+//      всё в порядке, а без явной оговорки автор не узнает, что fake-ip и
+//      резолв DNS могут не сработать из-за порядка, который поставил не он сам.
 
 import { applyOps } from '../../../shared/schema'
-import type { RecipeChange, RecipePlan } from '../../../shared/recipes/types'
+import type { RecipeChange, RecipeNote, RecipePlan } from '../../../shared/recipes/types'
 import type { SingboxDoc } from '../types'
 import { ensureAt, ensureCacheFile, sameEntry } from './apply'
 
@@ -29,12 +37,29 @@ export function validateDns(p: DnsParams): string | null {
   return null
 }
 
-/** sniff и hijack-dns первыми правилами, в этом порядке; идемпотентно вне зависимости от того, что уже стоит следом */
-function ensureLeadingSniffHijack(doc: SingboxDoc): { doc: SingboxDoc; changes: RecipeChange[] } {
+const ORDER_NOTE: RecipeNote = {
+  text:
+    'Правила sniff и hijack-dns уже есть в документе, но не стоят первыми двумя — рецепт не переставляет чужие правила, проверьте порядок вручную. sniff обязан отработать раньше остальных правил, чтобы определить домен, а hijack-dns — раньше правил, которые могли бы перехватить сам DNS-запрос: иначе fake-ip и резолв через dns-remote/dns-local могут не сработать.',
+}
+
+/** Контракт — в комментарии над файлом: вставляет недостающее, не двигает существующее */
+function ensureLeadingSniffHijack(doc: SingboxDoc): { doc: SingboxDoc; changes: RecipeChange[]; notes: RecipeNote[] } {
   const changes: RecipeChange[] = []
-  let next = doc
   const rules = doc.route?.rules ?? []
   const sniffIndex = rules.findIndex((r) => sameEntry(r, SNIFF))
+  const hijackIndex = rules.findIndex((r) => sameEntry(r, HIJACK))
+
+  // Оба уже есть: только сообщаем, не трогаем ничего. Не первыми двумя —
+  // предупреждаем, а не чиним: перестановка была бы такой же порчей чужого
+  // порядка, как и в обратном случае «одно правило нашли не там»
+  if (sniffIndex !== -1 && hijackIndex !== -1) {
+    changes.push({ status: 'exists', text: 'правило sniff уже есть' })
+    changes.push({ status: 'exists', text: 'правило hijack-dns уже есть' })
+    const notes = sniffIndex === 0 && hijackIndex === 1 ? [] : [ORDER_NOTE]
+    return { doc, changes, notes }
+  }
+
+  let next = doc
   let hijackInsertAt: number
   if (sniffIndex === -1) {
     next = applyOps(next, [{ op: 'insert', path: ['route', 'rules'], index: 0, value: SNIFF }])
@@ -45,14 +70,14 @@ function ensureLeadingSniffHijack(doc: SingboxDoc): { doc: SingboxDoc; changes: 
     hijackInsertAt = sniffIndex + 1
   }
   const rulesNow = next.route?.rules ?? []
-  const hijackIndex = rulesNow.findIndex((r) => sameEntry(r, HIJACK))
-  if (hijackIndex === -1) {
+  const hijackIndexNow = rulesNow.findIndex((r) => sameEntry(r, HIJACK))
+  if (hijackIndexNow === -1) {
     next = applyOps(next, [{ op: 'insert', path: ['route', 'rules'], index: hijackInsertAt, value: HIJACK }])
     changes.push({ status: 'add', text: 'правило: hijack-dns' })
   } else {
     changes.push({ status: 'exists', text: 'правило hijack-dns уже есть' })
   }
-  return { doc: next, changes }
+  return { doc: next, changes, notes: [] }
 }
 
 export function planDns(doc: SingboxDoc, p: DnsParams): RecipePlan<SingboxDoc> {
@@ -117,6 +142,9 @@ export function planDns(doc: SingboxDoc, p: DnsParams): RecipePlan<SingboxDoc> {
   return {
     model: next,
     changes,
-    notes: [{ text: 'fake-ip требует TUN-режима на клиенте — на конфиге без inbound tun адреса fake-ip не разрешатся в реальные.' }],
+    notes: [
+      { text: 'fake-ip требует TUN-режима на клиенте — на конфиге без inbound tun адреса fake-ip не разрешатся в реальные.' },
+      ...leading.notes,
+    ],
   }
 }
