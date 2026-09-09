@@ -233,6 +233,20 @@ describe('страница шаблона sing-box', () => {
     expect(useDraftStore.getState().drafts['template:u-1']).toBeUndefined()
   })
 
+  // Рецепты правят черновик через тот же writeDraft, что и импорт: план
+  // применяется к разобранной модели, а не к панели напрямую
+  it('кнопка «Рецепты» открывает диалог, а применённый рецепт меняет черновик', async () => {
+    renderPage()
+    await screen.findByRole('heading', { name: 'Мой Sing-box' })
+    await userEvent.click(screen.getByRole('button', { name: 'Рецепты' }))
+    expect(await screen.findByRole('heading', { name: 'Рецепты' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Локальный вход/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Применить' }))
+    await waitFor(() =>
+      expect(useDraftStore.getState().drafts['template:u-1']?.text).toContain('mixed-in'),
+    )
+  })
+
   it('в список редактируемых типов добавлен SINGBOX', () => {
     expect([...EDITABLE]).toContain('SINGBOX')
   })

@@ -25,6 +25,8 @@ import { useSingboxDraft } from '../editor/useSingboxDraft'
 import { SingboxCheckDialog } from '../diagnostics/SingboxCheckDialog'
 import { SingboxTracePanel } from '../diagnostics/SingboxTracePanel'
 import { TraceBar } from '../diagnostics/TraceBar'
+import { RecipesDialog } from '../recipes/RecipesDialog'
+import { SINGBOX_RECIPE_ENTRIES } from '../recipes/singboxRecipes'
 import { SingboxInspector } from '../topology/SingboxInspector'
 import { SingboxTopology } from '../topology/SingboxTopology'
 import { ImportTemplateDialog } from './ImportTemplateDialog'
@@ -189,6 +191,9 @@ export function SingboxEditorPage({
           <Button variant="ghost" onClick={() => draft.setImportOpen(true)}>
             Импорт
           </Button>
+          <Button variant="ghost" onClick={() => draft.setRecipesOpen(true)}>
+            Рецепты
+          </Button>
         </>
       }
       statusExtra={saveError ? <span className="field-error">{saveError}</span> : emptyNotice}
@@ -280,6 +285,23 @@ export function SingboxEditorPage({
         }}
         onClose={() => draft.setImportOpen(false)}
       />
+
+      {/* Как и импорт, рецепт правит черновик, а не панель напрямую: план
+          считается по разобранной модели, а в текст возвращается через
+          changeDoc (== writeDraft) с записью в историю (Ctrl+Z отменяет) */}
+      {doc !== undefined && (
+        <RecipesDialog
+          open={draft.recipesOpen}
+          model={doc}
+          entries={SINGBOX_RECIPE_ENTRIES}
+          print={(d) => JSON.stringify(d, null, 2)}
+          onApply={(next) => {
+            draft.changeDoc(next)
+            draft.setSelectedNode(null)
+          }}
+          onClose={() => draft.setRecipesOpen(false)}
+        />
+      )}
     </EditorShell>
   )
 }

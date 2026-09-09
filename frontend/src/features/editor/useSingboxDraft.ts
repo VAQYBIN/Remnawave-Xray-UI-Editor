@@ -35,6 +35,8 @@ export interface SingboxDraft extends DocumentDraft<SingboxDoc> {
   setCheckOpen: (open: boolean) => void
   importOpen: boolean
   setImportOpen: (open: boolean) => void
+  recipesOpen: boolean
+  setRecipesOpen: (open: boolean) => void
   /** Операции по пути — единица правки форм по схеме */
   applyOps: (ops: DocOp[]) => void
   /** Замок: единственная причина у sing-box — список группы, которую заполняет панель */
@@ -66,6 +68,7 @@ export function useSingboxDraft({
 
   const [checkOpen, setCheckOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [recipesOpen, setRecipesOpen] = useState(false)
 
   const changeDoc = useCallback(
     (next: SingboxDoc) => {
@@ -125,6 +128,8 @@ export function useSingboxDraft({
     setCheckOpen,
     importOpen,
     setImportOpen,
+    recipesOpen,
+    setRecipesOpen,
     applyOps: applyOpsToDoc,
     lockAt,
     writer,
