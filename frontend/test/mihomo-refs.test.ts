@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { referencesTo, referenceSites, renameAt } from '../src/entities/mihomo/refs'
+import { referencesTo, referenceSites, renameAt, renameRefusalText } from '../src/entities/mihomo/refs'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 
 const DOC = [
@@ -63,5 +63,38 @@ describe('renameAt', () => {
     expect(renameAt(md, 'group', 'G', 'DIRECT').refusal).toBe('taken')
     expect(renameAt(md, 'group', 'G', 'a\nb').refusal).toBe('unprintable')
     expect(renameAt(md, 'group', 'X', 'Y').refusal).toBe('not-found')
+  })
+})
+
+// Ссылка/запись, до которой добираются только через якорь `*` или слияние
+// `<<:` — обычная форма живых шаблонов Mihomo (`x-anchors`), не патология:
+// правка по такому пути `write.ts` отказывает, а `renameAt` пишет пачкой из
+// нескольких вызовов и обязан заметить замок ДО первой правки, а не после.
+describe('renameAt: замок через якорь/слияние', () => {
+  it('ссылка на сервер приходит через алиас списка участников группы — refusal "locked", документ не тронут', () => {
+    const doc = [
+      'x-anchors:', '  shared: &shared', '    - s1', '    - DIRECT',
+      'proxies:', '  - name: s1', '    type: direct',
+      'proxy-groups:', '  - name: G', '    type: select', '    proxies: *shared',
+      '',
+    ].join('\n')
+    const md = parseMihomo(doc)
+    const result = renameAt(md, 'proxy', 's1', 'renamed')
+    expect(result.refusal).toBe('locked')
+    expect(result.md.text).toBe(md.text)
+  })
+  it('имя группы приходит через слияние `<<: *base` — refusal "locked", документ не тронут', () => {
+    const doc = [
+      'x-anchors:', '  base: &base', '    name: G',
+      'proxy-groups:', '  - <<: *base', '    type: select', '    proxies: [DIRECT]',
+      '',
+    ].join('\n')
+    const md = parseMihomo(doc)
+    const result = renameAt(md, 'group', 'G', 'VPN')
+    expect(result.refusal).toBe('locked')
+    expect(result.md.text).toBe(md.text)
+  })
+  it('renameRefusalText("locked") — непустой русский текст', () => {
+    expect(renameRefusalText('locked')).toMatch(/[а-яё]/i)
   })
 })

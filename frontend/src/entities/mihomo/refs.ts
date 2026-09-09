@@ -10,7 +10,7 @@ import { groupsOf, providersOf, proxiesOf, ruleProvidersOf, subRuleEntries } fro
 import type { MihomoDoc } from './parse'
 import { BUILTIN_TARGETS } from './resolve'
 import { formatRule, parseRule, ruleEntriesOf, rulesOf } from './rules'
-import { applyMihomoOps, renameKeyAt } from './write'
+import { applyMihomoOps, mihomoLockAt, renameKeyAt } from './write'
 
 export type NamedKind = 'group' | 'proxy' | 'provider' | 'rule-provider' | 'sub-rule'
 
@@ -142,13 +142,14 @@ export function referencesTo(md: MihomoDoc, kind: NamedKind, name: string): RefS
   return referenceSites(md).filter((s) => sameSpace.includes(s.kind) && s.name === name)
 }
 
-export type RenameRefusal = 'empty' | 'taken' | 'unprintable' | 'not-found'
+export type RenameRefusal = 'empty' | 'taken' | 'unprintable' | 'not-found' | 'locked'
 
 const RENAME_TEXT: Record<RenameRefusal, string> = {
   empty: 'Имя не может быть пустым: по нему на запись ссылаются правила и группы.',
   taken: 'Такое имя уже занято в этом пространстве имён — группы, серверы и встроенные цели адресуются одним полем.',
   unprintable: 'В имени есть перевод строки — одной строкой YAML его не записать.',
   'not-found': 'Записи с таким именем в документе больше нет — она изменилась после отрисовки.',
+  locked: 'Имя или ссылка на него приходят через якорь «*» или слияние «<<:» — сначала разверните значение на месте.',
 }
 
 export function renameRefusalText(refusal: RenameRefusal): string {
@@ -170,6 +171,25 @@ function renameInRule(raw: string, kind: NamedKind, from: string, to: string): s
   return formatRule({ ...rule, payload, target })
 }
 
+/**
+ * Путь к самой записи: `name` у списочных видов (`proxies[]`/`proxy-groups[]`),
+ * сам ключ у отображений (`provider`/`rule-provider`/`sub-rule`). `undefined` —
+ * только по внутренней несогласованности с `namesOf` (не должно случаться,
+ * `renameAt` уже проверил `from` через тот же `namesOf` выше).
+ */
+function definitionPathOf(md: MihomoDoc, kind: NamedKind, from: string): SchemaPath | undefined {
+  if (kind === 'group') {
+    const index = groupsOf(md).find((g) => g.name === from)?.index
+    return index === undefined ? undefined : ['proxy-groups', index, 'name']
+  }
+  if (kind === 'proxy') {
+    const index = proxiesOf(md).find((p) => p.name === from)?.index
+    return index === undefined ? undefined : ['proxies', index, 'name']
+  }
+  const section = kind === 'provider' ? 'proxy-providers' : kind === 'rule-provider' ? 'rule-providers' : 'sub-rules'
+  return [section, from]
+}
+
 export function renameAt(md: MihomoDoc, kind: NamedKind, from: string, to: string): { md: MihomoDoc; refusal?: RenameRefusal } {
   if (to.trim() === '') return { md, refusal: 'empty' }
   if (scalar(to) === null) return { md, refusal: 'unprintable' }
@@ -177,8 +197,23 @@ export function renameAt(md: MihomoDoc, kind: NamedKind, from: string, to: strin
   if (to !== from && namespace(md, kind).includes(to)) return { md, refusal: 'taken' }
   if (to === from) return { md }
 
+  const sites = referencesTo(md, kind, from)
+  const defPath = definitionPathOf(md, kind, from)
+  if (defPath === undefined) return { md, refusal: 'not-found' }
+
+  // Замок — на самой записи ИЛИ хоть на одной ссылке на неё — останавливает
+  // переименование ДО первой правки, на исходном `md`. Правки идут пачкой из
+  // нескольких вызовов `applyMihomoOps`/`renameKeyAt`: отказ одной из них,
+  // обнаруженный только ПОСТФАКТУМ, оставил бы документ наполовину
+  // переименованным — часть ссылок на новое имя, часть (та, что через якорь
+  // или слияние) так и на старое, либо саму запись переименовали, а ссылка на
+  // неё, живущая в тексте объявления якоря, — нет. Живые шаблоны Mihomo это
+  // обычная форма (`<<:`-слияния и `*alias` в `x-anchors`), а не патология.
+  const lockedPaths = [defPath, ...sites.map((s) => s.path as SchemaPath)]
+  if (lockedPaths.some((p) => mihomoLockAt(md, p) !== null)) return { md, refusal: 'locked' }
+
   const ops: DocOp[] = []
-  for (const site of referencesTo(md, kind, from)) {
+  for (const site of sites) {
     const path = site.path as SchemaPath
     switch (site.form) {
       case 'scalar':
@@ -202,17 +237,30 @@ export function renameAt(md: MihomoDoc, kind: NamedKind, from: string, to: strin
       }
     }
   }
+  const written = applyMihomoOps(md, ops)
+  // `refused` здесь — независимая от предпроверки выше находка (второй, ещё
+  // не проверенный путь к тому же узлу и подобное): любой отказ означает, что
+  // часть ссылок не переписана, а возвращать в этом случае что-либо, кроме
+  // ИСХОДНОГО документа, значит вернуть наполовину переименованный.
+  if (written.refused.length > 0) return { md, refusal: 'unprintable' }
+  let next = written.md
+
   // Сама запись: поле name у списка, ключ у отображения
-  let next = applyMihomoOps(md, ops).md
-  if (kind === 'group') {
-    const index = groupsOf(next).find((g) => g.name === from)?.index
-    if (index !== undefined) next = applyMihomoOps(next, [{ op: 'set', path: ['proxy-groups', index, 'name'], value: to }]).md
-  } else if (kind === 'proxy') {
-    const index = proxiesOf(next).find((p) => p.name === from)?.index
-    if (index !== undefined) next = applyMihomoOps(next, [{ op: 'set', path: ['proxies', index, 'name'], value: to }]).md
+  if (kind === 'group' || kind === 'proxy') {
+    const named = applyMihomoOps(next, [{ op: 'set', path: defPath, value: to }])
+    if (named.refused.length > 0) return { md, refusal: 'unprintable' }
+    next = named.md
   } else {
     const section = kind === 'provider' ? 'proxy-providers' : kind === 'rule-provider' ? 'rule-providers' : 'sub-rules'
-    next = renameKeyAt(next, [section], from, to)
+    const renamed = renameKeyAt(next, [section], from, to)
+    // `renameKeyAt` не сигналит отказ отдельным полем — на «ключа среди своих
+    // нет» она молча возвращает документ БЕЗ ИЗМЕНЕНИЙ. Единственный способ
+    // заметить это здесь — сравнить текст: если он не изменился, правки не
+    // было, а исходный документ (`md`), а не промежуточный `next`, — то, что
+    // нужно вернуть, иначе ссылки окажутся переписаны на имя, которого сама
+    // запись так и не получила.
+    if (renamed.text === next.text) return { md, refusal: 'unprintable' }
+    next = renamed
   }
   return { md: next }
 }
