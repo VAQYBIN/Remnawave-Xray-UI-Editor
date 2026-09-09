@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addRule, applyEdits, fieldOrigin, removeRule, renameGroup, setGroupField, setRuleTarget,
+  addGroup, addRule, applyEdits, fieldOrigin, removeRule, renameGroup, setFieldAt, setGroupField,
+  setListAt, setRuleTarget,
 } from '../src/entities/mihomo/edits'
 import { groupsOf } from '../src/entities/mihomo/groups'
+import { hasRootMarker } from '../src/entities/mihomo/inject'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { rulesOf } from '../src/entities/mihomo/rules'
 import { mihomoFixture } from './helpers'
@@ -130,6 +132,43 @@ describe('правила', () => {
     const out = edit(text, (md) => addRule(md, 'DOMAIN,a.com,VPN'))
     expect(out).toBe('rules:\n  - MATCH,DIRECT\n  - DOMAIN,a.com,VPN\n')
     expect(rulesOf(parseMihomo(out))).toHaveLength(2)
+  })
+
+  // Дефект 3: пустой список правил и отсутствующая секция раньше давали пустой
+  // результат — кнопка «+ Правило» молча не работала именно там, где правило
+  // нужнее всего: в документе, где правил ещё нет.
+  it('а) голый ключ `rules:` получает первый элемент', () => {
+    const text = 'mode: rule\nrules:\n'
+    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
+    expect(out).toBe('mode: rule\nrules:\n  - MATCH,DIRECT\n')
+    expect(parseMihomo(out).issues).toHaveLength(0)
+    expect(rulesOf(parseMihomo(out))).toHaveLength(1)
+  })
+
+  it('а) отступ первого элемента берётся из документа, а не из двойки', () => {
+    const text = 'proxy-groups:\n    - name: g\n      type: select\nrules:\n'
+    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
+    expect(out).toBe('proxy-groups:\n    - name: g\n      type: select\nrules:\n    - MATCH,DIRECT\n')
+  })
+
+  it('б) секции `rules` нет вовсе — она дописывается в конец документа', () => {
+    const text = 'mode: rule\n'
+    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
+    expect(out).toBe('mode: rule\nrules:\n  - MATCH,DIRECT\n')
+    expect(parseMihomo(out).issues).toHaveLength(0)
+    expect(rulesOf(parseMihomo(out))).toHaveLength(1)
+  })
+
+  it('б) документ без завершающего перевода строки не склеивается с новой секцией', () => {
+    const text = 'mode: rule'
+    const out = edit(text, (md) => addRule(md, 'MATCH,DIRECT'))
+    expect(out).toBe('mode: rule\nrules:\n  - MATCH,DIRECT\n')
+    expect(parseMihomo(out).issues).toHaveLength(0)
+  })
+
+  it('б) корень — не отображение: отказ, а не выдуманная структура', () => {
+    const md = parseMihomo('- a\n- b\n')
+    expect(addRule(md, 'MATCH,DIRECT')).toEqual([])
   })
 })
 
@@ -304,6 +343,151 @@ describe('C3 и I5: вставка поля не портит соседей', (
     expect(out).toContain('name: g  # важный')
     expect(out).toContain('hidden: true')
     expect(out).not.toContain('true  # важный')
+  })
+})
+
+describe('дефект 1: новое поле не отрывает маркер от голого ключа `proxies`', () => {
+  it('bundle: у «⚡️ Fastest» поле встаёт ПОСЛЕ маркера, а не между ним и ключом', () => {
+    const text = mihomoFixture('bundle')
+    const md = parseMihomo(text)
+    // Голый `proxies:` — последняя пара группы, маркер стоит следующей строкой
+    expect(groupsOf(md)[2]!.name).toBe('⚡️ Fastest')
+    expect(groupsOf(md)[2]!.hasMarker).toBe(true)
+
+    const out = applyEdits(text, setGroupField(md, 2, 'hidden', true))
+    const after = parseMihomo(out)
+    expect(after.issues).toHaveLength(0)
+    expect(groupsOf(after)[2]!.hidden).toBe(true)
+    // Главное заявление: маркер по-прежнему принадлежит ключу `proxies`, и узел
+    // подстановки не исчезает с холста
+    expect(groupsOf(after)[2]!.hasMarker).toBe(true)
+  })
+
+  it('корень: голый `proxies:` с маркером строкой ниже переживает новое поле', () => {
+    const text = 'mode: rule\nproxies:\n  # LEAVE THIS LINE!\n'
+    const md = parseMihomo(text)
+    expect(hasRootMarker(md)).toBe(true)
+
+    const out = applyEdits(text, setFieldAt(md, [], 'log-level', 'info'))
+    const after = parseMihomo(out)
+    expect(after.issues).toHaveLength(0)
+    expect(out).toContain('log-level: info')
+    expect(hasRootMarker(after)).toBe(true)
+  })
+
+  it('маркер на строке ключа (default.yaml) остаётся при ключе', () => {
+    const text = mihomoFixture('default')
+    const md = parseMihomo(text)
+    expect(groupsOf(md)[0]!.hasMarker).toBe(true)
+
+    const out = applyEdits(text, setGroupField(md, 0, 'hidden', true))
+    const after = parseMihomo(out)
+    expect(after.issues).toHaveLength(0)
+    expect(groupsOf(after)[0]!.hidden).toBe(true)
+    expect(groupsOf(after)[0]!.hasMarker).toBe(true)
+  })
+
+  it('после маркера идут ещё скалярные ключи — якорь по-прежнему последний из них', () => {
+    const text =
+      'proxy-groups:\n  - name: g\n    proxies:\n      # LEAVE THIS LINE!\n    type: select\n'
+    const out = edit(text, (md) => setGroupField(md, 0, 'hidden', true))
+    const after = parseMihomo(out)
+    expect(after.issues).toHaveLength(0)
+    expect(groupsOf(after)[0]!.hidden).toBe(true)
+    expect(groupsOf(after)[0]!.hasMarker).toBe(true)
+  })
+
+  it('пустая строка после голого ключа границу вставки не переходит', () => {
+    const text = 'proxy-groups:\n  - name: g\n    proxies:\n      # LEAVE THIS LINE!\n\n  - name: h\n    type: select\n'
+    const out = edit(text, (md) => setGroupField(md, 0, 'hidden', true))
+    const after = parseMihomo(out)
+    expect(after.issues).toHaveLength(0)
+    expect(groupsOf(after).map((g) => g.name)).toEqual(['g', 'h'])
+    expect(groupsOf(after)[0]!.hasMarker).toBe(true)
+    expect(groupsOf(after)[0]!.hidden).toBe(true)
+    // Пустая строка — граница чужой территории: новое поле встаёт до неё
+    expect(out).toContain('# LEAVE THIS LINE!\n    hidden: true\n\n  - name: h')
+  })
+})
+
+describe('дефект 2: новая группа пригодна к правке сразу', () => {
+  // `proxies: []` — flow-коллекция, и все писатели по решению А от неё
+  // отказываются: группа, заведённая кнопкой, оказывалась заперта до ручной
+  // правки YAML. Голый ключ — ровно то, как выглядит группа в дефолтном
+  // шаблоне панели, и его писатели принимают.
+  it('setListAt пишет участника в только что заведённую группу', () => {
+    const text = mihomoFixture('default')
+    const added = applyEdits(text, addGroup(parseMihomo(text), 'Новая'))
+    const md = parseMihomo(added)
+    const index = groupsOf(md).findIndex((g) => g.name === 'Новая')
+    expect(index).toBeGreaterThanOrEqual(0)
+
+    const edits = setListAt(md, ['proxy-groups', index], 'proxies', ['DIRECT'])
+    expect(edits).not.toEqual([])
+    const out = applyEdits(added, edits)
+    const after = parseMihomo(out)
+    expect(after.issues).toHaveLength(0)
+    expect(groupsOf(after).find((g) => g.name === 'Новая')!.proxies).toEqual(['DIRECT'])
+  })
+})
+
+describe('дефект 4: перевод строки во вставках берётся из документа', () => {
+  // Одиночный \n без \r перед ним. Живые шаблоны панели приезжают в CRLF, и
+  // захардкоженный \n во вставке делает документ смешанным: разбор молчит, а
+  // diff показывает изменёнными строки, которых никто не касался.
+  const LONE_LF = /(^|[^\r])\n/
+
+  it('предпосылка: bundle.yaml и default.yaml однородно CRLF', () => {
+    expect(mihomoFixture('bundle')).not.toMatch(LONE_LF)
+    expect(mihomoFixture('default')).not.toMatch(LONE_LF)
+  })
+
+  it('setFieldAt с новым ключом не роняет \\r', () => {
+    const text = mihomoFixture('bundle')
+    const out = applyEdits(text, setGroupField(parseMihomo(text), 2, 'hidden', true))
+    expect(out).not.toMatch(LONE_LF)
+    expect(groupsOf(parseMihomo(out))[2]!.hidden).toBe(true)
+  })
+
+  it('addGroup не роняет \\r', () => {
+    const text = mihomoFixture('bundle')
+    const out = applyEdits(text, addGroup(parseMihomo(text), 'Новая'))
+    expect(out).not.toMatch(LONE_LF)
+    expect(groupsOf(parseMihomo(out)).some((g) => g.name === 'Новая')).toBe(true)
+  })
+
+  it('setListAt не роняет \\r — ни на пустом ключе, ни на замене блока', () => {
+    // Пусто: блок дописывается ПОСЛЕ строки ключа
+    const empty = mihomoFixture('default')
+    const filled = applyEdits(
+      empty,
+      setListAt(parseMihomo(empty), ['proxy-groups', 0], 'proxies', ['DIRECT']),
+    )
+    expect(filled).not.toMatch(LONE_LF)
+    expect(groupsOf(parseMihomo(filled))[0]!.proxies).toEqual(['DIRECT'])
+
+    // Есть элементы: строки блока заменяются целиком (группа «♻️ БезVPN»)
+    const block = mihomoFixture('bundle')
+    const out = applyEdits(
+      block,
+      setListAt(parseMihomo(block), ['proxy-groups', 3], 'proxies', ['DIRECT', 'REJECT']),
+    )
+    expect(out).not.toMatch(LONE_LF)
+    expect(groupsOf(parseMihomo(out))[3]!.proxies).toEqual(['DIRECT', 'REJECT'])
+  })
+
+  it('addRule не роняет \\r — ни в список, ни в новую секцию', () => {
+    const text = mihomoFixture('default')
+    expect(applyEdits(text, addRule(parseMihomo(text), 'DOMAIN,a.com,DIRECT', 0)))
+      .not.toMatch(LONE_LF)
+    expect(applyEdits(text, addRule(parseMihomo(text), 'DOMAIN,a.com,DIRECT')))
+      .not.toMatch(LONE_LF)
+
+    // Голый ключ и отсутствующая секция — те же вставки, что и в дефекте 3
+    const bare = 'mode: rule\r\nrules:\r\n'
+    expect(applyEdits(bare, addRule(parseMihomo(bare), 'MATCH,DIRECT'))).not.toMatch(LONE_LF)
+    const none = 'mode: rule\r\n'
+    expect(applyEdits(none, addRule(parseMihomo(none), 'MATCH,DIRECT'))).not.toMatch(LONE_LF)
   })
 })
 

@@ -202,10 +202,60 @@ function indentAt(text: string, offset: number): string {
   return line.replace(/\S/g, ' ')
 }
 
+/**
+ * Перевод строки ЭТОГО документа. Живые шаблоны панели приезжают в CRLF
+ * (`bundle.yaml`, `default.yaml` во фикстурах — именно такие), а вставки
+ * собирались с захардкоженным `\n`: документ становился смешанным — часть строк
+ * `\r\n`, часть голый `\n`. Разбор на это не жалуется, но diff показывает
+ * изменёнными строки, которых никто не касался, и правка перестаёт читаться.
+ *
+ * Признак — наличие хотя бы одной пары `\r\n`. Уже смешанный документ мы не
+ * лечим (это была бы перепечатка байтов, которых пользователь не трогал) —
+ * только не добавляем к нему своего.
+ *
+ * Один помощник на всех писателей, включая кабель в `graph/mihomo/mutations.ts`:
+ * вторая копия этой развилки разошлась бы с первой ровно так же, как дважды
+ * расходился расчёт конца блока (`afterBlock`).
+ */
+export function newlineOf(text: string): string {
+  return text.includes('\r\n') ? '\r\n' : '\n'
+}
+
 /** Позиция конца СТРОКИ (символ `\n` или конец текста), на которой лежит `offset` */
 function lineEndFrom(text: string, offset: number): number {
   const nl = text.indexOf('\n', offset)
   return nl === -1 ? text.length : nl
+}
+
+/**
+ * Конец области, занятой значением ГОЛОГО ключа (`proxies:` без значения): своя
+ * строка плюс идущие следом строки-комментарии с бо́льшим отступом, чем у ключа.
+ * Такой комментарий принадлежит ЗНАЧЕНИЮ ключа, а не следующей паре, и вставка
+ * нового поля сразу за строкой ключа встала бы МЕЖДУ ключом и комментарием.
+ *
+ * Для маркера подстановки это не косметика: `markerAfterKey` (`marker.ts`) ищет
+ * его в области от ключа до СЛЕДУЮЩЕГО ключа отображения, и новая пара,
+ * вставленная между `proxies:` и `# LEAVE THIS LINE!`, уводит маркер за границу
+ * этой области — YAML остаётся валидным, а узел подстановки молча исчезает с
+ * холста. Воспроизводится на `bundle.yaml`, группа «⚡️ Fastest», где голый
+ * `proxies:` — последняя пара группы.
+ *
+ * Пустая строка и строка с меньшим или равным отступом область закрывают: там
+ * начинается территория соседа, и вставка обязана встать ДО неё.
+ */
+function nullValueEnd(text: string, keyStart: number, valueEnd: number): number {
+  const keyIndent = keyStart - (text.lastIndexOf('\n', keyStart - 1) + 1)
+  let end = lineEndFrom(text, valueEnd)
+  while (end < text.length) {
+    const lineStart = end + 1
+    const lineEnd = lineEndFrom(text, lineStart)
+    // Только строки-комментарии целиком: значение у ключа отсутствует, ничего
+    // другого принадлежать ему тут не может
+    const indent = /^( *)#/.exec(text.slice(lineStart, lineEnd))?.[1]
+    if (indent === undefined || indent.length <= keyIndent) break
+    end = lineEnd
+  }
+  return end
 }
 
 /**
@@ -408,8 +458,22 @@ export function setFieldAt(
   const indent = indentAt(md.text, keyStart)
   // Вставляем в конец СТРОКИ, а не в конец значения (находка I5): иначе хвостовой
   // комментарий («- name: g  # важный») окажется приклеен уже к новому полю.
-  const at = lineEndFrom(md.text, anchorRange.to)
-  return [{ from: at, to: at, insert: `\n${indent}${owner.leaf}: ${printed}` }]
+  // У голого ключа строка не одна: комментарии под ним принадлежат его значению
+  // (см. `nullValueEnd`) — вставка между ключом и маркером отвязала бы маркер.
+  const bareKey = isScalar(anchor.value) && anchor.value.value === null
+  const end = bareKey
+    ? nullValueEnd(md.text, keyStart, anchorRange.to)
+    : lineEndFrom(md.text, anchorRange.to)
+  const nl = newlineOf(md.text)
+  const line = `${indent}${owner.leaf}: ${printed}`
+  // Вставляем НАЧАЛОМ следующей строки, а не хвостом текущей: в CRLF-документе
+  // ведущий перевод строки встал бы между `\r` и `\n` якорной строки и порвал бы
+  // её терминатор надвое. `end` — позиция `\n` (`lineEndFrom`), значит `end + 1`
+  // и есть начало следующей строки, каким бы ни был терминатор.
+  if (end < md.text.length) return [{ from: end + 1, to: end + 1, insert: line + nl }]
+  // Конец файла без завершающего перевода строки: следующей строки нет, её
+  // придётся начать самим (находка C1 в третьем обличье)
+  return [{ from: end, to: end, insert: nl + line }]
 }
 
 /** Тонкая обёртка над `setFieldAt` для частого случая «поле группы» — сигнатура
@@ -536,7 +600,8 @@ export function setListAt(
       : md.text
           .slice(md.text.lastIndexOf('\n', firstRange.from - 1) + 1, firstRange.from)
           .replace(/-\s*$/, '')
-  const block = printed.map((p) => `${indent}- ${p}\n`).join('')
+  const nl = newlineOf(md.text)
+  const block = printed.map((p) => `${indent}- ${p}${nl}`).join('')
 
   // Пустой список записан на строке ключа (`proxies: []` или `proxies:` с
   // комментарием-маркером) — заменять его диапазон нельзя, там же может стоять
@@ -544,7 +609,7 @@ export function setListAt(
   if (listRange === null || firstRange === null) {
     const lineEnd = md.text.indexOf('\n', keyRange.from)
     const at = lineEnd === -1 ? md.text.length : lineEnd + 1
-    const lead = at > 0 && md.text[at - 1] !== '\n' ? '\n' : ''
+    const lead = at > 0 && md.text[at - 1] !== '\n' ? nl : ''
     return [{ from: at, to: at, insert: lead + block }]
   }
 
@@ -911,6 +976,47 @@ export function removeRule(md: MihomoDoc, ruleIndex: number): TextEdit[] {
   return [{ from: lineStart, to: lineEnd === -1 ? md.text.length : lineEnd + 1, insert: '' }]
 }
 
+/**
+ * Первое правило документа: якорной строки, от которой считаются отступы, ещё
+ * нет, и оба случая различает наличие самого ключа `rules`.
+ *
+ * Раньше на оба отвечал пустой список правок, и кнопка «+ Правило» молча не
+ * работала ровно там, где правило нужнее всего, — в документе, где правил ещё
+ * нет. Подсказка пустого холста при этом обещала «заведите группу и правило
+ * кнопками ниже».
+ *
+ * Ключ есть, но под ним не пусто (отображение, скаляр со значением, ссылка на
+ * якорь) — отказ: структуру чужого документа редактор не выдумывает, это тот же
+ * принцип, по которому отказывает `addGroup`. Корень не отображение — отказ по
+ * той же причине.
+ */
+function firstRuleEdits(md: MihomoDoc, printed: string): TextEdit[] {
+  const root = md.doc.contents
+  if (!isMap(root)) return []
+  const step = ' '.repeat(detectIndentStep(md.text))
+  const nl = newlineOf(md.text)
+  const pair = root.items.find((p) => (p.key as { value?: unknown } | null)?.value === 'rules')
+
+  // Ключа нет вовсе — секция дописывается в конец документа. Свой перевод
+  // строки перед ней обязателен, если документ им не оканчивается (находка C1):
+  // иначе `rules:` приклеится к последней незавершённой строке.
+  if (pair === undefined) {
+    const at = md.text.length
+    const lead = at > 0 && md.text[at - 1] !== '\n' ? nl : ''
+    return [{ from: at, to: at, insert: `${lead}rules:${nl}${step}- ${printed}${nl}` }]
+  }
+
+  if (!(isScalar(pair.value) && pair.value.value === null)) return []
+  const keyRange = rangeOf(pair.key as unknown)
+  if (keyRange === null) return []
+  const keyLineStart = md.text.lastIndexOf('\n', keyRange.from - 1) + 1
+  const indent = md.text.slice(keyLineStart, keyRange.from) + step
+  const lineEnd = md.text.indexOf('\n', keyRange.from)
+  const insertAt = lineEnd === -1 ? md.text.length : lineEnd + 1
+  const lead = insertAt > 0 && md.text[insertAt - 1] !== '\n' ? nl : ''
+  return [{ from: insertAt, to: insertAt, insert: `${lead}${indent}- ${printed}${nl}` }]
+}
+
 export function addRule(md: MihomoDoc, raw: string, at?: number): TextEdit[] {
   // Решение А / находка C2: во flow-списке нет «строк», по которым тут считаем
   if (isFlowNode(sectionNode(md, 'rules'))) return []
@@ -923,27 +1029,30 @@ export function addRule(md: MihomoDoc, raw: string, at?: number): TextEdit[] {
   // не список правил, а отображение с обрезанным по `#` содержимым.
   const rule = parseRule(raw)
   if (rule === null) return []
-  const rules = rulesOf(md)
-  if (rules.length === 0) return []
-  const anchor = at === undefined ? rules[rules.length - 1]! : rules.find((r) => r.index === at)
-  if (anchor === undefined) return []
   const printed = ruleText(rule)
   // Находка ревью, раунд 4: перевод строки внутри `raw` (например, в цели)
   // заставил бы сериализатор напечатать блочный скаляр (`|-`) вместо одной
   // строки — сплайс вставил бы многострочный кусок туда, где список правил
   // ждёт ровно одну новую строку. Отказ, а не порча.
   if (printed === null) return []
+  const rules = rulesOf(md)
+  // Правил ещё нет: считать отступ не от чего, и оба случая («ключ голый» и
+  // «ключа нет») разбирает отдельный помощник
+  if (rules.length === 0) return firstRuleEdits(md, printed)
+  const anchor = at === undefined ? rules[rules.length - 1]! : rules.find((r) => r.index === at)
+  if (anchor === undefined) return []
   const lineStart = md.text.lastIndexOf('\n', anchor.range.from - 1) + 1
   const indent = md.text.slice(lineStart, anchor.range.from).replace(/-\s*$/, '')
-  const line = `${indent}- ${printed}\n`
+  const nl = newlineOf(md.text)
+  const line = `${indent}- ${printed}${nl}`
   if (at === undefined) {
     const lineEnd = md.text.indexOf('\n', anchor.range.to)
     const insertAt = lineEnd === -1 ? md.text.length : lineEnd + 1
     // Находка C1: без завершающего перевода строки в исходнике точка вставки —
     // это конец последней НЕЗАВЕРШЁННОЙ строки, а не начало новой; без своего
-    // `\n` перед вставкой два правила слипнутся в одну мусорную строку.
+    // перевода строки перед вставкой два правила слипнутся в одну мусорную строку.
     const needsNewline = insertAt > 0 && md.text[insertAt - 1] !== '\n'
-    return [{ from: insertAt, to: insertAt, insert: (needsNewline ? '\n' : '') + line }]
+    return [{ from: insertAt, to: insertAt, insert: (needsNewline ? nl : '') + line }]
   }
   return [{ from: lineStart, to: lineStart, insert: line }]
 }
@@ -953,12 +1062,20 @@ export function addRule(md: MihomoDoc, raw: string, at?: number): TextEdit[] {
  * минимум, который ядро примет и который сразу виден в графе. Маркер подстановки
  * НЕ ставим: где панель подставляет хосты, решает автор шаблона, а угаданный
  * маркер молча изменил бы состав подписки.
+ *
+ * `proxies:` — ГОЛЫЙ ключ, а не `proxies: []`. Пустой список в YAML выразим
+ * только flow-коллекцией, а от неё по решению А отказываются все писатели
+ * (`setListAt`, `connectMihomo`): группа, заведённая кнопкой, оказывалась
+ * заперта до ручной правки текста — форма и кабель показывали замок на пустом
+ * месте. Голый ключ и писатели принимают («пусто» — `isScalar && value ===
+ * null`), и ровно так группа выглядит в дефолтном шаблоне панели.
  */
 export function addGroup(md: MihomoDoc, name: string): TextEdit[] {
   const printed = scalar(name)
   if (printed === null) return []
+  const nl = newlineOf(md.text)
   const insertion = (indent: string) =>
-    `${indent}- name: ${printed}\n${indent}  type: select\n${indent}  proxies: []\n`
+    `${indent}- name: ${printed}${nl}${indent}  type: select${nl}${indent}  proxies:${nl}`
 
   const section = sectionNode(md, 'proxy-groups')
   if (isSeq(section)) {
@@ -976,8 +1093,8 @@ export function addGroup(md: MihomoDoc, name: string): TextEdit[] {
     const indent = md.text.slice(lineStart, lastRange.from).replace(/-\s*$/, '')
     const at = afterBlock(md.text, lastRange.to)
     // Без завершающего перевода строки в исходнике точка вставки — конец
-    // последней НЕЗАВЕРШЁННОЙ строки: свой `\n` обязателен (находка C1 плана 1)
-    const lead = at > 0 && md.text[at - 1] !== '\n' ? '\n' : ''
+    // последней НЕЗАВЕРШЁННОЙ строки: свой перевод строки обязателен (находка C1)
+    const lead = at > 0 && md.text[at - 1] !== '\n' ? nl : ''
     return [{ from: at, to: at, insert: lead + insertion(indent) }]
   }
 
@@ -1004,7 +1121,7 @@ export function addGroup(md: MihomoDoc, name: string): TextEdit[] {
   const indent = md.text.slice(keyLineStart, keyRange.from) + ' '.repeat(step)
   const lineEnd = md.text.indexOf('\n', keyRange.from)
   const at = lineEnd === -1 ? md.text.length : lineEnd + 1
-  const lead = at > 0 && md.text[at - 1] !== '\n' ? '\n' : ''
+  const lead = at > 0 && md.text[at - 1] !== '\n' ? nl : ''
   return [{ from: at, to: at, insert: lead + insertion(indent) }]
 }
 

@@ -6,7 +6,7 @@ import {
   refusalText,
 } from '../src/entities/graph/mihomo/mutations'
 import { buildMihomoGraph } from '../src/entities/graph/mihomo/buildGraph'
-import { applyEdits, setListAt } from '../src/entities/mihomo/edits'
+import { addGroup, applyEdits, setListAt } from '../src/entities/mihomo/edits'
 import { parseMihomo } from '../src/entities/mihomo/parse'
 import { rulesOf } from '../src/entities/mihomo/rules'
 import { groupsOf } from '../src/entities/mihomo/groups'
@@ -58,6 +58,21 @@ describe('соединение', () => {
     const md = parseMihomo(base)
     const out = applyEdits(base, connectMihomo(md, 'group:VPN', 'group:Fast').edits)
     expect(groupsOf(parseMihomo(out))[0]!.proxies).toEqual(['DIRECT', 'Fast'])
+  })
+
+  it('в CRLF-документ кабель вписывает строку с CRLF, а не голым LF', () => {
+    // Живые шаблоны панели приезжают в CRLF; вставка с захардкоженным `\n`
+    // делала документ смешанным — diff показывал чужие строки изменёнными
+    const crlf = base.replace(/\n/g, '\r\n')
+    const out = applyEdits(crlf, connectMihomo(parseMihomo(crlf), 'group:VPN', 'group:Fast').edits)
+    expect(groupsOf(parseMihomo(out))[0]!.proxies).toEqual(['DIRECT', 'Fast'])
+    expect(out).not.toMatch(/(^|[^\r])\n/)
+
+    // Голый ключ без элементов — вторая ветка писателя, отступ считается от ключа
+    const bare = 'proxy-groups:\r\n  - name: A\r\n    proxies:\r\n  - name: B\r\n'
+    const out2 = applyEdits(bare, connectMihomo(parseMihomo(bare), 'group:A', 'group:B').edits)
+    expect(groupsOf(parseMihomo(out2))[0]!.proxies).toEqual(['B'])
+    expect(out2).not.toMatch(/(^|[^\r])\n/)
   })
 
   it('повторное соединение ничего не меняет', () => {
@@ -211,6 +226,22 @@ describe('пустой блочный список', () => {
     const edit = edits[0]!
     const withoutInsert = out.slice(0, edit.from) + out.slice(edit.from + edit.insert.length)
     expect(withoutInsert).toBe(fixture)
+  })
+
+  // Дефект 2: группа, заведённая кнопкой «+ Группа», обязана принимать кабель
+  // сразу. Пока `addGroup` писал `proxies: []`, ответом был отказ `flow-list`,
+  // и новая группа оставалась мёртвой до ручной правки YAML.
+  it('соединение с группой, только что заведённой addGroup', () => {
+    const fixture = mihomoFixture('default')
+    const added = applyEdits(fixture, addGroup(parseMihomo(fixture), 'Новая'))
+    const md = parseMihomo(added)
+    const res = connectMihomo(md, 'group:Новая', 'builtin:DIRECT')
+    expect(res.refusal).toBeUndefined()
+
+    const out = applyEdits(added, res.edits)
+    const parsedOut = parseMihomo(out)
+    expect(parsedOut.issues).toEqual([])
+    expect(groupsOf(parsedOut).find((g) => g.name === 'Новая')!.proxies).toEqual(['DIRECT'])
   })
 
   it('соединение с группой, у которой блочный список пуст', () => {

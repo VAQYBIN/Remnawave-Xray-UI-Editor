@@ -8,6 +8,7 @@ import {
   detectIndentStep,
   fieldOrigin,
   isFlowNode,
+  newlineOf,
   scalar,
   setRuleTarget,
   type TextEdit,
@@ -140,12 +141,14 @@ function proxiesPair(md: MihomoDoc, groupIndex: number) {
  * строки плюс перевод строки. Если перевод строки после `searchFrom` не нашёлся,
  * это последняя строка файла без завершающего \n: вставка пришлась бы прямо в
  * конец этой строки (`proxies:      - DIRECT` в одну строку — невалидный YAML),
- * поэтому в таком случае сами добавляем ведущий `\n` к вставляемому тексту, а не
- * полагаемся на то, что он уже есть в файле.
+ * поэтому в таком случае сами добавляем ведущий перевод строки к вставляемому
+ * тексту, а не полагаемся на то, что он уже есть в файле. Какой именно перевод —
+ * решает документ (`newlineOf`): в CRLF-шаблоне панели голый `\n` дал бы
+ * смешанные окончания.
  */
 function afterLine(text: string, searchFrom: number): { at: number; prefix: string } {
   const lineEnd = text.indexOf('\n', searchFrom)
-  return lineEnd === -1 ? { at: text.length, prefix: '\n' } : { at: lineEnd + 1, prefix: '' }
+  return lineEnd === -1 ? { at: text.length, prefix: newlineOf(text) } : { at: lineEnd + 1, prefix: '' }
 }
 
 export function connectMihomo(md: MihomoDoc, source: string, target: string): MihomoEditResult {
@@ -218,7 +221,7 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Mi
     const lineStart = md.text.lastIndexOf('\n', range.from - 1) + 1
     const indent = md.text.slice(lineStart, range.from).replace(/-\s*$/, '')
     const { at, prefix } = afterLine(md.text, range.to)
-    return { edits: [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }] }
+    return { edits: [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}${newlineOf(md.text)}` }] }
   }
 
   // Элементов нет — список либо пуст, либо ключ вообще без значения (частый случай:
@@ -231,7 +234,7 @@ export function connectMihomo(md: MihomoDoc, source: string, target: string): Mi
   const keyIndent = md.text.slice(keyLineStart, keyRange.from)
   const indent = keyIndent + ' '.repeat(detectIndentStep(md.text))
   const { at, prefix } = afterLine(md.text, keyRange.from)
-  return { edits: [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}\n` }] }
+  return { edits: [{ from: at, to: at, insert: `${prefix}${indent}- ${printedName}${newlineOf(md.text)}` }] }
 }
 
 export function disconnectMihomo(md: MihomoDoc, edge: string): MihomoEditResult {

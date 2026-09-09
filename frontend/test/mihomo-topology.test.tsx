@@ -26,10 +26,12 @@ import {
   mihomoColumns,
   MIHOMO_TARGET_KINDS,
   nextGroupName,
+  nextRulePlacement,
 } from '../src/features/topology/MihomoTopology'
 import { usePositionsStore } from '../src/features/topology/positionsStore'
 import { buildMihomoGraph, layoutMihomo } from '../src/entities/graph/mihomo/buildGraph'
 import { parseMihomo } from '../src/entities/mihomo'
+import { mihomoFixture } from './helpers'
 
 const DOC = [
   'proxy-groups:',
@@ -277,6 +279,36 @@ describe('подсветка целей кабеля', () => {
     for (const kind of ['rule', 'out', 'inj', 'bal']) {
       expect(highlighted(kind), kind).toHaveLength(2)
     }
+  })
+})
+
+describe('дефект 3в: место и текст нового правила', () => {
+  it('последнее правило — MATCH: заготовка встаёт ПЕРЕД ним и сама не MATCH', () => {
+    const md = parseMihomo('rules:\n  - DOMAIN,a.com,DIRECT\n  - MATCH,DIRECT\n')
+    expect(nextRulePlacement(md)).toEqual({ raw: 'DOMAIN-SUFFIX,example.com,DIRECT', at: 1 })
+  })
+
+  it('MATCH в конце нет: MATCH,DIRECT дописывается в конец', () => {
+    const md = parseMihomo('rules:\n  - DOMAIN,a.com,DIRECT\n')
+    expect(nextRulePlacement(md)).toEqual({ raw: 'MATCH,DIRECT' })
+  })
+
+  it('правил ещё нет: MATCH,DIRECT — первое правило документа', () => {
+    expect(nextRulePlacement(parseMihomo('mode: rule\n'))).toEqual({ raw: 'MATCH,DIRECT' })
+  })
+
+  it('док вставляет правило перед финальным MATCH шаблона панели', async () => {
+    const addRuleText = vi.fn()
+    // Хвост default.yaml: `- MATCH,→ Remnawave`. Новое MATCH после него было бы
+    // мёртвым — в Mihomo выигрывает первое совпавшее правило
+    const md = parseMihomo(mihomoFixture('default'))
+    render(
+      <ReactFlowProvider>
+        <MihomoTopology draft={draftStub({ addRuleText })} md={md} />
+      </ReactFlowProvider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: '+ Правило' }))
+    expect(addRuleText).toHaveBeenCalledWith('DOMAIN-SUFFIX,example.com,DIRECT', 2)
   })
 })
 

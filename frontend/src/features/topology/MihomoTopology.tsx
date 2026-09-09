@@ -7,7 +7,7 @@ import type { Connection, Edge } from '@xyflow/react'
 import { buildMihomoGraph, layoutMihomo } from '../../entities/graph/mihomo/buildGraph'
 import { isValidMihomoConnection, refusalText } from '../../entities/graph/mihomo/mutations'
 import type { FlowNode } from '../../entities/graph/types'
-import { groupsOf, type MihomoDoc } from '../../entities/mihomo'
+import { groupsOf, rulesOf, type MihomoDoc } from '../../entities/mihomo'
 import type { MihomoTraceResult } from '../../entities/mihomo/trace'
 import type { MihomoDraft } from '../editor/useMihomoDraft'
 import { Button, Dialog } from '../../shared/ui'
@@ -89,6 +89,31 @@ export function nextGroupName(md: MihomoDoc): string {
     const name = `Группа ${n}`
     if (!taken.has(name)) return name
   }
+}
+
+/**
+ * Куда и чем кнопка «+ Правило» заводит новое правило. Раньше она всегда слала
+ * `MATCH,DIRECT` в конец списка — а в живом шаблоне последним правилом стоит
+ * `MATCH`, и в Mihomo выигрывает ПЕРВОЕ совпавшее: новое правило рождалось
+ * мёртвым, до него проход не доходил никогда.
+ *
+ * Поэтому при финальном `MATCH` заготовка встаёт ПЕРЕД ним, и она не `MATCH`:
+ * второй `MATCH` перед финальным сделал бы мёртвым уже финальный — редактор
+ * молча поменял бы маршрут по умолчанию. `DOMAIN-SUFFIX,example.com,DIRECT` —
+ * безобидная заготовка: она видна на холсте, её сразу правят в форме, и до
+ * правки она не меняет судьбу ни одного реального адреса.
+ *
+ * `MATCH` в конце нет (правил нет вовсе, или список кончается обычным правилом)
+ * — прежнее поведение: `MATCH,DIRECT` в конец, где он как раз уместен.
+ *
+ * Чистая функция рядом с `nextGroupName` и по той же причине: внутри компонента
+ * её не проверить, а решение о ТЕКСТЕ и МЕСТЕ — про кнопку, а не про черновик.
+ */
+export function nextRulePlacement(md: MihomoDoc): { raw: string; at?: number } {
+  const rules = rulesOf(md)
+  const last = rules[rules.length - 1]
+  if (last?.rule?.type !== 'MATCH') return { raw: 'MATCH,DIRECT' }
+  return { raw: 'DOMAIN-SUFFIX,example.com,DIRECT', at: last.index }
 }
 
 /**
@@ -238,7 +263,14 @@ export function MihomoTopology({
       }
       dockActions={
         <>
-          <Button onClick={() => draft.addRuleText('MATCH,DIRECT')}>+ Правило</Button>
+          <Button
+            onClick={() => {
+              const { raw, at } = nextRulePlacement(md)
+              draft.addRuleText(raw, at)
+            }}
+          >
+            + Правило
+          </Button>
           <Button onClick={() => draft.addGroupNamed(nextGroupName(md))}>+ Группа</Button>
         </>
       }
