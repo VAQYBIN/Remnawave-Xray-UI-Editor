@@ -132,6 +132,11 @@ function SingboxGroupNode({ data, selected }: { data: SingboxGroupNodeData; sele
       <Handle type="target" position={Position.Left} />
       <div className="fnode-head">
         <span className="fnode-kind">{data.type}</span>
+        <span className="spacer" />
+        {/* Тот же флаг и та же подпись, что у карточки выхода: группа — такая
+            же адресуемая тегом цель дефолтного маршрута, и в дефолтном шаблоне
+            панели именно группа стоит первым элементом outbounds */}
+        {data.isDefault && <span className="fnode-flag">по умолчанию</span>}
         <IssueBadge count={data.issueCount} />
       </div>
       <div className="fnode-title">{data.tag}</div>

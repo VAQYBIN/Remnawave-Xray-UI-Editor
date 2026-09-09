@@ -42,6 +42,13 @@ export interface SingboxGroupNodeData extends Record<string, unknown> {
   listed: number
   /** Заполнит ли список панель: от этого зависит и ребро, и доступность формы */
   panelFills: boolean
+  /**
+   * Сюда уйдёт трафик, не совпавший ни с одним правилом. Группа — такая же
+   * адресуемая тегом цель `route.final`/первого элемента `outbounds`, как и
+   * обычный выход (в дефолтном шаблоне панели первый outbound — как раз
+   * `selector`), и без этого поля дефолт на группе был бы не виден вовсе
+   */
+  isDefault: boolean
   issueCount?: IssueCount
 }
 

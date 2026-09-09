@@ -102,6 +102,18 @@ describe('граф sing-box', () => {
       .toEqual(['out:a'])
   })
 
+  it('группа тоже может быть дефолтным маршрутом — она такая же адресуемая цель, как выход', () => {
+    // Ровно так устроен дефолтный шаблон панели: первый элемент outbounds — selector
+    const d = doc(`{"outbounds":[
+      {"type":"selector","tag":"g","outbounds":["direct"]},
+      {"type":"direct","tag":"direct"}
+    ]}`)
+    const nodes = buildSingboxGraph(d).nodes
+    const isDefaultOf = (id: string) => (nodes.find((n) => n.id === id)!.data as { isDefault?: boolean }).isDefault
+    expect(isDefaultOf('group:g')).toBe(true)
+    expect(isDefaultOf('out:direct')).toBe(false)
+  })
+
   it('незаполненное условие в сводку правила не попадает', () => {
     // Так выглядит правило, только что заведённое кнопкой «+ Правило»: поле есть,
     // значения нет. Назвать его в сводке — сказать, что правило чем-то ограничено

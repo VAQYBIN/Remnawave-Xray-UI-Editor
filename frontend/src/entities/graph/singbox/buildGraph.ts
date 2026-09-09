@@ -173,6 +173,11 @@ export function buildSingboxGraph(doc: SingboxDoc): { nodes: Node[]; edges: Edge
           type: outbound.type,
           listed: listedTags(outbound).length,
           panelFills: panelFillsGroup(outbound),
+          // Та же формула, что у out:<tag> ниже: дефолт — по route.final, а при
+          // пустом final — по позиции. Группа тоже может быть первым элементом
+          // outbounds (у дефолтного шаблона панели так и есть), и вторая копия
+          // правила здесь разошлась бы с первой при следующей правке одной из них
+          isDefault: fallback.tag === tag,
         },
       })
       return
