@@ -1,0 +1,45 @@
+import { bool, en, map, num, obj, removed, str, strs, type FieldSchema } from '../../../shared/schema'
+
+export const DNS_FIELDS: FieldSchema[] = [
+  bool('enable', 'Включить встроенный DNS-резолвер ядра; иначе используется системный DNS.'),
+  en('cache-algorithm', 'Алгоритм кэша DNS-ответов.', [
+    { value: 'lru', doc: 'Вытеснение давно не запрашивавшихся записей (по умолчанию).' },
+    { value: 'arc', doc: 'Адаптивный кэш — лучше держит частые записи.' },
+  ]),
+  bool('prefer-h3', 'Пробовать HTTP/3 для DoH параллельно с обычным.'),
+  str('listen', 'Адрес:порт, на котором ядро отдаёт DNS (udp и tcp).'),
+  bool('ipv6', 'Отвечать на AAAA-запросы; false — пустой ответ.'),
+  num('ipv6-timeout', 'Сколько ждать AAAA при двухстековом запросе, мс.'),
+  bool('use-hosts', 'Учитывать секцию hosts при резолвинге.'),
+  bool('use-system-hosts', 'Читать системный файл hosts.'),
+  bool('respect-rules', 'Ходить к DNS-серверам с учётом правил маршрутизации; нужен непустой proxy-server-nameserver.'),
+  strs('default-nameserver', 'Бутстрап-DNS: только IP, резолвит адреса остальных серверов.'),
+  en('enhanced-mode', 'Режим выдачи адресов.', [
+    { value: 'fake-ip', doc: 'Клиенту отдаётся фиктивный IP, домен уходит в правила.' },
+    { value: 'redir-host', doc: 'Отдаётся настоящий IP.' },
+  ]),
+  str('fake-ip-range', 'Подсеть IPv4 фиктивных адресов.'),
+  str('fake-ip-range6', 'Подсеть IPv6 фиктивных адресов.'),
+  strs('fake-ip-filter', 'Домены без fake-ip: домен, шаблон, rule-set:<имя>, geosite:<категория>; в режиме rule — строки правил с целью fake-ip/real-ip.'),
+  en('fake-ip-filter-mode', 'Смысл списка fake-ip-filter.', [
+    { value: 'blacklist', doc: 'Перечисленным fake-ip не выдаётся (по умолчанию).' },
+    { value: 'whitelist', doc: 'fake-ip выдаётся только перечисленным.' },
+    { value: 'rule', doc: 'Список — правила с целью fake-ip или real-ip.' },
+  ]),
+  num('fake-ip-ttl', 'TTL ответа fake-ip; менять не рекомендуется.'),
+  strs('nameserver', 'Основные DNS-серверы: udp://, tcp://, tls://, https://, quic://, dhcp://<интерфейс>, system, rcode://; суффикс #<группа> — через прокси, #RULES — по правилам, h3=true, ecs=, skip-cert-verify=true.'),
+  strs('fallback', 'Резервные DNS-серверы на случай подмены ответа.'),
+  obj('fallback-filter', 'Когда брать ответ fallback.', [
+    bool('geoip', 'Проверять страну ответа по geoip.'),
+    str('geoip-code', 'Код «чистой» страны, по умолчанию CN.'),
+    strs('ipcidr', 'Подсети, считающиеся подменёнными.'),
+    strs('domain', 'Домены, которые сразу идут через fallback.'),
+    strs('geosite', 'Категории geosite через fallback.', { deprecated: removed('Meta', 'nameserver-policy') }),
+  ]),
+  bool('fallback-lazy-query', 'Сначала проверить ответ nameserver фильтром и только потом слать fallback.'),
+  strs('proxy-server-nameserver', 'DNS только для доменов самих прокси-серверов.'),
+  map('proxy-server-nameserver-policy', 'То же по доменам: домен, +.домен, geosite:, rule-set: → сервер или список серверов.', { values: 'strings' }),
+  strs('direct-nameserver', 'DNS только для доменов прямого выхода.'),
+  bool('direct-nameserver-follow-policy', 'Учитывать nameserver-policy для direct-nameserver.'),
+  map('nameserver-policy', 'Домен, +.домен, geosite:<кат1>,<кат2> или rule-set:<имя1>,<имя2> → сервер либо список серверов.', { values: 'strings' }),
+]

@@ -1,0 +1,71 @@
+// Корень документа: скаляры и объекты настроек. Контейнеры-разделы (proxies,
+// proxy-groups, rules, dns, tun, …) добавляет index.ts — у них свои ветви.
+
+import { bool, en, num, obj, removed, str, strs, type FieldSchema } from '../../../shared/schema'
+import { FINGERPRINT_VALUES, TLS_SERVER_FIELDS } from './shared'
+
+export const ROOT_FIELDS: FieldSchema[] = [
+  num('port', 'Порт HTTP(S)-входа.'),
+  num('socks-port', 'Порт SOCKS5-входа.'),
+  num('redir-port', 'Порт прозрачного проксирования (redirect, Linux/macOS, только TCP).'),
+  num('tproxy-port', 'Порт прозрачного проксирования (TPROXY, Linux, TCP и UDP).'),
+  num('mixed-port', 'Порт смешанного HTTP(S)+SOCKS5 входа.'),
+  bool('allow-lan', 'Разрешить подключаться к портам ядра другим устройствам сети.'),
+  str('bind-address', 'Адрес привязки входящих портов при allow-lan; * — все.'),
+  strs('lan-allowed-ips', 'Подсети, которым разрешён доступ при allow-lan.'),
+  strs('lan-disallowed-ips', 'Подсети, которым доступ запрещён; приоритет выше разрешённых.'),
+  strs('authentication', 'Пары «пользователь:пароль» для http/socks/mixed входов.'),
+  strs('skip-auth-prefixes', 'Подсети, которым авторизация не нужна.'),
+  en('mode', 'Общий режим работы.', [
+    { value: 'rule', doc: 'По правилам маршрутизации.' },
+    { value: 'global', doc: 'Весь трафик через одну выбранную группу.' },
+    { value: 'direct', doc: 'Весь трафик напрямую.' },
+  ]),
+  en('log-level', 'Уровень логирования ядра.', ['silent', 'error', 'warning', 'info', 'debug']),
+  bool('ipv6', 'Разрешить IPv6; false блокирует AAAA и соединения по IPv6.'),
+  bool('unified-delay', 'Единообразный расчёт задержки без влияния рукопожатия.'),
+  bool('tcp-concurrent', 'Открывать TCP сразу по всем IP из DNS-ответа, оставляя первое успешное.'),
+  str('interface-name', 'Исходящий сетевой интерфейс по умолчанию.'),
+  num('routing-mark', 'fwmark исходящих соединений (Linux).'),
+  en('find-process-mode', 'Определение процесса-источника соединения.', [
+    { value: 'always', doc: 'Определять всегда.' },
+    { value: 'strict', doc: 'Когда это нужно правилам (по умолчанию).' },
+    { value: 'off', doc: 'Не определять — рекомендуется на роутерах.' },
+  ]),
+  en('global-client-fingerprint', 'Глобальный отпечаток TLS-клиента для серверов без своего.', FINGERPRINT_VALUES),
+  num('keep-alive-idle', 'Простой соединения до начала TCP keep-alive, секунд.'),
+  num('keep-alive-interval', 'Интервал TCP keep-alive, секунд.'),
+  bool('disable-keep-alive', 'Отключить TCP keep-alive (на Android принудительно).'),
+  bool('geodata-mode', 'Geo-базы в формате .dat (true) вместо .mmdb/.mrs.'),
+  en('geodata-loader', 'Загрузчик geo-баз.', [
+    { value: 'standard', doc: 'Разбирает базу целиком в память.' },
+    { value: 'memconservative', doc: 'Экономит память (по умолчанию).' },
+  ]),
+  bool('geo-auto-update', 'Автообновление geo-баз ядром.'),
+  num('geo-update-interval', 'Период автообновления, часов.'),
+  obj('geox-url', 'Свои ссылки на geo-базы.', [
+    str('geoip', 'Ссылка на geoip.dat.'), str('geosite', 'Ссылка на geosite.dat.'), str('mmdb', 'Ссылка на geoip.metadb.'), str('asn', 'Ссылка на базу ASN.'),
+  ]),
+  en('geosite-matcher', 'Реализация матчера geosite.', ['succinct', 'mph']),
+  str('global-ua', 'User-Agent для скачивания провайдеров и geo-баз.'),
+  bool('etag-support', 'ETag при скачивании внешних ресурсов.'),
+  str('external-controller', 'Адрес:порт RESTful API.'),
+  str('external-controller-tls', 'Адрес:порт RESTful API по HTTPS (нужен блок tls).'),
+  str('external-controller-unix', 'Unix-сокет RESTful API (secret не проверяется).'),
+  str('external-controller-pipe', 'Named pipe RESTful API в Windows (secret не проверяется).'),
+  obj('external-controller-cors', 'CORS для RESTful API.', [strs('allow-origins', 'Разрешённые источники.'), bool('allow-private-network', 'Разрешить приватную сеть.')]),
+  num('external-controller-routing-mark', 'fwmark сокета API (Linux).'),
+  str('secret', 'Секрет доступа к RESTful API.'),
+  str('external-ui', 'Каталог веб-панели.'),
+  str('external-ui-name', 'Подкаталог веб-панели.'),
+  str('external-ui-url', 'Откуда скачать веб-панель (zip или tgz).'),
+  str('external-doh-server', 'Путь DoH-сервера на порту API, например /dns-query.'),
+  obj('tls', 'Сертификат RESTful API по HTTPS и доверенные сертификаты.', [
+    ...TLS_SERVER_FIELDS,
+    strs('custom-certifactes', 'Дополнительные корневые сертификаты в PEM (ключ ядра с опечаткой — так в ядре).'),
+  ]),
+  obj('remnawave', 'Ключи панели Remnawave; в подписку не попадают.', [
+    bool('includeHiddenHosts', 'Подставлять и скрытые (hidden) хосты профиля, а не только видимые.', { panelKey: true }),
+  ], { panelKey: true }),
+  bool('enable-process', 'Устаревший переключатель сопоставления по процессам.', { deprecated: removed('Meta', 'ключ find-process-mode') }),
+]
