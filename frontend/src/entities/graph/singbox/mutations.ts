@@ -6,6 +6,7 @@
 // молча, читается как поломка редактора, — поэтому причина обязательна и
 // переводится на русский в одном месте.
 
+import { applyOps, valueAt, type SchemaPath } from '../../../shared/schema'
 import { GROUP_OUTBOUND_TYPES, panelFillsGroup } from '../../singbox/outbounds'
 import { rulesOf } from '../../singbox/rules'
 import type { SingboxDoc, SingboxOutbound, SingboxRule } from '../../singbox/types'
@@ -193,16 +194,34 @@ export function addRule(doc: SingboxDoc, rule: SingboxRule, at?: number): Singbo
 }
 
 export function moveRule(doc: SingboxDoc, index: number, dir: -1 | 1): SingboxEditResult {
+  if (ruleAt(doc, index) === undefined) return { refusal: 'not-found' }
+  return moveAt(doc, ['route', 'rules'], index, dir)
+}
+
+/** Где лежит выход с тегом — наружу, с индексом: инспектору нужен порядок в списке */
+export function outboundSlot(doc: SingboxDoc, tag: string): { key: 'outbounds' | 'endpoints'; at: number } | null {
+  return findOutboundSlot(doc, tag)
+}
+
+/** Вставка в любой список по пути; отсутствующий список заводится по месту */
+export function insertAt(doc: SingboxDoc, listPath: SchemaPath, value: unknown, index?: number): SingboxDoc {
+  const list = valueAt(doc, listPath)
+  const length = Array.isArray(list) ? list.length : 0
+  return applyOps(doc, [{ op: 'insert', path: listPath, index: index ?? length, value }])
+}
+
+/** Перестановка соседей в любом списке; на краю и мимо списка — отказ */
+export function moveAt(doc: SingboxDoc, listPath: SchemaPath, index: number, dir: -1 | 1): SingboxEditResult {
+  const list = valueAt(doc, listPath)
   const to = index + dir
-  if (ruleAt(doc, index) === undefined || ruleAt(doc, to) === undefined) {
+  if (!Array.isArray(list) || index < 0 || index >= list.length || to < 0 || to >= list.length) {
     return { refusal: 'not-found' }
   }
-  const next = clone(doc)
-  const list = next.route!.rules!
-  const moved = list[index]!
-  list[index] = list[to]!
-  list[to] = moved
-  return { doc: next }
+  return { doc: applyOps(doc, [{ op: 'move', path: listPath, from: index, to }]) }
+}
+
+export function removeAtPath(doc: SingboxDoc, path: SchemaPath): SingboxDoc {
+  return applyOps(doc, [{ op: 'remove', path }])
 }
 
 export function removeAt(doc: SingboxDoc, nodeId: string): SingboxEditResult {

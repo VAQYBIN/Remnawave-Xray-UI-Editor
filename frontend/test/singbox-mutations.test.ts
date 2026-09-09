@@ -5,11 +5,15 @@ import {
   addRule,
   connectSingbox,
   disconnectSingbox,
+  insertAt,
   isValidSingboxConnection,
+  moveAt,
   moveRule,
   outboundByTag,
+  outboundSlot,
   outboundSlotOf,
   removeAt,
+  removeAtPath,
   singboxRefusalText,
   withOutboundAt,
 } from '../src/entities/graph/singbox/mutations'
@@ -185,5 +189,43 @@ describe('правки структуры sing-box', () => {
     expect(outboundSlotOf(withEndpoint, 'wg')).toBe('endpoints')
     expect(outboundSlotOf(withEndpoint, 'direct')).toBe('outbounds')
     expect(outboundSlotOf(withEndpoint, 'no-such-tag')).toBeNull()
+  })
+})
+
+describe('обобщённые мутации по пути', () => {
+  const base = parseSingbox(`{
+    "inbounds": [{"type":"tun","tag":"a"},{"type":"mixed","tag":"b"}],
+    "outbounds": [{"type":"direct","tag":"d"}],
+    "endpoints": [{"type":"wireguard","tag":"w"}],
+    "dns": {"servers":[{"type":"local","tag":"x"},{"type":"udp","tag":"y","server":"1.1.1.1"}]}
+  }`).doc!
+
+  it('insertAt вставляет в конец по умолчанию и заводит список, которого нет', () => {
+    const next = insertAt(base, ['outbounds'], { type: 'direct', tag: 'e' })
+    expect(next.outbounds!.map((o) => o.tag)).toEqual(['d', 'e'])
+    const fresh = insertAt({}, ['route', 'rule_set'], { type: 'remote', tag: 'r' })
+    expect(fresh.route!.rule_set!.map((s) => s.tag)).toEqual(['r'])
+    expect(base.outbounds!.length).toBe(1)
+  })
+
+  it('moveAt переставляет соседей в любом списке и отказывает на краю', () => {
+    const moved = moveAt(base, ['dns', 'servers'], 1, -1)
+    expect(moved.doc!.dns!.servers!.map((s) => s.tag)).toEqual(['y', 'x'])
+    expect(moveAt(base, ['dns', 'servers'], 0, -1).refusal).toBe('not-found')
+    expect(moveAt(base, ['nope'], 0, 1).refusal).toBe('not-found')
+    // Верхний край списка: outbounds здесь один элемент, дальше двигать некуда
+    expect(moveAt(base, ['outbounds'], 0, 1).refusal).toBe('not-found')
+  })
+
+  it('removeAtPath вырезает элемент; outboundSlot различает списки', () => {
+    expect(removeAtPath(base, ['inbounds', 0]).inbounds!.map((i) => i.tag)).toEqual(['b'])
+    expect(outboundSlot(base, 'w')).toEqual({ key: 'endpoints', at: 0 })
+    expect(outboundSlot(base, 'd')).toEqual({ key: 'outbounds', at: 0 })
+    expect(outboundSlot(base, 'zz')).toBeNull()
+  })
+
+  it('moveRule по-прежнему работает поверх moveAt', () => {
+    const doc = parseSingbox(`{"route":{"rules":[{"domain":["a"],"outbound":"d"},{"domain":["b"],"outbound":"d"}]}}`).doc!
+    expect(moveRule(doc, 1, -1).doc!.route!.rules![0]!.domain).toEqual(['b'])
   })
 })

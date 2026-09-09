@@ -110,3 +110,35 @@ describe('черновик sing-box', () => {
     expect(result.current.trace?.winner?.target).toBe('direct')
   })
 })
+
+describe('черновик как писатель', () => {
+  function mount() {
+    return renderHook(() =>
+      useSingboxDraft({ docKey: 'writer-test', panelJson: PANEL, baseVersion: 'h1' }),
+    )
+  }
+
+  it('applyOps меняет текст черновика записью в историю', () => {
+    const { result } = mount()
+    act(() => result.current.applyOps([{ op: 'set', path: ['route', 'final'], value: 'direct' }]))
+    expect(JSON.parse(result.current.text).route.final).toBe('direct')
+    expect(result.current.undoAvailable).toBe(true)
+    act(() => result.current.doUndo())
+    expect(JSON.parse(result.current.text).route.final).toBeUndefined()
+  })
+
+  it('lockAt закрывает список группы, которую заполняет панель, и молчит про закреплённую', () => {
+    const { result } = mount()
+    expect(result.current.lockAt(['outbounds', 0, 'outbounds'])?.reason).toMatch(/панел/i)
+    act(() => result.current.applyOps([{ op: 'set', path: ['outbounds', 0, 'remnawave'], value: { includeProxies: false } }]))
+    expect(result.current.lockAt(['outbounds', 0, 'outbounds'])).toBeNull()
+    expect(result.current.lockAt(['outbounds', 1, 'tag'])).toBeNull()
+  })
+
+  it('writer — тот же объект между рендерами при неизменном документе', () => {
+    const { result, rerender } = mount()
+    const first = result.current.writer
+    rerender()
+    expect(result.current.writer).toBe(first)
+  })
+})
