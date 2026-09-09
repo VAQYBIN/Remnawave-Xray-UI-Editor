@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -51,6 +52,54 @@ describe('NumberField', () => {
   it('подсказка рендерится', () => {
     render(<NumberField label="p" hint="Порт сервера." value={1} onChange={vi.fn()} />)
     expect(screen.getByText('Порт сервера.')).toBeInTheDocument()
+  })
+
+  it('буфер следует за value извне, а не только за монтированием', () => {
+    const onChange = vi.fn()
+    const { rerender } = render(<NumberField label="q" value={5} onChange={onChange} />)
+    expect(screen.getByLabelText('q')).toHaveValue('5')
+    rerender(<NumberField label="q" value={7} onChange={onChange} />)
+    expect(screen.getByLabelText('q')).toHaveValue('7')
+  })
+
+  it('эхо того же value не стирает недобранное частичное значение', async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <NumberField label="w" value={undefined} onChange={onChange} min={-10} />,
+    )
+    const input = screen.getByLabelText('w')
+    await userEvent.type(input, '-')
+    expect(input).toHaveValue('-')
+    rerender(<NumberField label="w" value={undefined} onChange={onChange} min={-10} />)
+    expect(input).toHaveValue('-')
+  })
+})
+
+describe('ListEditor + NumberField: карточки ключуются индексом', () => {
+  function ReorderableNumbers() {
+    const [items, setItems] = useState<{ n: number }[]>([{ n: 1 }, { n: 2 }])
+    return (
+      <ListEditor
+        label="числа"
+        value={items}
+        onChange={(v) => setItems((v ?? []) as { n: number }[])}
+        createItem={() => ({ n: 0 })}
+        addLabel="+ Ещё"
+        reorder
+        renderItem={(item, update, index) => (
+          <NumberField label={`Число ${index}`} value={item.n} onChange={(v) => update({ n: v ?? 0 })} />
+        )}
+      />
+    )
+  }
+
+  it('после перестановки поле на прежней позиции показывает число нового хозяина', async () => {
+    render(<ReorderableNumbers />)
+    expect(screen.getByLabelText('Число 0')).toHaveValue('1')
+    expect(screen.getByLabelText('Число 1')).toHaveValue('2')
+    await userEvent.click(screen.getByRole('button', { name: 'Переместить элемент 1 ниже' }))
+    expect(screen.getByLabelText('Число 0')).toHaveValue('2')
+    expect(screen.getByLabelText('Число 1')).toHaveValue('1')
   })
 })
 
