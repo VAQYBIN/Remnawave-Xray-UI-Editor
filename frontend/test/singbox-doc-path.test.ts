@@ -43,6 +43,15 @@ describe('маршрутизация словаря sing-box по дереву',
     expect(descendSingbox('dns', 'servers', {})).toBe('dns-server')
   })
 
+  it('правила DNS в секцию правил маршрута не ведут', () => {
+    // У DNS-правила своё действие и своя цель (server), а outbound, sniff и
+    // hijack-dns из route-rule ему чужие. Секции dns-rule в словаре пока нет —
+    // и до неё здесь молчание, а не подсказка по чужой секции
+    expect(descendSingbox('dns', 'rules', {})).toBeUndefined()
+    expect(sectionAtPath(['dns', 'rules', 0], typeAt({}))).toBeUndefined()
+    expect(sectionAtPath(['dns', 'rules', 0, 'action'], typeAt({}))).toBeUndefined()
+  })
+
   it('незнакомый ключ секции не даёт секции', () => {
     expect(descendSingbox('root', 'brand_new_section', {})).toBeUndefined()
     expect(descendSingbox(undefined, 'route', {})).toBeUndefined()

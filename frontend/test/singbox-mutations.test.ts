@@ -8,6 +8,7 @@ import {
   isValidSingboxConnection,
   moveRule,
   outboundByTag,
+  outboundSlotOf,
   removeAt,
   singboxRefusalText,
   withOutboundAt,
@@ -172,5 +173,17 @@ describe('правки структуры sing-box', () => {
       tag: 'wg-2',
     } as SingboxOutbound)
     expect(renamed.endpoints![0]!.tag).toBe('wg-2')
+  })
+
+  it('список записи называется по имени: форма обязана знать, что правит', () => {
+    // Узел на холсте один, а списка два, и поля у них разные: без ответа на
+    // «где лежит тег» форма выхода предложила бы конечной точке тип vless
+    const withEndpoint = doc(`{
+      "outbounds": [{"type":"direct","tag":"direct"}],
+      "endpoints": [{"type":"wireguard","tag":"wg"}]
+    }`)
+    expect(outboundSlotOf(withEndpoint, 'wg')).toBe('endpoints')
+    expect(outboundSlotOf(withEndpoint, 'direct')).toBe('outbounds')
+    expect(outboundSlotOf(withEndpoint, 'no-such-tag')).toBeNull()
   })
 })

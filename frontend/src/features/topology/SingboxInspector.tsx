@@ -26,6 +26,7 @@ import {
 import {
   moveRule,
   outboundByTag,
+  outboundSlotOf,
   removeAt,
   singboxRefusalText,
   withOutboundAt,
@@ -236,6 +237,11 @@ export function SingboxInspector({ draft, doc, nodeId, onClose }: Props) {
   const ruleIndex = kind === 'rule' ? Number(name) : -1
   const ruleCount = rulesOf(doc).length
   const outbound = kind === 'out' || kind === 'group' ? outboundByTag(doc, name) : undefined
+  // Узел `out:<tag>` рисуется по ОБОИМ спискам, а поля у них разные: типы
+  // outbound'а конечной точке ядро не примет, а «Сервер» и «Порт сервера» у неё
+  // лежат в пирах. Отличить их можно только по списку — в самой записи признака
+  // нет
+  const isEndpoint = outbound !== undefined && outboundSlotOf(doc, name) === 'endpoints'
 
   function refuse(text: string) {
     setNote({ nodeId: shownId, text })
@@ -387,6 +393,7 @@ export function SingboxInspector({ draft, doc, nodeId, onClose }: Props) {
                 key={shownId}
                 value={outbound}
                 knownTags={outboundTagsOf(doc)}
+                isEndpoint={isEndpoint}
                 onChange={changeOutbound}
               />
             ))}

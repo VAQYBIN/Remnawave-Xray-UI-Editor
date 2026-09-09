@@ -32,10 +32,14 @@ const NEUTRAL_TYPES = new Set(['direct', ...GROUP_OUTBOUND_TYPES])
  * само присутствие такого выхода не мешает сохранить документ — мешает оно
  * только `sing-box check` на актуальном бинаре, и об этом сказано словами, а не
  * молчаливым отказом сохранять.
+ *
+ * Значение — чем заменить. Карта экспортируется: тот же факт называет форма
+ * выхода под селектом типа, и второй список рядом с этим разошёлся бы с первым
+ * на первом же удалённом ядром типе.
  */
-const LEGACY_TYPES: Record<string, string> = {
-  block: 'вместо него action: reject в правиле',
-  dns: 'вместо него action: hijack-dns в правиле',
+export const REMOVED_OUTBOUND_TYPES: Record<string, string> = {
+  block: 'action: reject',
+  dns: 'action: hijack-dns',
 }
 
 function tagsOf(doc: SingboxDoc): Set<string> {
@@ -116,12 +120,12 @@ export function validateSingbox(doc: SingboxDoc): ValidationIssue[] {
       seen.add(tag)
     }
 
-    const legacy = LEGACY_TYPES[outbound.type]
-    if (legacy !== undefined) {
+    const replacement = REMOVED_OUTBOUND_TYPES[outbound.type]
+    if (replacement !== undefined) {
       issues.push(
         issue(
           ['outbounds', index, 'type'],
-          `Выход типа ${outbound.type} ядро 1.13 не знает: ${legacy}`,
+          `Выход типа ${outbound.type} ядро 1.13 не знает: вместо него ${replacement} в правиле`,
           'warning',
         ),
       )

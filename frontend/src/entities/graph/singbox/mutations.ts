@@ -101,6 +101,17 @@ function findOutboundSlot(
   return found < 0 ? null : { key: 'endpoints', at: found }
 }
 
+/**
+ * Тот же ответ наружу, но без индекса: инспектору нужен ВИД записи, а не её
+ * позиция. Поля у списков разные — у конечной точки нет ни `server`, ни типов
+ * outbound'а, — и форма, не знающая, что правит, записала бы в `endpoints`
+ * `type: vless`. Позицию наружу не отдаём намеренно: собирать документ по
+ * индексу за пределами этого файла означало бы завести второе место сборки.
+ */
+export function outboundSlotOf(doc: SingboxDoc, tag: string): 'outbounds' | 'endpoints' | null {
+  return findOutboundSlot(doc, tag)?.key ?? null
+}
+
 /** Имя узла-цели по его id: и группа, и выход адресуются одним и тем же тегом */
 function targetTag(id: string): string | null {
   const to = split(id)

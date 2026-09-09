@@ -48,7 +48,12 @@ export function descendSingbox(
   // для них была бы копией этой и разошлась бы с оригиналом на первом же поле
   if (section === 'route-rule' && key === 'rules') return 'route-rule'
   if (section === 'dns' && key === 'servers') return 'dns-server'
-  if (section === 'dns' && key === 'rules') return 'route-rule'
+  // `dns.rules` в `route-rule` НЕ ведёт, хотя условия у двух видов правил общие.
+  // Различается всё остальное: цель у DNS-правила — `server`, а не `outbound`,
+  // и действия свои (route, route-options, reject, predefined) — `hijack-dns`,
+  // `sniff` и `resolve` из маршрута ему чужие. Секции `dns-rule` в словаре пока
+  // нет: она придёт вместе с полной схемой DNS, а до тех пор здесь молчание —
+  // выдуманное описание читается как знание.
   return undefined
 }
 

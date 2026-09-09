@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SingboxInspector } from '../src/features/topology/SingboxInspector'
 import { parseSingbox } from '../src/entities/singbox/parse'
 import type { SingboxDraft } from '../src/features/editor/useSingboxDraft'
+import { optionLabels, selectedValue, singboxFixture } from './helpers'
 
 const DOC = parseSingbox(`{
   "inbounds": [{"type":"tun","tag":"tun-in"}],
@@ -35,6 +36,42 @@ describe('инспектор sing-box', () => {
 
     rerender(<SingboxInspector draft={makeDraft('inbound:tun-in')} doc={DOC} nodeId="inbound:tun-in" />)
     expect(screen.getByLabelText('Тег')).toHaveValue('tun-in')
+  })
+
+  it('живой шаблон с удалённым типом открывается без потери', async () => {
+    // legacy.json из каталога: выход type: block. Словарь такой тип больше не
+    // предлагает, но документ уже написан — и открыть его надо как есть,
+    // объяснив замену, а не подменив тип первым вариантом списка
+    const doc = parseSingbox(singboxFixture('legacy')).doc!
+    render(<SingboxInspector draft={makeDraft('out:block')} doc={doc} nodeId="out:block" />)
+    expect(selectedValue('Тип')).toBe('block')
+    expect(await optionLabels('Тип')).toContain('block')
+    expect(screen.getByText(/удал[её]н.*1\.13/i)).toBeInTheDocument()
+  })
+
+  it('карточка конечной точки не предлагает полей обычного выхода', async () => {
+    // Узел `out:<tag>` рисуется и по endpoints: не различи инспектор список,
+    // селект типа записал бы в endpoints тип outbound'а (vless), а поля
+    // «Сервер»/«Порт сервера» предложили бы править то, чего у wireguard нет
+    const doc = parseSingbox(`{
+      "outbounds": [{"type":"direct","tag":"direct"}],
+      "endpoints": [{"type":"wireguard","tag":"wg","address":["10.0.0.2/32"]}]
+    }`).doc!
+    render(<SingboxInspector draft={makeDraft('out:wg')} doc={doc} nodeId="out:wg" />)
+    expect(screen.getByText(/конечная точка/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Сервер')).toBeNull()
+    expect(await optionLabels('Тип')).not.toContain('vless')
+  })
+
+  it('обычный выход правится как раньше', async () => {
+    const doc = parseSingbox(`{
+      "outbounds": [{"type":"direct","tag":"direct"}],
+      "endpoints": [{"type":"wireguard","tag":"wg"}]
+    }`).doc!
+    render(<SingboxInspector draft={makeDraft('out:direct')} doc={doc} nodeId="out:direct" />)
+    expect(screen.getByLabelText('Сервер')).toBeInTheDocument()
+    expect(screen.queryByText(/конечная точка/i)).toBeNull()
+    expect(await optionLabels('Тип')).toContain('vless')
   })
 
   it('узел подстановки показывает справку, а не форму', () => {

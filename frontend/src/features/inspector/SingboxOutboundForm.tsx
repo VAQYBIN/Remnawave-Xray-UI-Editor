@@ -1,9 +1,17 @@
-// Форма выхода sing-box: одна на сервер и на группу — их разводит поле `type`.
+// Форма выхода sing-box: одна на сервер, на группу и на конечную точку. Первых
+// двух разводит поле `type`, третью — проп `isEndpoint`: тип у неё свой, и по
+// документу его не отличить — знает это только СПИСОК, в котором лежит запись.
 //
 // Правка идёт по модели: копия, мутация копии, `onChange(next)` — как у
 // `RuleForm` в редакторе Xray.
 
-import { fieldFor, GROUP_OUTBOUND_TYPES, panelFillsGroup, type SingboxOutbound } from '../../entities/singbox'
+import {
+  fieldFor,
+  GROUP_OUTBOUND_TYPES,
+  panelFillsGroup,
+  REMOVED_OUTBOUND_TYPES,
+  type SingboxOutbound,
+} from '../../entities/singbox'
 import { nestedFields } from '../../entities/singbox/docPath'
 import { Button, TextInput, type SelectOption } from '../../shared/ui'
 import { Field, NumberField, SelectField, StringListField, TextField } from './fields'
@@ -18,10 +26,33 @@ const SHOWN_SERVER = ['tag', 'type', 'server', 'server_port']
 /** Ключ панели описан в словаре — второй текст про него разошёлся бы с первым */
 const PANEL_KEY_DOC = nestedFields('group', 'remnawave').find((f) => f.key === 'includeProxies')?.doc
 
+/**
+ * Типы записей списка `endpoints`. Секции в словаре у них пока нет — она придёт
+ * вместе с полной формой конечной точки; здесь важно другое: типы outbound'а
+ * (`vless`, `direct`, …) в этот список ядру не годятся вовсе, и предложить их
+ * значит дать собрать документ, который ядро не примет.
+ */
+const ENDPOINT_TYPES = ['wireguard', 'tailscale']
+
+/**
+ * Типы, удалённые из ядра в 1.13. В словаре их больше нет (см. `docSchema.ts`),
+ * но в уже написанных шаблонах они стоят: текст объясняет, чем заменить, — иначе
+ * пользователь видел бы выбранным значение, которого ни в одном списке нет.
+ * Чем именно заменить, знает `validate.ts` — тот же факт он пишет в диагностику.
+ */
+function removedTypeHint(type: string): string | undefined {
+  const replacement = REMOVED_OUTBOUND_TYPES[type]
+  return replacement === undefined
+    ? undefined
+    : `Тип ${type} удалён в sing-box 1.13. Замена — правило с ${replacement}.`
+}
+
 /** Варианты словаря плюс текущий тип, если словарь его не знает: выбор в форме
  *  не имеет права молча заменить тип чужого шаблона первым из списка */
-function typeOptions(current: string): SelectOption[] {
-  const options = (fieldFor('outbound', 'type')?.enum ?? []).map((e) => ({ value: e.value, label: e.value }))
+function typeOptions(current: string, isEndpoint: boolean): SelectOption[] {
+  const options = isEndpoint
+    ? ENDPOINT_TYPES.map((value) => ({ value, label: value }))
+    : (fieldFor('outbound', 'type')?.enum ?? []).map((e) => ({ value: e.value, label: e.value }))
   if (current !== '' && !options.some((o) => o.value === current)) {
     return [{ value: current, label: current }, ...options]
   }
@@ -31,14 +62,20 @@ function typeOptions(current: string): SelectOption[] {
 export function SingboxOutboundForm({
   value,
   knownTags,
+  isEndpoint = false,
   onChange,
 }: {
   value: SingboxOutbound
   /** Теги выходов документа — подсказка для списка участников группы */
   knownTags: string[]
+  /** Запись лежит в `endpoints`, а не в `outbounds`: типы и поля у неё свои */
+  isEndpoint?: boolean
   onChange: (next: SingboxOutbound) => void
 }) {
-  const isGroup = GROUP_OUTBOUND_TYPES.has(value.type)
+  // Конечная точка группой не бывает: `selector` и `urltest` живут только в
+  // `outbounds`. Проверка списка идёт первой, иначе запись с чужим типом
+  // показала бы форму группы вместо справки о том, где её править
+  const isGroup = !isEndpoint && GROUP_OUTBOUND_TYPES.has(value.type)
   const panelFills = panelFillsGroup(value)
 
   function patch(mut: (draft: SingboxOutbound) => void) {
@@ -57,11 +94,20 @@ export function SingboxOutboundForm({
       />
       <SelectField
         label="Тип"
+        hint={removedTypeHint(value.type)}
         value={value.type}
-        options={typeOptions(value.type)}
+        options={typeOptions(value.type, isEndpoint)}
         onChange={(v) => patch((n) => { n.type = v })}
       />
-      {isGroup ? (
+      {isEndpoint ? (
+        // Полей конечной точки форма пока не знает: ключи, адреса и пиры лежат
+        // в своей схеме, а показать вместо них «Сервер» и «Порт сервера» значило
+        // бы предложить править то, чего у записи нет
+        <p className="muted">
+          Это конечная точка (endpoints): её поля — ключи, адреса и пиры — пока правятся на вкладке
+          JSON узла.
+        </p>
+      ) : isGroup ? (
         <>
           {panelFills ? (
             // Список выходов группы — только на чтение, пока его заполняет

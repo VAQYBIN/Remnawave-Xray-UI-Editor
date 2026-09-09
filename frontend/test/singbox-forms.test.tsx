@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SingboxExtraFields } from '../src/features/inspector/SingboxExtraFields'
 import { SingboxOutboundForm } from '../src/features/inspector/SingboxOutboundForm'
 import { SingboxRuleForm } from '../src/features/inspector/SingboxRuleForm'
-import { selectOption } from './helpers'
+import { optionLabels, selectOption, selectedValue } from './helpers'
 
 describe('форма выхода sing-box', () => {
   it('у группы список участников показан на чтение, пока его заполняет панель', () => {
@@ -62,6 +62,50 @@ describe('форма выхода sing-box', () => {
     )
     expect(screen.getByLabelText('Сервер')).toHaveValue('1.2.3.4')
     expect(screen.queryByText(/заполн\S+ панел/i)).toBeNull()
+  })
+
+  it('удалённый в 1.13 тип остаётся выбранным и объяснён', async () => {
+    // Словарь такой тип больше не предлагает, но в чужом шаблоне он уже стоит:
+    // выпади он из списка — открытие любого другого варианта показало бы выбор,
+    // которого в списке нет, а сам тип потерялся бы при первой же правке
+    render(
+      <SingboxOutboundForm
+        value={{ type: 'block', tag: 'block' }}
+        knownTags={[]}
+        onChange={vi.fn()}
+      />,
+    )
+    expect(selectedValue('Тип')).toBe('block')
+    expect(await optionLabels('Тип')).toContain('block')
+    expect(screen.getByText(/удал[её]н.*1\.13/i)).toBeInTheDocument()
+    expect(screen.getByText(/reject/)).toBeInTheDocument()
+  })
+
+  it('у живого типа подсказки про удаление нет', () => {
+    render(
+      <SingboxOutboundForm value={{ type: 'direct', tag: 'direct' }} knownTags={[]} onChange={vi.fn()} />,
+    )
+    expect(screen.queryByText(/удал[её]н.*1\.13/i)).toBeNull()
+  })
+
+  it('у конечной точки свои типы, а полей сервера нет', async () => {
+    // Запись лежит в endpoints: адрес там задаётся пирами, а тип vless ядро в
+    // этом списке не примет вовсе
+    render(
+      <SingboxOutboundForm
+        value={{ type: 'wireguard', tag: 'wg' }}
+        knownTags={[]}
+        isEndpoint
+        onChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/конечная точка/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Сервер')).toBeNull()
+    expect(screen.queryByLabelText('Порт сервера')).toBeNull()
+    // Тег правится по-прежнему: узел на холсте адресуется именно им
+    expect(screen.getByLabelText('Тег')).toHaveValue('wg')
+    const options = await optionLabels('Тип')
+    expect(options).toEqual(['wireguard', 'tailscale'])
   })
 })
 

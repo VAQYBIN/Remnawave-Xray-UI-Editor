@@ -31,6 +31,16 @@ describe('словарь sing-box', () => {
     expect(missing, `не описаны корневые ключи: ${missing.join(', ')}`).toEqual([])
   })
 
+  it('тип выхода не предлагает то, чего ядро 1.13 уже не знает', () => {
+    // block и dns удалены из ядра в 1.13, а панель нацелена именно на 1.13.x:
+    // предложи их словарь — пользователь собрал бы шаблон, который ядро не примет
+    const values = (fieldFor('outbound', 'type')?.enum ?? []).map((e) => e.value)
+    expect(values).not.toContain('block')
+    expect(values).not.toContain('dns')
+    // Живые типы из списка никуда не делись
+    expect(values).toEqual(expect.arrayContaining(['direct', 'selector', 'vless']))
+  })
+
   it('значения enum не пустые', () => {
     for (const fields of Object.values(SINGBOX_SECTIONS)) {
       for (const field of fields) {

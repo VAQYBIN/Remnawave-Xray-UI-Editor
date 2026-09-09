@@ -111,6 +111,16 @@ describe('подсказки sing-box', () => {
   it('там, где словарь молчит, подсказок нет', () => {
     expect(labels('{"unknown_section":{"|"}}')).toEqual([])
   })
+
+  it('внутри правила DNS подсказок нет: ключи маршрута ему чужие', () => {
+    // Секции dns-rule в словаре пока нет, а ключи route-rule (outbound,
+    // hijack-dns, sniff) у DNS-правила не работают: подсказка ими читалась бы
+    // как знание о документе, которого у редактора нет
+    const got = labels('{"dns":{"rules":[{"|"}]}}')
+    expect(got).not.toContain('outbound')
+    expect(got).not.toContain('hijack-dns')
+    expect(got).toEqual([])
+  })
 })
 
 describe('наведение sing-box', () => {
