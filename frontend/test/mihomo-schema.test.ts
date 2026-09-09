@@ -78,12 +78,22 @@ describe('схема Mihomo: корень и помощники', () => {
   })
 
   it('fieldAt: промах на неизвестном ключе остаётся вне схемы, а не описанием родителя', () => {
-    const json = { dns: { enable: true }, proxies: [{ name: 'a', type: 'direct' }], 'proxy-providers': { p1: { type: 'http' } } }
+    const json = {
+      dns: { enable: true },
+      proxies: [{ name: 'a', type: 'direct' }],
+      'proxy-providers': { p1: { type: 'http' } },
+      'rule-providers': { r1: { type: 'http', behavior: 'domain' } },
+    }
     expect(mihomoFieldAt(['dns', 'xxx'], json)).toBeUndefined()
     expect(mihomoFieldAt(['proxies', 0, 'xxx'], json)).toBeUndefined()
     expect(mihomoFieldAt(['proxies', 0], json)?.key).toBe('proxies')
     expect(mihomoFieldAt(['proxy-providers', 'p1'], json)?.kind).toBe('map')
     expect(mihomoFieldAt(['proxy-providers', 'p1', 'url'], json)?.key).toBe('url')
+    // Неизвестный ключ ВНУТРИ записи map — тоже вне схемы, а не запись целиком:
+    // родительский путь здесь кончается на имя записи ('p1'/'r1'), а не на
+    // ключе самого map ('proxy-providers'/'rule-providers')
+    expect(mihomoFieldAt(['proxy-providers', 'p1', 'unknown'], json)).toBeUndefined()
+    expect(mihomoFieldAt(['rule-providers', 'r1', 'unknown'], json)).toBeUndefined()
   })
 
   it('у каждого deprecated есть замена, у каждого ref — известный вид', () => {

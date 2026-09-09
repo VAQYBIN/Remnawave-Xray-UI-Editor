@@ -91,10 +91,14 @@ export function fieldsAt(root: FieldSchema[], path: SchemaPath, doc: unknown): F
 /**
  * Поле, описывающее значение по пути. Для индекса списка — поле самого
  * списка: у элемента отдельного описания нет, оно в `item`. Для имени записи
- * `map` — поле самого `map`, но ТОЛЬКО когда родительский путь и в самом деле
- * указывает на такое отображение: иначе промах — неизвестный ключ известного
- * объекта (`dns.xxx`), и он обязан остаться вне схемы (`undefined`), а не
- * тихо получить описание объекта-родителя.
+ * `map` — поле самого `map`, но ТОЛЬКО когда `last` — это имя записи, стоящее
+ * СРАЗУ под самим полем `map` (родительский путь оканчивается на ключ этого
+ * `map`, а не глубже него): иначе промах — неизвестный ключ известного
+ * объекта, и он обязан остаться вне схемы (`undefined`), а не получить
+ * описание чужого контейнера. Различие важно на глубине: неизвестный ключ
+ * СНАРУЖИ отображения (`dns.xxx`) и неизвестный ключ ВНУТРИ его записи
+ * (`proxy-providers.p1.xxx`) — оба промахи мимо схемы, и оба должны остаться
+ * `undefined`, а не тихо получить описание какого-то контейнера-предка.
  */
 export function fieldAt(root: FieldSchema[], path: SchemaPath, doc: unknown): FieldSchema | undefined {
   if (path.length === 0) return undefined
@@ -107,10 +111,15 @@ export function fieldAt(root: FieldSchema[], path: SchemaPath, doc: unknown): Fi
   const hit = fieldsAt(root, parentPath, doc)?.find((f) => f.key === last)
   if (hit !== undefined) return hit
   if (parentPath.length === 0) return undefined
-  // Промах на известном пути: либо неизвестный ключ (вне схемы), либо имя
-  // записи `map` — тогда описание есть у самого поля-контейнера родителя.
-  const parentField = fieldAt(root, parentPath, doc)
-  return parentField?.kind === 'map' && parentField.fields !== undefined ? parentField : undefined
+  // Промах на известном пути: описание есть у поля-контейнера родителя ТОЛЬКО
+  // когда родительский путь и есть путь до самого этого `map` (его последний
+  // сегмент — ключ контейнера), то есть `last` — имя записи прямо под ним.
+  // Промах глубже (`['proxy-providers', 'p1', 'unknown']` — родительский путь
+  // кончается на 'p1', а не на 'proxy-providers') — обычный неизвестный ключ
+  // записи, а не имя новой записи map.
+  const container = fieldAt(root, parentPath, doc)
+  const isMapEntryName = container?.kind === 'map' && container.fields !== undefined && parentPath[parentPath.length - 1] === container.key
+  return isMapEntryName ? container : undefined
 }
 
 /** Ключи документа, которых нет среди полей (видимых или скрытых условием) */
