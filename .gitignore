@@ -5,12 +5,32 @@ data/
 frontend/test-results/
 frontend/playwright-report/
 
-# Локальные инструменты разработки
+# Локальные инструкции, настройки и скиллы ИИ-агентов
+AGENTS.md
+AGENTS.override.md
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+SKILL.md
+.agents/
+.codex/
 .claude/
+.cursor/
+.cursorrules
+.windsurf/
+.windsurfrules
+.aider*
+.mcp.json
+.github/copilot-instructions.md
+.github/agents/
+.github/instructions/
+.github/prompts/
 .impeccable/
-frontend/.impeccable/
 .superpowers/
 .codegraph/
+
+# Внутренние спецификации и планы агентов
+docs/superpowers/
 
 # Спека API панели — справочник, качается отдельно
 docs/Remnawave API/
