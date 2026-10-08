@@ -81,7 +81,10 @@ describe('describeTokenWarning', () => {
 
 describe('GET /api/panel/token', () => {
   it('отдаёт срок действия токена, не раскрывая сам токен', async () => {
-    const config = makeTestConfig({ remnawaveToken: makeToken({ uuid: 'ff5f', exp: inDays(30) }) })
+    // Ручка считает срок от настоящего «сейчас», а не от NOW: от фиксированной даты токен
+    // однажды истёк бы, и тест покраснел бы без единой правки кода.
+    const exp = Math.floor(Date.now() / 1000) + 30 * 86_400
+    const config = makeTestConfig({ remnawaveToken: makeToken({ uuid: 'ff5f', exp }) })
     const app = await buildServer(config, { remnawave: makeStubRemnawave() })
     const cookie = await loginCookie(app)
 
