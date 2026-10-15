@@ -6,6 +6,8 @@ frontend/test-results/
 frontend/playwright-report/
 
 # Локальные инструменты разработки
+.idea/
+*.iml
 .claude/
 .impeccable/
 frontend/.impeccable/

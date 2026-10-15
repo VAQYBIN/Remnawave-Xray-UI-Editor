@@ -38,6 +38,56 @@ const profile = {
 }
 
 describe('RemnawaveClient', () => {
+  it.each([
+    { cookie: undefined },
+    { cookie: 'access=secret' },
+  ])('передаёт защиту proxy во всех запросах: %j', async (auth) => {
+    const calls: FakeCall[] = []
+    const client = new RemnawaveClient({
+      baseUrl: 'https://panel.test', token: 'panel-token', ...auth,
+      fetchImpl: fakeFetch(() => ({ status: 200, body: { response: {
+        ...profile, configProfiles: [], internalSquads: [], inbounds: [],
+      } } }), calls),
+    })
+    await client.listProfiles()
+    await client.getProfile('p1')
+    await client.createProfile('test', {})
+    await client.updateProfile({ uuid: 'p1', config: {} })
+    await client.deleteProfile('p1')
+    await client.getComputedConfig('p1')
+    await client.getNodes()
+    await client.getSquads()
+    await client.getProfileInbounds('p1')
+    expect(calls).toHaveLength(9)
+    for (const call of calls) {
+      const headers = new Headers(call.init.headers)
+      expect(headers.get('authorization')).toBe('Bearer panel-token')
+      expect(headers.get('cookie')).toBe(auth.cookie ?? null)
+      expect(call.init.redirect).toBe('manual')
+      expect(call.url).not.toContain('secret')
+    }
+  })
+
+  it.each([302, 401, 403, 200])('объясняет ответ proxy %s без выдачи HTML и секретов', async (status) => {
+    const calls: FakeCall[] = []
+    const client = new RemnawaveClient({
+      baseUrl: 'https://panel.test', token: 'panel-token', cookie: 'access=cookie-secret',
+      fetchImpl: (async (url, init) => {
+        calls.push({ url: String(url), init: init ?? {} })
+        return new Response('<html>cookie-secret</html>', {
+          status, headers: { location: 'https://login.test', 'content-type': 'text/html' },
+        })
+      }) as typeof fetch,
+    })
+    const err = await client.listProfiles().catch((e) => e)
+    expect(err).toBeInstanceOf(RemnawaveError)
+    expect(err.status).toBe(502)
+    expect(err.hint).toMatch(/REMNAWAVE_COOKIE/)
+    expect(JSON.stringify(err)).not.toContain('cookie-secret')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.init.redirect).toBe('manual')
+  })
+
   it('listProfiles шлёт Bearer-токен и разворачивает response', async () => {
     const calls: FakeCall[] = []
     const client = new RemnawaveClient({
@@ -194,8 +244,8 @@ describe('RemnawaveClient', () => {
   it('подсказывает про внутренний адрес, когда панель молча рвёт соединение', () => {
     const cause = 'fetch failed ← other side closed (UND_ERR_SOCKET)'
     expect(hintForNetworkError('http://remnawave:3000', cause)).toMatch(/публичный https-адрес/)
-    // По https подсказка неуместна: адрес уже правильный, причина другая
-    expect(hintForNetworkError('https://panel.example.com', cause)).toBeUndefined()
+    // По https соединение может закрывать cookie-защита reverse proxy.
+    expect(hintForNetworkError('https://panel.example.com', cause)).toMatch(/REMNAWAVE_COOKIE/)
     // И на другие сетевые беды тоже — они лечатся иначе
     expect(hintForNetworkError('http://remnawave:3000', 'getaddrinfo ENOTFOUND')).toBeUndefined()
   })

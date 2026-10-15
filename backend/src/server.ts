@@ -65,7 +65,11 @@ export async function buildServer(
   app.decorate(
     'remnawave',
     deps.remnawave ??
-      new RemnawaveClient({ baseUrl: config.remnawaveUrl, token: config.remnawaveToken }),
+      new RemnawaveClient({
+        baseUrl: config.remnawaveUrl,
+        token: config.remnawaveToken,
+        cookie: config.remnawaveCookie,
+      }),
   )
   app.decorate('backups', deps.backups ?? new BackupService(config.dataDir))
   app.decorate(
