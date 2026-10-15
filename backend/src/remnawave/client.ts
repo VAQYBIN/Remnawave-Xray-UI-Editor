@@ -24,7 +24,9 @@ export class RemnawaveError extends Error {
  */
 export function hintForNetworkError(baseUrl: string, cause: string): string | undefined {
   const silentClose = /other side closed|UND_ERR_SOCKET|ECONNRESET|socket hang up/i.test(cause)
-  if (!silentClose || !baseUrl.startsWith('http://')) return undefined
+  if (!silentClose) return undefined
+  if (baseUrl.startsWith('https://')) return PROXY_AUTH_HINT
+  if (!baseUrl.startsWith('http://')) return undefined
   return (
     'Похоже, REMNAWAVE_URL указывает на внутренний адрес панели. Панель отвечает только ' +
     'через свой reverse proxy, а на прямое обращение молча закрывает соединение. ' +
@@ -43,6 +45,10 @@ export const PANEL_TOKEN_HINT =
   'Панель не приняла REMNAWAVE_TOKEN: срок его действия истёк (токен выдаётся на 30 дней) ' +
   'либо он отозван. Выпустите новый API-токен в панели и пропишите его в .env, ' +
   'затем перезапустите редактор.'
+
+export const PROXY_AUTH_HINT =
+  'Если панель защищена cookie на reverse proxy, проверьте REMNAWAVE_COOKIE (имя=значение из ссылки входа). ' +
+  'После изменения .env пересоздайте контейнер редактора.'
 
 /**
  * Разворачивает цепочку `cause`. `fetch` в Node на любую сетевую беду отвечает
@@ -91,6 +97,7 @@ export function describePanelError(json: unknown): string | undefined {
 interface ClientOptions {
   baseUrl: string
   token: string
+  cookie?: string
   fetchImpl?: typeof fetch
 }
 
@@ -103,9 +110,12 @@ export class RemnawaveClient implements RemnawavePort {
     try {
       res = await doFetch(`${this.opts.baseUrl}${path}`, {
         method,
+        // Не пересылаем секреты на страницу входа или другой адрес из Location.
+        redirect: 'manual',
         headers: {
           authorization: `Bearer ${this.opts.token}`,
           'content-type': 'application/json',
+          ...(this.opts.cookie ? { cookie: this.opts.cookie } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       })
@@ -118,6 +128,9 @@ export class RemnawaveClient implements RemnawavePort {
         hintForNetworkError(this.opts.baseUrl, cause),
       )
     }
+    if (res.status >= 300 && res.status < 400) {
+      throw new RemnawaveError(502, 'Панель перенаправила API-запрос', undefined, PROXY_AUTH_HINT)
+    }
     const text = await res.text()
     let json: unknown
     try {
@@ -128,9 +141,12 @@ export class RemnawaveClient implements RemnawavePort {
     if (!res.ok) {
       const message = describePanelError(json) ?? `Панель ответила ${res.status}`
       if (res.status === 401 || res.status === 403) {
-        throw new RemnawaveError(502, 'Панель Remnawave отклонила токен', message, PANEL_TOKEN_HINT)
+        throw new RemnawaveError(502, 'Панель Remnawave отклонила токен', message, `${PANEL_TOKEN_HINT} ${PROXY_AUTH_HINT}`)
       }
       throw new RemnawaveError(res.status, message, json ?? text)
+    }
+    if (json === undefined && res.status !== 204) {
+      throw new RemnawaveError(502, 'Панель вернула ответ вместо JSON API', undefined, PROXY_AUTH_HINT)
     }
     return json as T
   }

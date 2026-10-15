@@ -239,6 +239,19 @@ nginx — иначе он снова не найдёт хост и не стар
 > Указывайте тот же адрес, по которому открываете панель в браузере. Лишний хоп проходит
 > внутри той же машины и ничего не стоит.
 
+### Панель с защитой
+
+Для установки через [eGamesAPI/remnawave-reverse-proxy](https://github.com/eGamesAPI/remnawave-reverse-proxy)
+с cookie-защитой скопируйте часть после `?` из ссылки входа в параметр `REMNAWAVE_COOKIE` в `.env` редактора.
+
+Например, для ссылки `https://panel.example.com/auth/login?access=secret`:
+
+```env
+REMNAWAVE_COOKIE='access=secret'
+```
+
+Без cookie-защиты оставьте параметр пустым. После изменения выполните `docker compose up -d --force-recreate`.
+
 ## 🔎 Диагностика конфига
 
 ### Трассировщик маршрута

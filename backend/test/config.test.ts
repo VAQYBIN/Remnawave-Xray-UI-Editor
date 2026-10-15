@@ -10,6 +10,29 @@ const validEnv = {
 }
 
 describe('loadConfig', () => {
+  it('читает cookie, пустое значение отключает её передачу', () => {
+    const config = loadConfig({ ...validEnv,
+      REMNAWAVE_COOKIE: 'access=secret',
+    })
+    expect(config.remnawaveCookie).toBe('access=secret')
+    const empty = loadConfig({ ...validEnv, REMNAWAVE_COOKIE: '' })
+    expect(empty.remnawaveCookie).toBeUndefined()
+  })
+
+  it.each([
+    ['REMNAWAVE_COOKIE', 'https://panel.test/auth/login?access=secret'],
+    ['REMNAWAVE_COOKIE', 'access=secret; Path=/'],
+    ['REMNAWAVE_COOKIE', 'access=secret\r\nX-Injected: yes'],
+  ])('отклоняет некорректный %s без утечки значения', (key, value) => {
+    try {
+      loadConfig({ ...validEnv, [key]: value })
+      expect.fail('Ожидалась ошибка конфигурации')
+    } catch (err) {
+      expect(String(err)).toContain(key)
+      expect(String(err)).not.toContain('secret')
+    }
+  })
+
   it('парсит валидное окружение и подставляет дефолты', () => {
     const config = loadConfig(validEnv)
     expect(config.remnawaveUrl).toBe('https://panel.example.com') // без хвостового слэша

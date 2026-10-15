@@ -5,6 +5,10 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   REMNAWAVE_URL: z.string().url(),
   REMNAWAVE_TOKEN: z.string().min(1),
+  REMNAWAVE_COOKIE: z.string().trim().regex(/^[\x20-\x7e]*$/, 'Ожидается cookie без переводов строк').refine(
+    (v) => v === '' || /^[!#$%&'*+.^_`|~0-9A-Za-z-]+=[\x21-\x3a\x3c-\x7e]+$/.test(v),
+    'Ожидается одна пара имя=значение из ссылки входа',
+  ).optional(),
   APP_PASSWORD: z.string().min(8),
   SESSION_SECRET: z.string().min(32),
   DATA_DIR: z.string().default('./data'),
@@ -25,6 +29,7 @@ export interface AppConfig {
   port: number
   remnawaveUrl: string
   remnawaveToken: string
+  remnawaveCookie?: string
   appPassword: string
   sessionSecret: string
   dataDir: string
@@ -67,6 +72,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: e.PORT,
     remnawaveUrl: e.REMNAWAVE_URL.replace(/\/+$/, ''),
     remnawaveToken: e.REMNAWAVE_TOKEN,
+    remnawaveCookie: e.REMNAWAVE_COOKIE || undefined,
     appPassword: toPasswordHash(e.APP_PASSWORD),
     sessionSecret: e.SESSION_SECRET,
     dataDir: e.DATA_DIR,
